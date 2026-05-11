@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="140" viewBox="0 0 880 140" role="img" aria-label="Magic Creater World banner">
+  <defs>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0f766e"/>
+      <stop offset="55%" stop-color="#3d5a80"/>
+      <stop offset="100%" stop-color="#1e293b"/>
+    </linearGradient>
+  </defs>
+  <rect width="880" height="140" rx="16" fill="url(#bg)"/>
+  <circle cx="720" cy="35" r="48" fill="#ffffff" opacity="0.06"/>
+  <circle cx="160" cy="110" r="72" fill="#ffffff" opacity="0.05"/>
+  <text x="440" y="58" text-anchor="middle" fill="#ffffff" font-family="system-ui, Segoe UI, sans-serif" font-size="34" font-weight="700">Magic Creater World</text>
+  <text x="440" y="92" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, Segoe UI, sans-serif" font-size="15" font-weight="500">Worldbuilding workbench ? Dual LLM ? Structured sync ? world.json</text>
+  <text x="440" y="118" text-anchor="middle" fill="#94a3b8" font-family="ui-monospace, monospace" font-size="11">FastAPI ? Static UI ? Markdown export</text>
+</svg>

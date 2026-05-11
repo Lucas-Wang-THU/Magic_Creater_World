@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Magic Creater World — 世界观工作台</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+  </head>
+  <body>
+    <header class="app-header">
+      <div class="brand-wrap">
+        <div class="brand-mark" aria-hidden="true">
+          <span class="ms">auto_stories</span>
+        </div>
+        <div class="brand">Magic Creater World</div>
+      </div>
+      <div class="header-actions">
+        <span class="api-badge" id="apiHint"></span>
+        <label class="hdr-label"
+          ><span class="ms hdr-ic" aria-hidden="true">public</span>世界
+          <select id="worldSelect" aria-label="当前世界"></select>
+        </label>
+        <button type="button" class="ghost btn-ic" id="btnNewWorld">
+          <span class="ms" aria-hidden="true">add_circle</span>新建
+        </button>
+        <span class="status-pill" id="saveStatus"
+          ><span class="ms status-ic" aria-hidden="true">cloud_done</span>已同步</span
+        >
+        <button type="button" class="primary btn-ic" id="btnSaveWorld">
+          <span class="ms" aria-hidden="true">save</span>保存
+        </button>
+      </div>
+    </header>
+
+    <div class="workflow-strip" aria-label="使用步骤">
+      <div class="workflow-inner">
+        <span class="wf-step"
+          ><span class="ms wf-step-ic" aria-hidden="true">rocket_launch</span
+          ><span class="wf-n">1</span>新建或选择世界</span
+        >
+        <span class="wf-arrow ms" aria-hidden="true">arrow_forward</span>
+        <span class="wf-step"
+          ><span class="ms wf-step-ic" aria-hidden="true">edit_note</span
+          ><span class="wf-n">2</span>对话或左侧分区编辑</span
+        >
+        <span class="wf-arrow ms" aria-hidden="true">arrow_forward</span>
+        <span class="wf-step"
+          ><span class="ms wf-step-ic" aria-hidden="true">save_alt</span
+          ><span class="wf-n">3</span>保存写入磁盘</span
+        >
+      </div>
+    </div>
+
+    <div class="layout">
+      <nav class="nav" aria-label="主导航">
+        <div class="nav-label">工作台</div>
+        <button type="button" data-view="chat" class="active" title="与架构师对话">
+          <span class="ms nav-ic" aria-hidden="true">forum</span>对话
+        </button>
+        <div class="nav-label">世界观</div>
+        <button type="button" data-view="geo" title="地貌、气候、资源">
+          <span class="ms nav-ic" aria-hidden="true">travel_explore</span>地理
+        </button>
+        <button type="button" data-view="powers" title="等级与能力体系">
+          <span class="ms nav-ic" aria-hidden="true">bolt</span>力量
+        </button>
+        <button type="button" data-view="items" title="物品品质档位">
+          <span class="ms nav-ic" aria-hidden="true">diamond</span>物品
+        </button>
+        <button type="button" data-view="factions" title="组织与关系">
+          <span class="ms nav-ic" aria-hidden="true">groups</span>派系
+        </button>
+        <button type="button" data-view="history" title="年表与重大事件">
+          <span class="ms nav-ic" aria-hidden="true">timeline</span>历史
+        </button>
+        <div class="nav-label">下游</div>
+        <button type="button" data-view="outlines" title="需先保存世界观">
+          <span class="ms nav-ic" aria-hidden="true">menu_book</span>大纲
+        </button>
+        <div class="nav-label">数据</div>
+        <button type="button" data-view="files" title="JSON / 导出">
+          <span class="ms nav-ic" aria-hidden="true">folder_open</span>文件
+        </button>
+      </nav>
+
+      <main id="mainArea">
+        <div id="emptyState" class="empty-state">
+          <div class="empty-glow" aria-hidden="true"></div>
+          <div class="empty-card">
+            <p class="empty-kicker">第一步</p>
+            <div class="empty-hero-ic" aria-hidden="true"><span class="ms">auto_awesome</span></div>
+            <h2 class="empty-title">创建你的世界观</h2>
+            <p class="empty-desc">用对话快速铺设定，或在导航各模块中手写；各模块顶部可预览关系图与时间轴。</p>
+            <button type="button" class="btn-cta btn-ic" id="btnEmptyCreate">
+              <span class="ms" aria-hidden="true">add_circle</span>立即创建世界
+            </button>
+          </div>
+        </div>
+
+        <section id="view-chat" class="panel active">
+          <div class="card card-elevated">
+            <div class="card-head">
+              <h2><span class="ms h2-ic" aria-hidden="true">forum</span>对话</h2>
+              <span class="card-tag"><span class="ms tag-ic" aria-hidden="true">star</span>核心</span>
+            </div>
+            <p class="muted compact-hint">描述设定 → 助手回复 → 自动填入左侧各页（可关）→ 点「保存」落盘。</p>
+            <div class="row sync-opts">
+              <label class="muted lbl-ic"
+                ><span class="ms lbl-ic-glyph" aria-hidden="true">sync</span
+                ><input type="checkbox" id="autoSyncPanels" checked /> 对话后同步表单</label
+              >
+              <label class="muted lbl-ic"
+                ><span class="ms lbl-ic-glyph" aria-hidden="true">filter_alt</span
+                ><input type="checkbox" id="syncScopeToView" /> 仅同步当前页对应模块（助手若写了多模块会被截断）</label
+              >
+            </div>
+            <p class="muted sync-hint" id="syncHint"></p>
+            <div class="chips" id="promptChips"></div>
+            <div class="messages" id="messages" aria-live="polite"></div>
+            <div id="chatThinking" class="thinking-strip" hidden>
+              <span class="ms thinking-ic" aria-hidden="true">psychology</span>
+              <span class="thinking-label">模型正在思考…</span>
+              <span class="thinking-shimmer" aria-hidden="true"></span>
+            </div>
+            <div class="row">
+              <textarea id="chatInput" placeholder="描述你想补充或修订的设定…"></textarea>
+            </div>
+            <div class="row row-send">
+              <select id="genreMode" aria-label="创作模式">
+                <option value="">模式（可选）</option>
+                <option value="novel">小说</option>
+                <option value="game">游戏</option>
+                <option value="coc">CoC 跑团</option>
+                <option value="dnd">DnD 跑团</option>
+              </select>
+              <label class="muted lbl-ic"
+                ><span class="ms lbl-ic-glyph" aria-hidden="true">description</span
+                ><input type="checkbox" id="includeMd" /> 附带 world.md 上下文</label
+              >
+              <div class="send-wrap">
+                <button type="button" class="primary btn-ic" id="btnSend">
+                  <span class="ms" aria-hidden="true">send</span>发送
+                </button>
+                <span class="kbd-hint" title="在输入框内按下以发送（无需先点按钮）"
+                  ><kbd class="kbd">Ctrl</kbd><span class="kbd-plus">+</span><kbd class="kbd">Enter</kbd
+                  ><span class="kbd-hint-txt">快捷发送</span></span
+                >
+              </div>
+            </div>
+            <p class="muted tiny" id="genreModeHint" style="margin: 6px 0 0"></p>
+          </div>
+        </section>
+
+        <section id="view-geo" class="panel">
+          <div class="card">
+            <h2><span class="ms h2-ic" aria-hidden="true">travel_explore</span>地理</h2>
+            <label class="field-label">世界总览</label>
+            <textarea id="geoSummary" placeholder="总览"></textarea>
+            <div class="subsection-head">
+              <span class="subsection-title">大陆 / 区域</span>
+              <span class="subsection-sub">每一块独立展示与编辑；对话同步会写入 regions</span>
+              <button type="button" class="ghost btn-sm btn-ic" id="btnAddRegion">
+                <span class="ms" aria-hidden="true">add_location_alt</span>添加区域
+              </button>
+            </div>
+            <div id="regionCards" class="entity-cards"></div>
+            <div class="subsection-head" style="margin-top: 16px">
+              <span class="subsection-title">区域关系网络</span>
+              <span class="subsection-sub">由下方各区域的 relations 生成；无关联时为中心辐射示意</span>
+            </div>
+            <div
+              id="geoNetworkHost"
+              class="mermaid-host geo-network-host"
+              role="img"
+              aria-label="地理区域关系网络"
+            ></div>
+            <div class="two-col editor-grid" style="margin-top: 12px">
+              <div>
+                <label class="muted">气候</label>
+                <textarea id="geoClimate"></textarea>
+              </div>
+              <div>
+                <label class="muted">地图备注</label>
+                <textarea id="geoMap"></textarea>
+              </div>
+            </div>
+            <label class="muted">地标（每行一条）</label>
+            <textarea id="geoLandmarks"></textarea>
+            <label class="muted">资源（每行一条）</label>
+            <textarea id="geoResources"></textarea>
+          </div>
+        </section>
+
+        <section id="view-powers" class="panel">
+          <div class="card">
+            <h2><span class="ms h2-ic" aria-hidden="true">bolt</span>超凡力量</h2>
+            <div class="inpanel-viz">
+              <p class="viz-subtitle">各境界：名称、发动能力、限制与范例（卡片预览）</p>
+              <div id="vizPowerTiersRoot" class="viz-modules" aria-label="各力量等级可视化"></div>
+              <p class="viz-subtitle">典型能力条数（全境界对比）</p>
+              <div id="vizPowerBars" class="bar-list bar-list--power"></div>
+            </div>
+            <textarea id="powerSummary" placeholder="体系统览"></textarea>
+            <label class="muted">等级（JSON 数组）</label>
+            <textarea id="powerTiersJson" class="json-editor-compact" spellcheck="false"></textarea>
+          </div>
+        </section>
+
+        <section id="view-items" class="panel">
+          <div class="card">
+            <h2><span class="ms h2-ic" aria-hidden="true">diamond</span>物品品质</h2>
+            <div class="inpanel-viz">
+              <p class="viz-subtitle">各档位：名称、含义（稀有叙事）、范例（卡片预览）</p>
+              <div id="vizItemGradesRoot" class="viz-modules" aria-label="各物品档位可视化"></div>
+            </div>
+            <textarea id="itemSummary"></textarea>
+            <label class="muted">档位（JSON 数组）</label>
+            <textarea id="itemGradesJson" class="json-editor-compact" spellcheck="false"></textarea>
+          </div>
+        </section>
+
+        <section id="view-factions" class="panel">
+          <div class="card">
+            <h2><span class="ms h2-ic" aria-hidden="true">groups</span>派系</h2>
+            <div class="inpanel-viz">
+              <p class="viz-subtitle">派系总览（可读预览）</p>
+              <div id="factionGlobalBrief" class="faction-global-brief" aria-live="polite"></div>
+              <p class="viz-subtitle">全局关系图：滚轮缩放，左键拖拽平移，「重置」恢复位置与比例</p>
+              <div class="mermaid-zoom-wrap faction-global-zoom" data-mermaid-zoom>
+                <div class="mermaid-zoom-toolbar" role="toolbar" aria-label="关系图缩放">
+                  <button type="button" class="ghost btn-sm mzoom-out" title="缩小">−</button>
+                  <span class="mzoom-pct muted tiny">100%</span>
+                  <button type="button" class="ghost btn-sm mzoom-in" title="放大">+</button>
+                  <button type="button" class="ghost btn-sm mzoom-reset" title="重置缩放与平移">重置</button>
+                </div>
+                <div class="mermaid-zoom-viewport">
+                  <div class="mermaid-zoom-surface">
+                    <div
+                      id="vizFactionHost"
+                      class="mermaid-host faction-global-host"
+                      role="img"
+                      aria-label="派系关系总图"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <label class="field-label">派系总览（编辑）</label>
+            <textarea id="factionSummary" placeholder="全局派系氛围、阵营对立与共同历史…"></textarea>
+            <div class="subsection-head">
+              <span class="subsection-title">各派系</span>
+              <span class="subsection-sub">每派系简介预览；关系图滚轮缩放、左键拖拽平移；底部 JSON 默认折叠</span>
+              <button type="button" class="ghost btn-sm btn-ic" id="btnAddFaction">
+                <span class="ms" aria-hidden="true">group_add</span>添加派系
+              </button>
+            </div>
+            <div id="factionCards" class="entity-cards"></div>
+            <details class="adv-fold adv-fold--json">
+              <summary
+                ><span class="ms sum-ic" aria-hidden="true">code</span>高级：派系 JSON（默认折叠；与卡片同步，保存以卡片为准）</summary
+              >
+              <textarea id="factionsJson" class="json-editor-compact" spellcheck="false"></textarea>
+            </details>
+          </div>
+        </section>
+
+        <section id="view-history" class="panel">
+          <div class="card">
+            <h2><span class="ms h2-ic" aria-hidden="true">timeline</span>历史</h2>
+            <div class="inpanel-viz">
+              <p class="viz-subtitle">大事件时间轴（与下方 JSON 数组顺序一致）</p>
+              <div id="historyMajorTimeline" class="history-major-timeline" aria-label="大事件时间轴"></div>
+              <p class="viz-subtitle">因果链导图（上早下晚；边可标首条后果）</p>
+              <div id="vizHistoryHost" class="mermaid-host viz-history-host" role="img" aria-label="历史事件链"></div>
+            </div>
+            <textarea id="historySummary"></textarea>
+            <label class="muted">事件（JSON 数组）</label>
+            <textarea id="historyJson" style="font-family: var(--mono); min-height: 220px"></textarea>
+          </div>
+        </section>
+
+        <section id="view-outlines" class="panel">
+          <div class="card">
+            <h2><span class="ms h2-ic" aria-hidden="true">menu_book</span>人物与情节大纲</h2>
+            <p class="muted" id="outlineVersionLine"></p>
+            <div class="row">
+              <select id="outlineKind">
+                <option value="characters">人物</option>
+                <option value="plot">情节总纲</option>
+              </select>
+              <label class="muted lbl-ic"
+                ><span class="ms lbl-ic-glyph" aria-hidden="true">description</span
+                ><input type="checkbox" id="outlineIncludeMd" checked /> 附带 world.md</label
+              >
+            </div>
+            <textarea id="outlinePrompt" placeholder="说明你想写的人物或情节需求…"></textarea>
+            <div class="row">
+              <button type="button" class="primary btn-ic" id="btnOutline">
+                <span class="ms" aria-hidden="true">auto_stories</span>生成并保存到 outlines/
+              </button>
+            </div>
+            <div class="card" style="margin-top: 12px">
+              <h3 class="preview-h3" style="margin-top: 0">
+                <span class="ms preview-h3-ic" aria-hidden="true">visibility</span>预览
+              </h3>
+              <div id="outlinePreview" class="muted" style="white-space: pre-wrap"></div>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-files" class="panel">
+          <div class="card">
+            <h2><span class="ms h2-ic" aria-hidden="true">folder_open</span>文件与导出</h2>
+            <p class="muted">数据目录：<code id="filesDirHint"></code></p>
+            <button type="button" class="ghost btn-ic" id="btnExportMd">
+              <span class="ms" aria-hidden="true">file_export</span>重新导出 world.md
+            </button>
+            <pre id="filesDump" class="muted" style="font-size: 12px; max-height: 40vh; overflow: auto"></pre>
+          </div>
+        </section>
+      </main>
+
+      <aside class="context-panel" aria-label="数据看板">
+        <h3><span class="ms aside-h-ic" aria-hidden="true">dashboard</span>看板</h3>
+        <div id="statStrip" class="stat-strip"></div>
+        <p class="aside-moved-hint muted tiny">
+          关系图、时间轴与各境界/档位导图已迁至对应模块页顶部；此处仅保留计数与 JSON 快照。
+        </p>
+        <details class="raw-fold">
+          <summary><span class="ms sum-ic" aria-hidden="true">data_object</span>原始 JSON</summary>
+          <pre id="contextRawJson" class="mono-small"></pre>
+        </details>
+      </aside>
+    </div>
+
+    <div id="toast" class="toast" role="status"></div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
