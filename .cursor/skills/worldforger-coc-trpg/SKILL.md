@@ -15,7 +15,7 @@ description: >-
 ## 行为要点
 
 - **对话**：弱化「战斗等级」叙事；强调仪式代价、知识污染、时间压力与可调查地点。
-- **结构化同步**：`geography` / `regions` / `landmarks` 写调查点与隐藏关联；`factions` 写层级与神话线索；`items` 写禁忌与副作用；`history` 写被掩盖的真相年代。
+- **结构化同步**：`geography` / `regions` / `landmarks` 写调查点与隐藏关联；`factions` 写层级与神话线索；`cultures` 写民间禁忌、密教变体与仪式代价；`items` 写禁忌与副作用；`history` 写被掩盖的真相年代。
 - **不要**：把 CoC 写成 DnD 式刷级地下城，除非用户明确要混搭。
 
 ## 代码锚点

@@ -30,6 +30,12 @@
         <button type="button" class="ghost btn-ic" id="btnNewWorld">
           <span class="ms" aria-hidden="true">add_circle</span>新建
         </button>
+        <button type="button" class="ghost btn-ic" id="btnRenameWorld" title="重命名显示名称（不改变目录 id）">
+          <span class="ms" aria-hidden="true">edit</span>重命名
+        </button>
+        <button type="button" class="ghost btn-ic btn-danger-ghost" id="btnDeleteWorld" title="删除当前世界及目录下全部数据">
+          <span class="ms" aria-hidden="true">delete</span>删除
+        </button>
         <span class="status-pill" id="saveStatus"
           ><span class="ms status-ic" aria-hidden="true">cloud_done</span>已同步</span
         >
@@ -74,6 +80,9 @@
         <button type="button" data-view="items" title="物品品质档位">
           <span class="ms nav-ic" aria-hidden="true">diamond</span>物品
         </button>
+        <button type="button" data-view="cultures" title="民族习惯、教团、仪式与观念冲突">
+          <span class="ms nav-ic" aria-hidden="true">diversity_3</span>文化·宗教
+        </button>
         <button type="button" data-view="factions" title="组织与关系">
           <span class="ms nav-ic" aria-hidden="true">groups</span>派系
         </button>
@@ -110,7 +119,7 @@
               <h2><span class="ms h2-ic" aria-hidden="true">forum</span>对话</h2>
               <span class="card-tag"><span class="ms tag-ic" aria-hidden="true">star</span>核心</span>
             </div>
-            <p class="muted compact-hint">描述设定 → 助手回复 → 自动填入左侧各页（可关）→ 点「保存」落盘。</p>
+            <p class="muted compact-hint">描述设定 → 助手回复 → 自动填入左侧各页（可关）→ 点「保存」落盘。可用下方快捷词条一键填入常见主题（含文化·宗教）。</p>
             <div class="row sync-opts">
               <label class="muted lbl-ic"
                 ><span class="ms lbl-ic-glyph" aria-hidden="true">sync</span
@@ -226,6 +235,50 @@
           </div>
         </section>
 
+        <section id="view-cultures" class="panel">
+          <div class="card">
+            <h2><span class="ms h2-ic" aria-hidden="true">diversity_3</span>文化与宗教</h2>
+            <p class="muted tiny culture-hint" id="cultureHintPanel" aria-live="polite"></p>
+            <div class="inpanel-viz">
+              <p class="viz-subtitle">传统 / 教团之间的影响、冲突与融合（与下方实体 id 一致）</p>
+              <div class="mermaid-zoom-wrap faction-global-zoom" data-mermaid-zoom>
+                <div class="mermaid-zoom-toolbar" role="toolbar" aria-label="文化关系图缩放">
+                  <button type="button" class="ghost btn-sm mzoom-out" title="缩小">−</button>
+                  <span class="mzoom-pct muted tiny">100%</span>
+                  <button type="button" class="ghost btn-sm mzoom-in" title="放大">+</button>
+                  <button type="button" class="ghost btn-sm mzoom-reset" title="重置缩放与平移">重置</button>
+                </div>
+                <div class="mermaid-zoom-viewport">
+                  <div class="mermaid-zoom-surface">
+                    <div
+                      id="vizCulturesHost"
+                      class="mermaid-host faction-global-host"
+                      role="img"
+                      aria-label="文化与传统关系总图"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <label class="field-label">总览（叙事氛围、禁忌与多元共存）</label>
+            <textarea id="cultureSummary" placeholder="多种族、多教派如何共处；主流与异端的张力…"></textarea>
+            <div class="subsection-head">
+              <span class="subsection-title">各文化 / 教团</span>
+              <span class="subsection-sub">kind：culture=文化与传统；religion=宗教组织；syncretic=融合传统</span>
+              <button type="button" class="ghost btn-sm btn-ic" id="btnAddCulture">
+                <span class="ms" aria-hidden="true">add</span>添加条目
+              </button>
+            </div>
+            <div id="cultureCards" class="entity-cards"></div>
+            <details class="adv-fold adv-fold--json">
+              <summary
+                ><span class="ms sum-ic" aria-hidden="true">code</span>高级：文化 JSON（默认折叠；与卡片同步）</summary
+              >
+              <textarea id="culturesJson" class="json-editor-compact" spellcheck="false"></textarea>
+            </details>
+          </div>
+        </section>
+
         <section id="view-factions" class="panel">
           <div class="card">
             <h2><span class="ms h2-ic" aria-hidden="true">groups</span>派系</h2>
@@ -319,6 +372,15 @@
           <div class="card">
             <h2><span class="ms h2-ic" aria-hidden="true">folder_open</span>文件与导出</h2>
             <p class="muted">数据目录：<code id="filesDirHint"></code></p>
+            <div class="row" style="margin: 10px 0; gap: 10px; flex-wrap: wrap; align-items: center">
+              <button type="button" class="ghost btn-ic" id="btnCopyWorldId">
+                <span class="ms" aria-hidden="true">content_copy</span>复制世界 ID
+              </button>
+              <span class="kbd-hint" title="在多数页面可用；焦点在对话输入框时不抢快捷键"
+                ><kbd class="kbd">Ctrl</kbd><span class="kbd-plus">+</span><kbd class="kbd">S</kbd
+                ><span class="kbd-hint-txt">保存世界</span></span
+              >
+            </div>
             <button type="button" class="ghost btn-ic" id="btnExportMd">
               <span class="ms" aria-hidden="true">file_export</span>重新导出 world.md
             </button>

@@ -65,6 +65,13 @@
   font-size: 20px;
 }
 
+.btn-danger-ghost:hover {
+  color: #b91c1c;
+}
+.btn-danger-ghost:hover .ms {
+  color: #b91c1c;
+}
+
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -729,6 +736,15 @@ button.ghost {
 .compact-hint {
   margin: 0 0 10px;
   font-size: 13px;
+}
+
+.culture-hint {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #f8fafc;
+  border: 1px solid var(--border);
+  line-height: 1.55;
 }
 
 .sync-opts {

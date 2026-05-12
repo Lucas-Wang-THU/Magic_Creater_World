@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import uuid
 from pathlib import Path
 
@@ -80,12 +81,61 @@ def list_world_ids() -> list[str]:
     )
 
 
+def world_display_name(world_id: str) -> str:
+    """从 world.json 读取 meta.name，失败时退回 world_id。"""
+    path = world_json_path(world_id)
+    if not path.is_file():
+        return world_id
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        name = (data.get("meta") or {}).get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    except (json.JSONDecodeError, OSError, TypeError):
+        pass
+    return world_id
+
+
+def list_world_briefs() -> list[dict[str, str]]:
+    """供列表 UI 使用：每项 id + 显示名（与 meta.name 同步）。"""
+    return [{"id": wid, "name": world_display_name(wid)} for wid in list_world_ids()]
+
+
 def load_world(world_id: str) -> World:
     path = world_json_path(world_id)
     if not path.is_file():
         raise FileNotFoundError(world_id)
     data = json.loads(path.read_text(encoding="utf-8"))
     return World.model_validate(data)
+
+
+def rename_world(world_id: str, display_name: str) -> World:
+    """更新 meta.name 与 manifest.display_name；**不改变** world_id 目录名。"""
+    name = display_name.strip()
+    if not name:
+        raise ValueError("empty display name")
+    w = load_world(world_id)
+    data = w.model_dump(mode="json")
+    data["meta"]["name"] = name
+    w2 = World.model_validate(data)
+    w2.bump_version()
+    save_world(w2, export_markdown=True)
+    mp = manifest_path(world_id)
+    if mp.is_file():
+        try:
+            man = json.loads(mp.read_text(encoding="utf-8"))
+            man["display_name"] = name
+            mp.write_text(json.dumps(man, ensure_ascii=False, indent=2), encoding="utf-8")
+        except (json.JSONDecodeError, OSError):
+            pass
+    return w2
+
+
+def delete_world(world_id: str) -> None:
+    """删除整个世界目录（world.json、大纲、会话等）。"""
+    if not world_json_path(world_id).is_file():
+        raise FileNotFoundError(world_id)
+    shutil.rmtree(world_root(world_id))
 
 
 def save_world(world: World, *, export_markdown: bool = True) -> None:

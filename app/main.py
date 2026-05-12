@@ -18,9 +18,12 @@ from worldforger.prompts import outline_system_prompt, system_with_world_json
 from worldforger.schemas import World
 from worldforger.world_store import (
     create_world,
-    list_world_ids,
+    delete_world,
+    list_world_briefs,
     load_world,
+    load_world_markdown_optional,
     outlines_dir,
+    rename_world,
     save_world,
     sessions_dir,
     world_context_for_prompt,
@@ -31,6 +34,10 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
 class CreateWorldBody(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class RenameWorldBody(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
@@ -58,6 +65,7 @@ SyncScope = Literal[
     "power_system",
     "item_quality_system",
     "factions",
+    "cultures",
     "history",
 ]
 
@@ -117,8 +125,8 @@ def public_config() -> dict[str, Any]:
 
 
 @app.get("/api/worlds")
-def api_list_worlds() -> dict[str, list[str]]:
-    return {"worlds": list_world_ids()}
+def api_list_worlds() -> dict[str, Any]:
+    return {"worlds": list_world_briefs()}
 
 
 @app.post("/api/worlds")
@@ -133,7 +141,9 @@ def api_get_world(world_id: str) -> dict[str, Any]:
         w = load_world(world_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="world not found")
-    return w.model_dump(mode="json")
+    md = load_world_markdown_optional(world_id)
+    has_md = bool(md and str(md).strip())
+    return {"world": w.model_dump(mode="json"), "has_nonempty_world_md": has_md}
 
 
 @app.put("/api/worlds/{world_id}")
@@ -151,6 +161,30 @@ def api_put_world(world_id: str, body: dict[str, Any]) -> dict[str, Any]:
     w.bump_version()
     save_world(w, export_markdown=True)
     return w.model_dump(mode="json")
+
+
+@app.patch("/api/worlds/{world_id}")
+def api_patch_world_rename(world_id: str, body: RenameWorldBody) -> dict[str, Any]:
+    """仅重命名显示名称（meta.name），不改变磁盘上的 world_id 目录名。"""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name must not be empty")
+    try:
+        w = rename_world(world_id, name)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return w.model_dump(mode="json")
+
+
+@app.delete("/api/worlds/{world_id}")
+def api_delete_world(world_id: str) -> dict[str, bool]:
+    try:
+        delete_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    return {"ok": True}
 
 
 @app.post("/api/worlds/{world_id}/export-md")
@@ -221,6 +255,7 @@ async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict
             "structure_output_keys": [],
             "scope_applied": body.scope,
             "merge_warnings": [],
+            "normalize_notes": {},
         }
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"structure sync error: {e}") from e
@@ -237,6 +272,7 @@ async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict
         "structure_output_keys": result["structure_output_keys"],
         "scope_applied": result["scope_applied"],
         "merge_warnings": result["merge_warnings"],
+        "normalize_notes": result.get("normalize_notes") or {},
     }
 
 

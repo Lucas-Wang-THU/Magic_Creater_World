@@ -15,7 +15,7 @@ description: >-
 ## 行为要点
 
 - **对话与大纲**：优先动机、秘密、冲突升级、象征与回收；地理/派系写可被章节调用的细节。
-- **结构化同步**（`worldforger/creative_modes.py`）：落盘时偏向 `history.events` 后果、`factions` 人物线索、`geography.regions` 氛围与场景。
+- **结构化同步**（`worldforger/creative_modes.py`）：落盘时偏向 `history.events` 后果、`factions` 人物线索、`cultures` 民俗与仪式张力、`geography.regions` 氛围与场景。
 - **不要**：把一切都写成数值战力或 encounter 表；除非用户明确要求。
 
 ## 代码锚点

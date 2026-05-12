@@ -100,12 +100,39 @@ class HistorySection(BaseModel):
     events: list[HistoryEvent] = Field(default_factory=list)
 
 
+CultureKind = Literal["culture", "religion", "syncretic"]
+
+
+class CultureRelation(BaseModel):
+    target_id: str
+    type: str = "influence"
+    notes: str = ""
+
+
+class CultureEntity(BaseModel):
+    id: str
+    name: str
+    kind: CultureKind = "culture"
+    summary: str = ""
+    tenets: str = ""
+    practices: str = ""
+    sacred_sites: list[str] = Field(default_factory=list)
+    key_figures: list[str] = Field(default_factory=list)
+    relations: list[CultureRelation] = Field(default_factory=list)
+
+
+class CulturesSection(BaseModel):
+    summary: str = ""
+    entities: list[CultureEntity] = Field(default_factory=list)
+
+
 class World(BaseModel):
     meta: Meta
     geography: GeographySection = Field(default_factory=GeographySection)
     power_system: PowerSystem = Field(default_factory=PowerSystem)
     item_quality_system: ItemQualitySystem = Field(default_factory=ItemQualitySystem)
     factions: FactionsSection = Field(default_factory=FactionsSection)
+    cultures: CulturesSection = Field(default_factory=CulturesSection)
     history: HistorySection = Field(default_factory=HistorySection)
 
     def bump_version(self) -> None:

@@ -73,6 +73,28 @@ def world_to_markdown(w: World) -> str:
                 lines.append(f"- → `{r.target_id}` **{r.type}**：{r.notes}")
             lines.append("")
 
+    lines += ["## 文化与宗教", "", w.cultures.summary or "（待补充）", ""]
+    for c in w.cultures.entities:
+        kind_zh = {"culture": "文化", "religion": "宗教", "syncretic": "融合传统"}.get(c.kind, c.kind)
+        lines += [f"### {c.name} (`{c.id}`) · {kind_zh}", "", c.summary or "", ""]
+        if c.tenets:
+            lines += ["**观念 / 教义**", "", c.tenets, ""]
+        if c.practices:
+            lines += ["**实践 / 仪式**", "", c.practices, ""]
+        if c.sacred_sites:
+            lines += ["**圣地 / 中心**", ""]
+            lines += [f"- {x}" for x in c.sacred_sites]
+            lines.append("")
+        if c.key_figures:
+            lines += ["**关键人物**", ""]
+            lines += [f"- {x}" for x in c.key_figures]
+            lines.append("")
+        if c.relations:
+            lines.append("**与其它传统/教团的关系**")
+            for r in c.relations:
+                lines.append(f"- → `{r.target_id}` **{r.type}**：{r.notes}")
+            lines.append("")
+
     lines += ["## 世界历史", "", w.history.summary or "（待补充）", ""]
     for e in w.history.events:
         lines += [f"### {e.when} — {e.title}", "", e.summary or "", ""]

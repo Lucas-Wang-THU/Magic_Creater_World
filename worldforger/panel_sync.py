@@ -8,6 +8,7 @@ from worldforger.config import get_settings
 from worldforger.creative_modes import structure_sync_addon
 from worldforger.llm import chat_completion
 from worldforger.schemas import (
+    CulturesSection,
     FactionsSection,
     GeographySection,
     HistorySection,
@@ -15,26 +16,26 @@ from worldforger.schemas import (
     PowerSystem,
     World,
 )
-from worldforger.structure_normalize import normalize_structure_patch
 
 STRUCTURE_SYSTEM_BASE = """你是「设定结构化同步器」，与负责自然语言对话的「世界观架构师」是不同角色。
 你的唯一任务：根据【用户消息】与【助手自然语言回复】，把其中可写入世界设定、且与【当前 world.json】相容的**事实性内容**，整理成 JSON。
 
 硬性规则：
 1. 只输出**一个** JSON 对象，不要输出任何 JSON 以外的文字（不要 Markdown 标题、不要解释）。
-2. 顶层键**只能**来自：geography, power_system, item_quality_system, factions, history。未涉及或无法可靠抽取的模块**不要出现**该键。
+2. 顶层键**只能**来自：geography, power_system, item_quality_system, factions, cultures, history。未涉及或无法可靠抽取的模块**不要出现**该键。
 3. 每个出现的键对应的对象结构必须与标准 world.json 中该节一致：
-   - geography: summary, regions[], landmarks[], climate_notes, resources[], map_notes
+   - geography: summary, regions[], landmarks[], climate_notes, resources[], map_notes。**landmarks / resources 必须为字符串数组**（每项一行地标/资源名）；勿输出对象数组。**regions 必须为数组**；若只写了一个区域对象，仍须用 `[{...}]` 包裹。区域项内 **relations** 须为数组，元素含 `target_id` 与 `type`（字符串即可）。
    - power_system: summary, tiers[]（每项 name, description, typical_capabilities[], limitations[], examples[]）
    - item_quality_system: summary, grades[]（每项 name, rarity_narrative, typical_effects, binding_rules）。**顶层键必须写 `item_quality_system`**，禁止使用 `items`、`item_grades` 等别名；grades 每项必须有字符串 **name**（档位名），勿用空对象占位。
    - factions: summary, entities[]（每项 id, name, goals, territory, key_figures[], relations[] 含 target_id, type: ally|enemy|neutral|complex, notes）
+   - cultures: summary, entities[]（每项 **id**、**name**、**kind**: culture|religion|syncretic, summary, tenets, practices, sacred_sites[], key_figures[], relations[] 含 target_id、type（短字符串，如影响/冲突/融合）、notes）。**entities 必须为数组**；单条传统/教团也须用 `[{...}]` 包裹。文化与宗教共用本节，用 **kind** 区分。
    - history: summary, events[]（每项 when, title, summary, consequences[], linked_faction_ids[]）
 4. **合并策略（重要）**：先从【当前 world.json】复制该节，再写入本轮变更。若某数组或字符串本轮**没有变化**，请**完全省略**该字段，**禁止**输出空字符串 \"\" 或空数组 [] 来占位（否则程序会误保留旧值逻辑复杂；后端会丢弃空占位，但你仍应省略未改字段）。
 5. 若某数组确有更新，必须输出**合并后的完整数组**（含旧条目 + 新条目），不要只输出新增的一条。
 6. 不要修改 meta（id、name、version 等由程序管理）。
 7. 若助手回复仅为规划、提问或闲聊、没有任何可落盘设定，输出空对象：{}。
-8. **多模块同答**：若助手一段话里同时写了地理、力量、派系等多个方面，必须在**同一个** JSON 里输出**多个顶层键**（geography、power_system、factions 等），每个键下给出合并后的完整小节，不要只挑一个模块写。
-9. **地理 regions（大陆/区域）**：凡助手描述了不同大陆、王国、海域等可区分的地理单元，必须写入 `geography.regions` 数组；每项为对象，至少包含 `name` 与 `summary`（可含 `id`、`terrain`、`climate` 等字符串字段）。若描述了区域之间的邻接、贸易路线、航道、山脉隘口等联系，请在对应区域的 **`relations`** 数组中写出：`target_id`（另一区域的 `id`）、`type`（短字符串，如邻接/贸易/航道）、`notes`（可选）。总览仍写在 `geography.summary`。"""
+8. **多模块同答**：若助手一段话里同时写了地理、力量、派系、文化/宗教、历史等多个方面，必须在**同一个** JSON 里输出**多个顶层键**（geography、power_system、factions、cultures、history 等），每个键下给出合并后的完整小节，不要只挑一个模块写。
+9. **地理 regions（大陆/区域）**：凡助手描述了不同大陆、王国、海域等可区分的地理单元，必须写入 `geography.regions` 数组；每项为对象，至少包含 `name` 与 `summary`（可含 `id`、`terrain`、`climate` 等字符串字段）。若描述了区域之间的邻接、贸易路线、航道、山脉隘口等联系，请在对应区域的 **`relations`** 数组中写出：`target_id`（另一区域的 `id`）、`type`（短字符串，如邻接/贸易/航道）、`notes`（可选）。总览仍写在 `geography.summary`。**形态示例（虚构名，勿照抄）**：`{"geography":{"summary":"河网与丘陵","landmarks":["古渡","碑林"],"resources":["盐","木材"],"climate_notes":"多雨","map_notes":"","regions":[{"id":"reg_north","name":"北境","summary":"河谷农业","terrain":"丘陵","relations":[{"target_id":"reg_south","type":"贸易","notes":"粮盐"}]}]}}`"""
 
 
 def structure_system_for_scope(scope: str | None) -> str:
@@ -45,6 +46,7 @@ def structure_system_for_scope(scope: str | None) -> str:
         "power_system",
         "item_quality_system",
         "factions",
+        "cultures",
         "history",
     }
     if scope not in allowed:
@@ -78,11 +80,14 @@ def parse_structure_json(raw: str) -> dict[str, Any]:
     return json.loads(t[start : end + 1])
 
 
-def apply_structure_patch(world: World, patch: dict[str, Any]) -> tuple[World, list[str], list[str]]:
-    """Merge patch into world. Returns (new_world, updated_keys, merge_warnings)."""
+def apply_structure_patch(
+    world: World, patch: dict[str, Any]
+) -> tuple[World, list[str], list[str], dict[str, list[str]]]:
+    """Merge patch into world. Returns (new_world, updated_keys, merge_warnings, normalize_notes)."""
     from worldforger.panel_merge import merge_section_conservative
+    from worldforger.structure_normalize import normalize_structure_patch_detailed
 
-    patch = normalize_structure_patch(patch)
+    patch, normalize_notes = normalize_structure_patch_detailed(patch)
     data = world.model_dump(mode="json")
     updated: list[str] = []
     warnings: list[str] = []
@@ -91,6 +96,7 @@ def apply_structure_patch(world: World, patch: dict[str, Any]) -> tuple[World, l
         "power_system": PowerSystem,
         "item_quality_system": ItemQualitySystem,
         "factions": FactionsSection,
+        "cultures": CulturesSection,
         "history": HistorySection,
     }
     for key, model_cls in allowed.items():
@@ -104,7 +110,7 @@ def apply_structure_patch(world: World, patch: dict[str, Any]) -> tuple[World, l
             warnings.append(f"{key}: {e}")
             continue
     new_world = World.model_validate(data)
-    return new_world, updated, warnings
+    return new_world, updated, warnings, normalize_notes
 
 
 async def sync_panels_from_dialogue(
@@ -118,7 +124,7 @@ async def sync_panels_from_dialogue(
     """
     Second-pass LLM: natural language -> structured sections.
     scope: 非 all 时会丢弃其它顶层键（前端默认应使用 all 以免助手多模块输出被截断）。
-    返回 dict：world, updated_sections, applied_patch, structure_output_keys, scope_applied, merge_warnings
+    返回 dict：world, updated_sections, applied_patch, structure_output_keys, scope_applied, merge_warnings, normalize_notes
     """
     world_json = json.dumps(world.model_dump(mode="json"), ensure_ascii=False, indent=2)
     user_block = (
@@ -148,7 +154,7 @@ async def sync_panels_from_dialogue(
         patch = {k: v for k, v in raw_patch.items() if k == sc}
     else:
         patch = dict(raw_patch)
-    merged, keys, merge_warnings = apply_structure_patch(world, patch)
+    merged, keys, merge_warnings, normalize_notes = apply_structure_patch(world, patch)
     return {
         "world": merged,
         "updated_sections": keys,
@@ -156,4 +162,5 @@ async def sync_panels_from_dialogue(
         "structure_output_keys": structure_output_keys,
         "scope_applied": sc,
         "merge_warnings": merge_warnings,
+        "normalize_notes": normalize_notes,
     }

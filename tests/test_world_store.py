@@ -2,8 +2,10 @@ from worldforger.markdown_export import world_to_markdown
 from worldforger.schemas import FactionEntity, GeographySection, HistoryEvent, Meta, PowerTier, World
 from worldforger.world_store import (
     create_world,
+    list_world_briefs,
     list_world_ids,
     load_world,
+    rename_world,
     save_world,
     world_json_path,
 )
@@ -15,6 +17,16 @@ def test_create_list_load_roundtrip():
     w2 = load_world(w.meta.id)
     assert w2.meta.name == "测试世界"
     assert world_json_path(w.meta.id).is_file()
+
+
+def test_list_world_briefs_reflects_rename():
+    w = create_world("BriefA")
+    wid = w.meta.id
+    rows = list_world_briefs()
+    assert any(r["id"] == wid and r["name"] == "BriefA" for r in rows)
+    rename_world(wid, "BriefB")
+    rows2 = list_world_briefs()
+    assert any(r["id"] == wid and r["name"] == "BriefB" for r in rows2)
 
 
 def test_save_bump_and_geography():
@@ -42,6 +54,7 @@ def test_export_contains_headings():
     )
     md = world_to_markdown(w)
     assert "超凡力量" in md
+    assert "文化与宗教" in md
     assert "第一境" in md
     assert "学派" in md
     assert "元年" in md

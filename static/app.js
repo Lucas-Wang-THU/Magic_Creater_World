@@ -13,6 +13,7 @@ const VIEW_TO_SCOPE = {
   geo: "geography",
   powers: "power_system",
   items: "item_quality_system",
+  cultures: "cultures",
   factions: "factions",
   history: "history",
 };
@@ -37,6 +38,30 @@ function updateGenreModeHint() {
   const sel = $("genreMode");
   if (!el || !sel) return;
   el.textContent = GENRE_MODE_HINTS[sel.value] ?? GENRE_MODE_HINTS[""];
+}
+
+/** 文化·宗教页：字段说明 + 随创作模式变化的写作/同步侧重 */
+const CULTURE_MODULE_HINT =
+  "每条实体须有唯一 id；relations 的 target_id 指向另一文化实体 id。kind：文化=习俗与族群叙事，宗教=教团/神话组织，融合=综摄或混血传统。对话后结构化同步的顶层键为 cultures。";
+
+const CULTURE_GENRE_HINTS = {
+  "": "未选创作模式：仍可写民俗、禁忌、教团；同步会按通用规则写入 cultures。",
+  novel:
+    "小说侧重：信仰如何塑造日常选择、仪式与秘密教义的叙事张力；与派系/地理挂钩时请用稳定 id，便于关系图与第二路 JSON。",
+  game:
+    "游戏侧重：节日与声望系统、阵营 Buff 文案、可做成活动或副本的圣地；实体可对应可刷新的「文化标签」或势力声望。",
+  coc:
+    "CoC 侧重：民间禁忌、密教变体、调查员易忽视的「正常中的异常」；教团与神话线索可与 factions 并行，勿把一切都写成战斗数值。",
+  dnd:
+    "DnD 侧重：神殿网络、圣徽、阵营意识形态、可扮演钩子；与派系据点、任务发布者交叉时用 id 引用，便于 DM 快速裁定。",
+};
+
+function updateCultureHint() {
+  const el = $("cultureHintPanel");
+  const sel = $("genreMode");
+  if (!el) return;
+  const g = sel?.value ?? "";
+  el.textContent = `${CULTURE_MODULE_HINT} ${CULTURE_GENRE_HINTS[g] ?? CULTURE_GENRE_HINTS[""]}`;
 }
 
 async function api(path, opts = {}) {
@@ -105,6 +130,53 @@ async function createWorldFlow() {
   toast("世界已创建");
 }
 
+async function renameCurrentWorldFlow() {
+  if (!state.world) return toast("请先选择世界");
+  const cur = state.world.meta.name;
+  const name = prompt("新的世界显示名称？", cur);
+  if (!name || !name.trim()) return;
+  const trimmed = name.trim();
+  if (trimmed === cur) return;
+  const w = await api(`/api/worlds/${state.world.meta.id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name: trimmed }),
+  });
+  state.world = w;
+  worldToForm(w);
+  setDirty(false);
+  await refreshWorldSelect(w.meta.id);
+  refreshContextPanel();
+  refreshOutlineHeader();
+  refreshFilesView();
+  refreshWorldTabTitle();
+  toast("已重命名（目录 id 未变）");
+}
+
+async function deleteCurrentWorldFlow() {
+  if (!state.world) return toast("请先选择世界");
+  const id = state.world.meta.id;
+  const name = state.world.meta.name;
+  if (
+    !confirm(
+      `确定删除世界「${name}」？\n目录：worlds/${id}/\n将删除 world.json、world.md、大纲与对话记录等全部文件，且不可恢复。`
+    )
+  )
+    return;
+  await api(`/api/worlds/${id}`, { method: "DELETE" });
+  toast("世界已删除");
+  state.messages = [];
+  renderMessages();
+  await refreshWorldSelect();
+  updateEmptyState();
+  if (hasWorldsInSelect()) await loadWorld($("worldSelect").value);
+  else {
+    state.world = null;
+    worldToForm(null);
+    setDirty(false);
+    refreshWorldTabTitle();
+  }
+}
+
 /** 派系图：不压缩宽度、略放大字号，便于阅读 */
 function mermaidFactionInit() {
   return (
@@ -154,6 +226,30 @@ function buildFactionMermaid(entities) {
   });
   const cls = entities.map((_, i) => `N${i}`).join(",");
   if (cls) lines.push(`  class ${cls} fvN`);
+  return mermaidFactionInit() + lines.join("\n");
+}
+
+function buildCultureMermaid(entities) {
+  if (!entities?.length) return mermaidFactionInit() + 'flowchart TB\n  empty["（无文化/宗教条目）"]';
+  const lines = [
+    "flowchart LR",
+    "  classDef cvN fill:#f5f0f8,color:#1e293b,stroke:#94a3b8",
+  ];
+  entities.forEach((e, i) => {
+    const k = e.kind === "religion" ? "宗" : e.kind === "syncretic" ? "融" : "文";
+    const lab = mermaidEscape(`${k}·${e.name || e.id}`);
+    lines.push(`  K${i}["${lab}"]`);
+  });
+  entities.forEach((e, i) => {
+    (e.relations || []).forEach((r) => {
+      const j = entities.findIndex((x) => x.id === r.target_id);
+      if (j < 0 || j === i) return;
+      const lab = mermaidEscape(`${r.type || "关联"}${r.notes ? " · " + r.notes : ""}`);
+      lines.push(`  K${i} -->|"${lab}"| K${j}`);
+    });
+  });
+  const cls = entities.map((_, i) => `K${i}`).join(",");
+  if (cls) lines.push(`  class ${cls} cvN`);
   return mermaidFactionInit() + lines.join("\n");
 }
 
@@ -715,6 +811,120 @@ function scheduleFactionVizRefresh() {
   _factionVizTimer = setTimeout(() => refreshAllFactionViz(), 220);
 }
 
+function renderCultureCards(entities) {
+  const root = $("cultureCards");
+  if (!root) return;
+  root.replaceChildren();
+  const list = Array.isArray(entities) && entities.length ? entities.map((e) => ({ ...e })) : [];
+  list.forEach((e) => {
+    const card = document.createElement("div");
+    card.className = "faction-card culture-card";
+    const relJson = JSON.stringify(e.relations || [], null, 2);
+    const sites = (e.sacred_sites || []).join("\n");
+    const kf = (e.key_figures || []).join("\n");
+    const kind = ["culture", "religion", "syncretic"].includes(e.kind) ? e.kind : "culture";
+    card.innerHTML = `
+      <div class="faction-card-stack">
+        <div class="faction-card-toolbar">
+          <p class="faction-viz-legend muted tiny">relations 的 target_id 指向另一文化实体 id</p>
+          <button type="button" class="ghost btn-icon remove-culture" title="移除此条目">×</button>
+        </div>
+        <div class="faction-fields">
+          <div class="row-tight">
+            <input type="text" class="culture-id mono" placeholder="id" />
+            <input type="text" class="culture-name" placeholder="名称" />
+            <select class="culture-kind">
+              <option value="culture">文化</option>
+              <option value="religion">宗教</option>
+              <option value="syncretic">融合</option>
+            </select>
+          </div>
+          <label class="muted tiny">概述</label>
+          <textarea class="culture-summary" rows="2" placeholder="人群、分布、叙事角色…"></textarea>
+          <label class="muted tiny">观念 / 教义</label>
+          <textarea class="culture-tenets" rows="2"></textarea>
+          <label class="muted tiny">仪式 / 节日 / 禁忌</label>
+          <textarea class="culture-practices" rows="2"></textarea>
+          <label class="muted tiny">圣地或中心（每行一处）</label>
+          <textarea class="culture-sites" rows="2"></textarea>
+          <label class="muted tiny">关键人物（每行一人）</label>
+          <textarea class="culture-figures" rows="2"></textarea>
+          <label class="muted tiny">relations（JSON）</label>
+          <textarea class="culture-relations-json json-editor-tiny" rows="2" spellcheck="false"></textarea>
+        </div>
+      </div>`;
+    card.querySelector(".culture-id").value = e.id || uid("c");
+    card.querySelector(".culture-name").value = e.name || "";
+    card.querySelector(".culture-kind").value = kind;
+    card.querySelector(".culture-summary").value = e.summary || "";
+    card.querySelector(".culture-tenets").value = e.tenets || "";
+    card.querySelector(".culture-practices").value = e.practices || "";
+    card.querySelector(".culture-sites").value = sites;
+    card.querySelector(".culture-figures").value = kf;
+    card.querySelector(".culture-relations-json").value = relJson;
+    root.appendChild(card);
+  });
+  const cj = $("culturesJson");
+  if (cj) cj.value = JSON.stringify(list, null, 2);
+  scheduleCultureVizRefresh();
+}
+
+function collectCulturesFromDom() {
+  const root = $("cultureCards");
+  if (!root) return [];
+  return [...root.querySelectorAll(".culture-card")].map((card) => {
+    const id = card.querySelector(".culture-id")?.value?.trim() || uid("c");
+    const name = card.querySelector(".culture-name")?.value?.trim() || "";
+    const kind = card.querySelector(".culture-kind")?.value || "culture";
+    const summary = card.querySelector(".culture-summary")?.value?.trim() || "";
+    const tenets = card.querySelector(".culture-tenets")?.value?.trim() || "";
+    const practices = card.querySelector(".culture-practices")?.value?.trim() || "";
+    const sitesTxt = card.querySelector(".culture-sites")?.value || "";
+    const sacred_sites = sitesTxt
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const figTxt = card.querySelector(".culture-figures")?.value || "";
+    const key_figures = figTxt
+      .split("\n")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    let relations = [];
+    try {
+      relations = JSON.parse(card.querySelector(".culture-relations-json")?.value || "[]");
+      if (!Array.isArray(relations)) relations = [];
+    } catch {
+      relations = [];
+    }
+    return {
+      id,
+      name,
+      kind,
+      summary,
+      tenets,
+      practices,
+      sacred_sites,
+      key_figures,
+      relations,
+    };
+  });
+}
+
+let _cultureVizTimer;
+function scheduleCultureVizRefresh() {
+  clearTimeout(_cultureVizTimer);
+  _cultureVizTimer = setTimeout(() => refreshCultureGlobalViz(), 200);
+}
+
+function refreshCultureGlobalViz() {
+  const host = $("vizCulturesHost");
+  if (!host) return;
+  const entities = collectCulturesFromDom();
+  const cj = $("culturesJson");
+  if (cj) cj.value = JSON.stringify(entities, null, 2);
+  void drawMermaidHost(host, buildCultureMermaid(entities));
+}
+
 function renderPowerBars(container, tiers) {
   if (!container) return;
   if (!tiers?.length) {
@@ -756,15 +966,19 @@ function renderStatStrip(w) {
   const pt = (w.power_system?.tiers || []).length;
   const ig = (w.item_quality_system?.grades || []).length;
   const fc = (w.factions?.entities || []).length;
+  const cu = (w.cultures?.entities || []).length;
   const ev = (w.history?.events || []).length;
+  const wlabel = escapeHtml((w.meta?.name || w.meta?.id || "世界").toString().slice(0, 24));
   const pill = (icon, t) =>
     `<span class="pill"><span class="ms pill-ic" aria-hidden="true">${icon}</span>${t}</span>`;
   el.innerHTML = [
+    pill("auto_stories", wlabel),
     pill("place", `地标 ${lm}`),
     pill("forest", `资源 ${rs}`),
     pill("bolt", `等级 ${pt}`),
     pill("diamond", `品质 ${ig}`),
     pill("groups", `派系 ${fc}`),
+    pill("diversity_3", `文化 ${cu}`),
     pill("event", `事件 ${ev}`),
     pill("tag", `v${w.meta?.version ?? 0}`),
   ].join("");
@@ -981,6 +1195,7 @@ function refreshContextPanel() {
   const itemMods = $("vizItemGradesRoot");
   const fac = $("vizFactionHost");
   const his = $("vizHistoryHost");
+  const cult = $("vizCulturesHost");
 
   const geoPanel = $("geoNetworkHost");
 
@@ -991,6 +1206,7 @@ function refreshContextPanel() {
     if (itemMods) itemMods.innerHTML = "";
     if (geoPanel) geoPanel.innerHTML = "";
     if (fac) fac.innerHTML = "";
+    if (cult) cult.innerHTML = "";
     if (his) his.innerHTML = "";
     renderHistoryMajorTimeline([]);
     const fgb = $("factionGlobalBrief");
@@ -1007,6 +1223,8 @@ function refreshContextPanel() {
 
   refreshGeoNetworkViz();
   void drawMermaidHost(fac, buildFactionMermaid(w.factions?.entities));
+  const cultHost = $("vizCulturesHost");
+  if (cultHost) void drawMermaidHost(cultHost, buildCultureMermaid(w.cultures?.entities || []));
   const ev = w.history?.events || [];
   renderHistoryMajorTimeline(ev);
   void drawMermaidHost(his, buildHistoryMermaid(ev));
@@ -1024,10 +1242,41 @@ function switchView(name) {
   });
   if (name === "files") refreshFilesView();
   if (name === "outlines") refreshOutlineHeader();
+  if (name === "cultures") scheduleCultureVizRefresh();
+  updateCultureHint();
   refreshContextPanel();
 }
 
 function worldToForm(w) {
+  if (!w) {
+    $("geoSummary").value = "";
+    $("geoClimate").value = "";
+    $("geoMap").value = "";
+    $("geoLandmarks").value = "";
+    $("geoResources").value = "";
+    $("powerSummary").value = "";
+    $("powerTiersJson").value = "[]";
+    $("itemSummary").value = "";
+    $("itemGradesJson").value = "[]";
+    $("factionSummary").value = "";
+    $("factionsJson").value = "[]";
+    $("cultureSummary").value = "";
+    $("culturesJson").value = "[]";
+    $("historySummary").value = "";
+    $("historyJson").value = "[]";
+    const gm = $("genreMode");
+    if (gm) gm.value = "";
+    renderRegionCards([]);
+    renderFactionCards([]);
+    renderCultureCards([]);
+    updateGenreModeHint();
+    updateCultureHint();
+    updateFactionGlobalBriefPreview();
+    refreshContextPanel();
+    refreshFilesView();
+    refreshOutlineHeader();
+    return;
+  }
   $("geoSummary").value = w.geography?.summary ?? "";
   $("geoClimate").value = w.geography?.climate_notes ?? "";
   $("geoMap").value = w.geography?.map_notes ?? "";
@@ -1043,15 +1292,20 @@ function worldToForm(w) {
   $("factionSummary").value = w.factions?.summary ?? "";
   $("factionsJson").value = JSON.stringify(w.factions?.entities ?? [], null, 2);
 
+  $("cultureSummary").value = w.cultures?.summary ?? "";
+  $("culturesJson").value = JSON.stringify(w.cultures?.entities ?? [], null, 2);
+
   $("historySummary").value = w.history?.summary ?? "";
   $("historyJson").value = JSON.stringify(w.history?.events ?? [], null, 2);
 
   renderRegionCards(w.geography?.regions);
   renderFactionCards(w.factions?.entities);
+  renderCultureCards(w.cultures?.entities);
 
   const gm = $("genreMode");
   if (gm) gm.value = w.meta?.creative_mode || "";
   updateGenreModeHint();
+  updateCultureHint();
   updateFactionGlobalBriefPreview();
 }
 
@@ -1076,6 +1330,7 @@ function formToWorld() {
   w.power_system.summary = $("powerSummary").value.trim();
   w.item_quality_system.summary = $("itemSummary").value.trim();
   w.factions.summary = $("factionSummary").value.trim();
+  w.cultures.summary = $("cultureSummary").value.trim();
   w.history.summary = $("historySummary").value.trim();
 
   const parseJson = (txt, label) => {
@@ -1093,8 +1348,23 @@ function formToWorld() {
     fc.length > 0
       ? collectFactionsFromDom()
       : parseJson($("factionsJson")?.value || "[]", "派系");
+  const cc = document.querySelectorAll("#cultureCards .culture-card");
+  w.cultures.entities =
+    cc.length > 0
+      ? collectCulturesFromDom()
+      : parseJson($("culturesJson")?.value || "[]", "文化/宗教");
   w.history.events = parseJson($("historyJson").value, "历史事件");
   return w;
+}
+
+function refreshWorldTabTitle() {
+  const suffix = "Magic Creater World — 世界观工作台";
+  if (!state.world?.meta?.id) {
+    document.title = suffix;
+    return;
+  }
+  const n = (state.world.meta.name || "").trim() || state.world.meta.id;
+  document.title = `${n} — ${suffix}`;
 }
 
 function refreshOutlineHeader() {
@@ -1120,7 +1390,13 @@ async function refreshWorldSelect(selectedId) {
   const data = await api("/api/worlds");
   const sel = $("worldSelect");
   sel.innerHTML = "";
-  if (!data.worlds?.length) {
+  const raw = data.worlds || [];
+  const rows = raw.map((x) =>
+    typeof x === "string"
+      ? { id: x, name: x }
+      : { id: x?.id ?? "", name: ((x?.name ?? "") + "").trim() || x?.id || "" }
+  );
+  if (!rows.length) {
     const ph = document.createElement("option");
     ph.value = "";
     ph.textContent = "— 请先创建世界 —";
@@ -1129,27 +1405,34 @@ async function refreshWorldSelect(selectedId) {
     updateEmptyState();
     return;
   }
-  for (const id of data.worlds) {
+  for (const { id, name } of rows) {
     const opt = document.createElement("option");
     opt.value = id;
-    opt.textContent = id;
+    opt.textContent = name && name !== id ? `${name} · ${id}` : id;
+    opt.title = id;
     sel.appendChild(opt);
   }
-  if (selectedId && data.worlds.includes(selectedId)) sel.value = selectedId;
-  else if (data.worlds[0]) sel.value = data.worlds[0];
+  if (selectedId && rows.some((r) => r.id === selectedId)) sel.value = selectedId;
+  else if (rows[0]) sel.value = rows[0].id;
   sel.disabled = false;
   updateEmptyState();
 }
 
 async function loadWorld(id) {
   if (!id) return;
-  const w = await api(`/api/worlds/${id}`);
+  const data = await api(`/api/worlds/${id}`);
+  const w = data.world != null ? data.world : data;
   state.world = w;
+  const inc = $("includeMd");
+  if (inc && typeof data.has_nonempty_world_md === "boolean") {
+    inc.checked = data.has_nonempty_world_md;
+  }
   worldToForm(w);
   setDirty(false);
   refreshContextPanel();
   refreshOutlineHeader();
   refreshFilesView();
+  refreshWorldTabTitle();
 }
 
 async function init() {
@@ -1178,14 +1461,16 @@ async function init() {
     state.world = null;
     refreshContextPanel();
     refreshOutlineHeader();
+    refreshWorldTabTitle();
   }
 
   const sh = $("syncHint");
   if (sh) {
     sh.textContent =
-      "默认关闭「仅当前页模块」：助手一次可同步多个板块。若开启，仅在当前导航对应模块写入，其它模块输出会被丢弃。";
+      "默认关闭「仅当前页模块」：助手一次可同步多个板块。若开启，仅在当前导航对应模块写入（地理/力量/物品/文化·宗教/派系/历史等），其它模块输出会被丢弃。";
   }
   updateGenreModeHint();
+  updateCultureHint();
 
   $("btnAddRegion")?.addEventListener("click", () => {
     const cur = collectRegionsFromDom();
@@ -1210,6 +1495,25 @@ async function init() {
     renderFactionCards(cur);
     setDirty(true);
   });
+  $("btnAddCulture")?.addEventListener("click", () => {
+    let cur = collectCulturesFromDom();
+    if (!cur.length && state.world?.cultures?.entities?.length) {
+      cur = JSON.parse(JSON.stringify(state.world.cultures.entities));
+    }
+    cur.push({
+      id: uid("c"),
+      name: "新条目",
+      kind: "culture",
+      summary: "",
+      tenets: "",
+      practices: "",
+      sacred_sites: [],
+      key_figures: [],
+      relations: [],
+    });
+    renderCultureCards(cur);
+    setDirty(true);
+  });
   $("regionCards")?.addEventListener("click", (ev) => {
     if (!ev.target.closest(".remove-region")) return;
     ev.target.closest(".region-card")?.remove();
@@ -1221,6 +1525,12 @@ async function init() {
     ev.target.closest(".faction-card")?.remove();
     setDirty(true);
     scheduleFactionVizRefresh();
+  });
+  $("cultureCards")?.addEventListener("click", (ev) => {
+    if (!ev.target.closest(".remove-culture")) return;
+    ev.target.closest(".culture-card")?.remove();
+    setDirty(true);
+    scheduleCultureVizRefresh();
   });
 
   document.querySelectorAll(".nav button").forEach((btn) => {
@@ -1237,6 +1547,12 @@ async function init() {
   });
 
   $("btnNewWorld").addEventListener("click", () => createWorldFlow().catch((e) => toast(e.message)));
+  $("btnRenameWorld")?.addEventListener("click", () =>
+    renameCurrentWorldFlow().catch((e) => toast(e.message))
+  );
+  $("btnDeleteWorld")?.addEventListener("click", () =>
+    deleteCurrentWorldFlow().catch((e) => toast(e.message))
+  );
   $("btnEmptyCreate").addEventListener("click", () => createWorldFlow().catch((e) => toast(e.message)));
 
   const markDirty = () => setDirty(true);
@@ -1252,6 +1568,8 @@ async function init() {
     "itemGradesJson",
     "factionSummary",
     "factionsJson",
+    "cultureSummary",
+    "culturesJson",
     "historySummary",
     "historyJson",
   ].forEach((id) => $(id).addEventListener("input", markDirty));
@@ -1261,6 +1579,7 @@ async function init() {
   $("genreMode")?.addEventListener("change", () => {
     markDirty();
     updateGenreModeHint();
+    updateCultureHint();
   });
 
   $("regionCards")?.addEventListener("input", (ev) => {
@@ -1273,28 +1592,60 @@ async function init() {
     markDirty();
     scheduleFactionVizRefresh();
   });
+  $("cultureCards")?.addEventListener("input", () => {
+    markDirty();
+    scheduleCultureVizRefresh();
+  });
+  $("culturesJson")?.addEventListener("input", () => {
+    markDirty();
+    scheduleCultureVizRefresh();
+  });
 
-  $("btnSaveWorld").addEventListener("click", async () => {
-    if (!state.world) return toast("请先选择世界");
+  async function persistWorldFromForm() {
+    if (!state.world) {
+      toast("请先选择世界");
+      return;
+    }
     let body;
     try {
       body = formToWorld();
     } catch (e) {
-      return toast(e.message);
+      toast(e.message);
+      return;
     }
+    const saved = await api(`/api/worlds/${body.meta.id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+    state.world = saved;
+    worldToForm(saved);
+    setDirty(false);
+    refreshContextPanel();
+    refreshOutlineHeader();
+    toast("已保存");
+  }
+
+  $("btnSaveWorld").addEventListener("click", () =>
+    persistWorldFromForm().catch((e) => toast("保存失败：" + e.message))
+  );
+
+  document.addEventListener("keydown", (e) => {
+    const mac =
+      /Mac|iPhone|iPod|iPad/i.test(navigator.platform || "") ||
+      (navigator.userAgent && navigator.userAgent.includes("Mac"));
+    const mod = mac ? e.metaKey : e.ctrlKey;
+    if (!mod || (e.key !== "s" && e.key !== "S")) return;
+    e.preventDefault();
+    void persistWorldFromForm().catch((err) => toast("保存失败：" + err.message));
+  });
+
+  $("btnCopyWorldId")?.addEventListener("click", async () => {
+    if (!state.world?.meta?.id) return toast("无世界");
     try {
-      const saved = await api(`/api/worlds/${body.meta.id}`, {
-        method: "PUT",
-        body: JSON.stringify(body),
-      });
-      state.world = saved;
-      worldToForm(saved);
-      setDirty(false);
-      refreshContextPanel();
-      refreshOutlineHeader();
-      toast("已保存");
-    } catch (e) {
-      toast("保存失败：" + e.message);
+      await navigator.clipboard.writeText(state.world.meta.id);
+      toast("已复制世界 ID");
+    } catch {
+      toast("复制失败（浏览器可能未授权剪贴板）");
     }
   });
 
@@ -1362,6 +1713,15 @@ async function init() {
         if (syncRes.merge_warnings?.length) {
           toast("校验提示：" + syncRes.merge_warnings.join("；"));
         }
+        const nn = syncRes.normalize_notes;
+        if (nn && typeof nn === "object") {
+          const nnLines = Object.entries(nn)
+            .filter(([, arr]) => Array.isArray(arr) && arr.length)
+            .map(([k, arr]) => k + "：" + arr.join("；"));
+          if (nnLines.length) {
+            toast("结构归一化：" + nnLines.join(" | "));
+          }
+        }
         if (
           syncRes.scope_applied &&
           syncRes.scope_applied !== "all" &&
@@ -1424,6 +1784,11 @@ async function init() {
     ["map", "写地理", "请补充地理总览：地貌、政权分布、交通要冲与资源。"],
     ["bolt", "写力量体系", "请设计超凡力量等级（名称、能力、限制），与现有设定自洽。"],
     ["diamond", "写物品品质", "请设计物品品质档位与叙事效果边界。"],
+    [
+      "diversity_3",
+      "文化·宗教",
+      "请根据当前世界设定，补充或修订「文化 / 宗教」（对应 world.json 的 cultures 节）。请用自然语言说明：总览氛围；若有多条传统或教团，请分别给出名称、是民俗共同体还是宗教组织（或二者融合）、核心观念或教义、主要仪式/节日/禁忌、圣地或中心、关键人物；若彼此有影响、冲突或融合，请说明关系。若有与现有派系、地理的挂钩，请点名对应势力或地区。输出需便于我随后用「对话后同步」写入 cultures。",
+    ],
     ["groups", "写派系", "请增加或修订两个对立派系及其关系。"],
     ["history_edu", "写历史", "请写一条重大历史事件及后果，并挂钩现有派系。"],
   ];

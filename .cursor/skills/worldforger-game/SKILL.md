@@ -15,7 +15,7 @@ description: >-
 ## 行为要点
 
 - **对话**：层级清晰、边界规则、反作弊/资源循环；地理与历史写成可映射任务或版本的模块。
-- **结构化同步**：强化 `power_system.tiers` 与 `item_quality_system.grades` 的 `limitations` / `binding_rules`；地理与派系挂钩奖励链或区域控制。
+- **结构化同步**：强化 `power_system.tiers` 与 `item_quality_system.grades` 的 `limitations` / `binding_rules`；地理与派系挂钩奖励链或区域控制；`cultures` 可写节日、声望与文化标签等可策划钩子。
 - **不要**：默认写成纯文学意识流；保留可执行、可拆任务的表述粒度。
 
 ## 代码锚点

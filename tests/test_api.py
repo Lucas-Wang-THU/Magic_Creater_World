@@ -44,7 +44,10 @@ def test_world_crud_and_export():
     wid = r.json()["world"]["meta"]["id"]
     r2 = client.get(f"/api/worlds/{wid}")
     assert r2.status_code == 200
-    body = r2.json()
+    data = r2.json()
+    assert "world" in data and "has_nonempty_world_md" in data
+    assert data["has_nonempty_world_md"] is True
+    body = data["world"]
     body["geography"]["summary"] = "高山与深谷"
     r3 = client.put(f"/api/worlds/{wid}", json=body)
     assert r3.status_code == 200
@@ -59,6 +62,39 @@ def test_put_wrong_id_rejected():
     w["meta"]["id"] = "wrong"
     r = client.put(f"/api/worlds/{wid}", json=w)
     assert r.status_code == 400
+
+
+def test_patch_rename_and_delete_world():
+    r = client.post("/api/worlds", json={"name": "原名"})
+    assert r.status_code == 200
+    wid = r.json()["world"]["meta"]["id"]
+    r2 = client.patch(f"/api/worlds/{wid}", json={"name": "  新显示名  "})
+    assert r2.status_code == 200
+    body = r2.json()
+    assert body["meta"]["name"] == "新显示名"
+    assert body["meta"]["id"] == wid
+    r3 = client.delete(f"/api/worlds/{wid}")
+    assert r3.status_code == 200
+    assert r3.json().get("ok") is True
+    assert client.get(f"/api/worlds/{wid}").status_code == 404
+
+
+def test_delete_world_missing_404():
+    assert client.delete("/api/worlds/nonexistent-world-00000000").status_code == 404
+
+
+def test_list_worlds_returns_id_and_display_name():
+    wid = client.post("/api/worlds", json={"name": "列表原名"}).json()["world"]["meta"]["id"]
+    r = client.get("/api/worlds")
+    assert r.status_code == 200
+    rows = r.json()["worlds"]
+    row = next((x for x in rows if x.get("id") == wid), None)
+    assert row is not None
+    assert row["name"] == "列表原名"
+    assert client.patch(f"/api/worlds/{wid}", json={"name": "列表新名"}).status_code == 200
+    r2 = client.get("/api/worlds")
+    row2 = next((x for x in r2.json()["worlds"] if x.get("id") == wid), None)
+    assert row2["name"] == "列表新名"
 
 
 @patch("app.main.chat_completion", new_callable=AsyncMock, return_value="大纲正文")
@@ -121,6 +157,7 @@ def test_sync_panels_endpoint(mock_sync):
         "structure_output_keys": ["geography"],
         "scope_applied": "geography",
         "merge_warnings": [],
+        "normalize_notes": {},
     }
 
     r = client.post(
@@ -137,6 +174,7 @@ def test_sync_panels_endpoint(mock_sync):
     assert body["ok"] is True
     assert body["world"]["geography"]["summary"] == "从对话合并"
     assert "geography" in body["updated_sections"]
+    assert body.get("normalize_notes") == {}
     mock_sync.assert_awaited()
     _args, kwargs = mock_sync.call_args
     assert kwargs.get("scope") == "geography"

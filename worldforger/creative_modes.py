@@ -33,10 +33,10 @@ CHAT_MODE_SYSTEM: dict[str, str] = {
 # --- 结构化同步：附加在 STRUCTURE_SYSTEM 后，引导写入 world.json 的侧重点 ---
 
 STRUCTURE_SYNC_ADDON: dict[str, str] = {
-    "novel": """【载体：小说】若抽取可落盘内容，优先写入能服务叙事的信息：history.events 写清后果与可挂钩派系；factions.entities 写目标、地盘与人物线索；geography.regions 写可被场景调用的地貌与氛围；物品与力量写「叙事代价与意象」。""",
-    "game": """【载体：游戏】若抽取可落盘内容，优先写入可策划落地的信息：power_system.tiers 与 item_quality_system.grades 写清边界与典型玩法；geography 与 factions 写任务/区域控制与奖励链可挂钩点；history 可写版本事件或世界状态变更。""",
-    "coc": """【载体：CoC】若抽取可落盘内容，优先调查链：geography / landmarks / regions 写可调查点与隐藏关联；factions 写教团层级、掩护身份与神话线索；history.events 写年代与「被掩盖的真相」；物品写禁忌与副作用；力量体系若有则强调仪式/知识代价而非战力数值。""",
-    "dnd": """【载体：D&D】若抽取可落盘内容，优先冒险裁定：geography 写旅行危险与地标遭遇；factions 写据点、任务发布者与阵营；power_system 写清晰层级与对 PC 的硬限制；items 写稀有度与绑定/使用规则；history 写当前仍在发生的冒险钩子。""",
+    "novel": """【载体：小说】若抽取可落盘内容，优先写入能服务叙事的信息：history.events 写清后果与可挂钩派系；factions.entities 写目标、地盘与人物线索；cultures.entities 写观念冲突、仪式与禁忌如何驱动人物选择；geography.regions 写可被场景调用的地貌与氛围；物品与力量写「叙事代价与意象」。""",
+    "game": """【载体：游戏】若抽取可落盘内容，优先写入可策划落地的信息：power_system.tiers 与 item_quality_system.grades 写清边界与典型玩法；geography 与 factions 写任务/区域控制与奖励链可挂钩点；cultures 写阵营 Buff、声望、节日活动或派系意识形态标签；history 可写版本事件或世界状态变更。""",
+    "coc": """【载体：CoC】若抽取可落盘内容，优先调查链：geography / landmarks / regions 写可调查点与隐藏关联；factions 写教团层级、掩护身份与神话线索；cultures 写民间禁忌、密教变体、理智压力源与「正常社会下的异常」；history.events 写年代与「被掩盖的真相」；物品写禁忌与副作用；力量体系若有则强调仪式/知识代价而非战力数值。""",
+    "dnd": """【载体：D&D】若抽取可落盘内容，优先冒险裁定：geography 写旅行危险与地标遭遇；factions 写据点、任务发布者与阵营；cultures 写神殿网络、节日、阵营意识形态与可扮演钩子；power_system 写清晰层级与对 PC 的硬限制；items 写稀有度与绑定/使用规则；history 写当前仍在发生的冒险钩子。""",
 }
 
 
