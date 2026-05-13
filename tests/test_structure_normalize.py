@@ -82,6 +82,56 @@ def test_normalize_geography_regions_single_object_and_relations():
     assert regs[0]["relations"][0]["target_id"] == "r-south"
 
 
+def test_normalize_geography_dalu_merged_into_regions():
+    patch = {
+        "geography": {
+            "summary": "双陆",
+            "regions": [{"name": "西陆", "summary": "沙漠"}],
+            "大陆": [{"name": "东陆", "summary": "平原"}],
+        }
+    }
+    out = normalize_structure_patch(patch)
+    regs = out["geography"]["regions"]
+    assert len(regs) == 2
+    assert regs[0]["name"] == "西陆"
+    assert regs[1]["name"] == "东陆"
+
+
+def test_normalize_geography_top_level_climate_string_to_climate_notes():
+    patch = {"geography": {"climate": "多雨", "summary": "群岛"}}
+    out = normalize_structure_patch(patch)
+    assert out["geography"]["climate_notes"] == "多雨"
+    assert out["geography"]["summary"] == "群岛"
+
+
+def test_normalize_geography_zh_geo_key():
+    patch = {"地理": {"summary": "从中文键", "regions": [{"name": "甲", "summary": "x"}]}}
+    out, notes = normalize_structure_patch_detailed(patch)
+    assert "地理" not in out
+    assert out["geography"]["summary"] == "从中文键"
+    assert len(out["geography"]["regions"]) == 1
+    assert "geography" in notes
+
+
+def test_normalize_region_local_climate_separate_from_terrain():
+    patch = {
+        "geography": {
+            "regions": [
+                {
+                    "name": "北境",
+                    "summary": "河谷",
+                    "terrain": "丘陵",
+                    "climate": "冬雨型",
+                }
+            ]
+        }
+    }
+    out = normalize_structure_patch(patch)
+    r0 = out["geography"]["regions"][0]
+    assert r0["terrain"] == "丘陵"
+    assert r0["climate"] == "冬雨型"
+
+
 def test_normalize_top_level_culture_alias_to_cultures():
     patch = {
         "culture": {
@@ -131,3 +181,67 @@ def test_normalize_structure_patch_detailed_notes_geography_json_string():
     assert out["geography"]["summary"] == "S"
     assert "geography" in notes
     assert any("JSON" in s or "解析" in s for s in notes["geography"])
+
+
+def test_normalize_attributes_top_level_alias_dict():
+    patch = {
+        "attributes": {
+            "overview": "叙事板",
+            "dimensions": [
+                {"title": "体魄", "percent": 70},
+                {"name": "神识", "id": "mind", "reference_percent": 40},
+            ],
+        }
+    }
+    out, notes = normalize_structure_patch_detailed(patch)
+    assert "attributes" not in out
+    assert out["attribute_system"]["summary"] == "叙事板"
+    assert len(out["attribute_system"]["stats"]) == 2
+    assert out["attribute_system"]["stats"][0]["name"] == "体魄"
+    assert out["attribute_system"]["stats"][0]["reference_percent"] == 70
+    assert out["attribute_system"]["stats"][1]["id"] == "mind"
+    assert "attribute_system" in notes
+
+
+def test_normalize_attributes_top_level_list():
+    patch = {"attributes": [{"name": "幸运", "reference_percent": 30}]}
+    out = normalize_structure_patch(patch)
+    assert len(out["attribute_system"]["stats"]) == 1
+    assert out["attribute_system"]["stats"][0]["name"] == "幸运"
+
+
+def test_apply_patch_accepts_attributes_alias():
+    w = create_world("属性别名")
+    patch = {
+        "attributes": {
+            "summary": "检定向",
+            "stats": [{"dimension": "理智", "scale": "0-99", "雷达": 50}],
+        }
+    }
+    merged, keys, warns, _nn = apply_structure_patch(w, patch)
+    assert not warns
+    assert "attribute_system" in keys
+    assert merged.attribute_system.summary == "检定向"
+    assert merged.attribute_system.stats[0].name == "理智"
+    assert merged.attribute_system.stats[0].reference_percent == 50
+
+
+def test_normalize_attribute_system_tier_profiles_and_stat_intro():
+    patch = {
+        "attribute_system": {
+            "stats": [
+                {"id": "phy", "name": "体魄", "intro": "肉身与耐力", "reference_percent": 55},
+                {"id": "soul", "name": "神魂", "intro": "感知与意志", "reference_percent": 40},
+            ],
+            "tier_average_profiles": [
+                {"tier_name": "炼气", "averages": {"phy": 25, "soul": 20}},
+                {"tier_name": "筑基", "averages": {"phy": 55, "soul": 45}},
+            ],
+        }
+    }
+    out, _ = normalize_structure_patch_detailed(patch)
+    att = out["attribute_system"]
+    assert att["stats"][0]["intro"] == "肉身与耐力"
+    assert len(att["tier_average_profiles"]) == 2
+    assert att["tier_average_profiles"][1]["tier_name"] == "筑基"
+    assert att["tier_average_profiles"][1]["averages"]["phy"] == 55

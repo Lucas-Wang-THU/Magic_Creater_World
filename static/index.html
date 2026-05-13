@@ -74,8 +74,11 @@
         <button type="button" data-view="geo" title="地貌、气候、资源">
           <span class="ms nav-ic" aria-hidden="true">travel_explore</span>地理
         </button>
-        <button type="button" data-view="powers" title="等级与能力体系">
-          <span class="ms nav-ic" aria-hidden="true">bolt</span>力量
+        <button type="button" data-view="powers" title="境界：体系子页（概述与能力对比）与技能树子页（各境树与 tiers JSON）">
+          <span class="ms nav-ic" aria-hidden="true">bolt</span>境界
+        </button>
+        <button type="button" data-view="attributes" title="通用人物属性与雷达参照">
+          <span class="ms nav-ic" aria-hidden="true">bubble_chart</span>属性
         </button>
         <button type="button" data-view="items" title="物品品质档位">
           <span class="ms nav-ic" aria-hidden="true">diamond</span>物品
@@ -94,7 +97,10 @@
           <span class="ms nav-ic" aria-hidden="true">menu_book</span>大纲
         </button>
         <div class="nav-label">数据</div>
-        <button type="button" data-view="files" title="JSON / 导出">
+        <button type="button" data-view="search" title="world.json 与 world.md 全文检索">
+          <span class="ms nav-ic" aria-hidden="true">search</span>搜索
+        </button>
+        <button type="button" data-view="files" title="导出 world.md、查看当前内存中的 world.json 快照">
           <span class="ms nav-ic" aria-hidden="true">folder_open</span>文件
         </button>
       </nav>
@@ -119,7 +125,7 @@
               <h2><span class="ms h2-ic" aria-hidden="true">forum</span>对话</h2>
               <span class="card-tag"><span class="ms tag-ic" aria-hidden="true">star</span>核心</span>
             </div>
-            <p class="muted compact-hint">描述设定 → 助手回复 → 自动填入左侧各页（可关）→ 点「保存」落盘。可用下方快捷词条一键填入常见主题（含文化·宗教）。</p>
+            <p class="muted compact-hint">描述设定 → 助手回复 → 自动填入左侧各页（可关）。若助手在回复中用 JSON 代码块给出 <code>attribute_system</code>，或开启「对话后同步」且本轮有结构化变更，会在合并后<strong>自动保存落盘</strong>。仍可用下方快捷词条。</p>
             <div class="row sync-opts">
               <label class="muted lbl-ic"
                 ><span class="ms lbl-ic-glyph" aria-hidden="true">sync</span
@@ -132,6 +138,12 @@
             </div>
             <p class="muted sync-hint" id="syncHint"></p>
             <div class="chips" id="promptChips"></div>
+            <div
+              id="factionChatViz"
+              class="faction-chat-viz"
+              role="region"
+              aria-label="当前各派系要人快照（与派系页卡片或已保存数据一致）"
+            ></div>
             <div class="messages" id="messages" aria-live="polite"></div>
             <div id="chatThinking" class="thinking-strip" hidden>
               <span class="ms thinking-ic" aria-hidden="true">psychology</span>
@@ -153,6 +165,18 @@
                 ><span class="ms lbl-ic-glyph" aria-hidden="true">description</span
                 ><input type="checkbox" id="includeMd" /> 附带 world.md 上下文</label
               >
+              <label class="muted lbl-ic"
+                ><span class="ms lbl-ic-glyph" aria-hidden="true">account_tree</span
+                ><input type="checkbox" id="guideSkillTrees" /> 引导：境界技能树</label
+              >
+              <label class="muted lbl-ic"
+                ><span class="ms lbl-ic-glyph" aria-hidden="true">badge</span
+                ><input type="checkbox" id="guideProfessions" /> 引导：境界职业体系</label
+              >
+              <label class="muted lbl-ic"
+                ><span class="ms lbl-ic-glyph" aria-hidden="true">bubble_chart</span
+                ><input type="checkbox" id="guideAttributes" /> 引导：人物属性</label
+              >
               <div class="send-wrap">
                 <button type="button" class="primary btn-ic" id="btnSend">
                   <span class="ms" aria-hidden="true">send</span>发送
@@ -168,57 +192,202 @@
         </section>
 
         <section id="view-geo" class="panel">
-          <div class="card">
+          <div class="card geo-card">
             <h2><span class="ms h2-ic" aria-hidden="true">travel_explore</span>地理</h2>
-            <label class="field-label">世界总览</label>
-            <textarea id="geoSummary" placeholder="总览"></textarea>
-            <div class="subsection-head">
-              <span class="subsection-title">大陆 / 区域</span>
-              <span class="subsection-sub">每一块独立展示与编辑；对话同步会写入 regions</span>
-              <button type="button" class="ghost btn-sm btn-ic" id="btnAddRegion">
-                <span class="ms" aria-hidden="true">add_location_alt</span>添加区域
-              </button>
+            <div class="geo-stack">
+              <section class="geo-section geo-section--overview" aria-labelledby="geo-overview-label">
+                <label id="geo-overview-label" class="field-label">世界总览</label>
+                <p class="geo-hint muted tiny">
+                  行星或多大陆尺度；地标与物产请写在下方各区域的列表中，避免在此堆清单。
+                </p>
+                <textarea
+                  id="geoSummary"
+                  class="geo-summary-input"
+                  placeholder="世界地理总览：海陆分布、文明带、突出矛盾或旅行主轴…"
+                ></textarea>
+              </section>
+
+              <section class="geo-section geo-section--global" aria-labelledby="geo-global-label">
+                <div class="geo-section-head">
+                  <span class="ms geo-section-ic" aria-hidden="true">public</span>
+                  <h3 id="geo-global-label" class="geo-section-title">全局气候与地图</h3>
+                </div>
+                <p class="geo-hint muted tiny">对应 <code>geography.climate_notes</code> 与 <code>map_notes</code>。</p>
+                <div class="geo-global-grid">
+                  <div class="geo-field">
+                    <label class="geo-field-label" for="geoClimate"
+                      ><span class="ms geo-field-ic" aria-hidden="true">wb_cloudy</span>气候</label
+                    >
+                    <textarea
+                      id="geoClimate"
+                      placeholder="全图气候带、季风、异常气象、季节对旅行的影响…"
+                    ></textarea>
+                  </div>
+                  <div class="geo-field">
+                    <label class="geo-field-label" for="geoMap"
+                      ><span class="ms geo-field-ic" aria-hidden="true">map</span>地图备注</label
+                    >
+                    <textarea
+                      id="geoMap"
+                      placeholder="方位约定、比例、制图说明或主要商路/航道总览…"
+                    ></textarea>
+                  </div>
+                </div>
+              </section>
+
+              <section class="geo-section geo-section--regions" aria-labelledby="geo-regions-label">
+                <div class="subsection-head geo-regions-head">
+                  <div class="geo-regions-title-line">
+                    <span class="ms subsection-title-ic" aria-hidden="true">add_location_alt</span>
+                    <span id="geo-regions-label" class="subsection-title">大陆 / 区域</span>
+                  </div>
+                  <span class="subsection-sub geo-regions-sub"
+                    >每卡片：名称、概述、地貌与局地气候、叙事备注、地标与资源（每行一条）、<code>relations</code>
+                    JSON。</span
+                  >
+                  <button type="button" class="ghost btn-sm btn-ic" id="btnAddRegion">
+                    <span class="ms" aria-hidden="true">add</span>添加区域
+                  </button>
+                </div>
+                <div id="regionCards" class="entity-cards geo-region-cards"></div>
+              </section>
+
+              <section class="geo-section geo-section--viz" aria-labelledby="geo-viz-label">
+                <div class="geo-section-head geo-viz-head">
+                  <span class="ms geo-section-ic" aria-hidden="true">hub</span>
+                  <h3 id="geo-viz-label" class="geo-section-title">区域关系网络</h3>
+                </div>
+                <p class="geo-hint muted tiny">根据各区域 <code>relations</code> 自动生成；无关联时为示意辐射图。</p>
+                <div class="geo-network-wrap">
+                  <div
+                    id="geoNetworkHost"
+                    class="mermaid-host geo-network-host"
+                    role="img"
+                    aria-label="地理区域关系网络"
+                  ></div>
+                </div>
+              </section>
             </div>
-            <div id="regionCards" class="entity-cards"></div>
-            <div class="subsection-head" style="margin-top: 16px">
-              <span class="subsection-title">区域关系网络</span>
-              <span class="subsection-sub">由下方各区域的 relations 生成；无关联时为中心辐射示意</span>
-            </div>
-            <div
-              id="geoNetworkHost"
-              class="mermaid-host geo-network-host"
-              role="img"
-              aria-label="地理区域关系网络"
-            ></div>
-            <div class="two-col editor-grid" style="margin-top: 12px">
-              <div>
-                <label class="muted">气候</label>
-                <textarea id="geoClimate"></textarea>
-              </div>
-              <div>
-                <label class="muted">地图备注</label>
-                <textarea id="geoMap"></textarea>
-              </div>
-            </div>
-            <label class="muted">地标（每行一条）</label>
-            <textarea id="geoLandmarks"></textarea>
-            <label class="muted">资源（每行一条）</label>
-            <textarea id="geoResources"></textarea>
           </div>
         </section>
 
         <section id="view-powers" class="panel">
           <div class="card">
-            <h2><span class="ms h2-ic" aria-hidden="true">bolt</span>超凡力量</h2>
-            <div class="inpanel-viz">
-              <p class="viz-subtitle">各境界：名称、发动能力、限制与范例（卡片预览）</p>
-              <div id="vizPowerTiersRoot" class="viz-modules" aria-label="各力量等级可视化"></div>
-              <p class="viz-subtitle">典型能力条数（全境界对比）</p>
-              <div id="vizPowerBars" class="bar-list bar-list--power"></div>
+            <h2><span class="ms h2-ic" aria-hidden="true">bolt</span>境界体系</h2>
+            <div class="panel-subtabs" role="tablist" aria-label="境界子页">
+              <button
+                type="button"
+                class="panel-subtab is-active"
+                role="tab"
+                aria-selected="true"
+                data-power-sub="system"
+              >
+                体系
+              </button>
+              <button type="button" class="panel-subtab" role="tab" aria-selected="false" data-power-sub="trees">
+                技能树
+              </button>
+              <button type="button" class="panel-subtab" role="tab" aria-selected="false" data-power-sub="professions">
+                职业体系
+              </button>
             </div>
-            <textarea id="powerSummary" placeholder="体系统览"></textarea>
-            <label class="muted">等级（JSON 数组）</label>
-            <textarea id="powerTiersJson" class="json-editor-compact" spellcheck="false"></textarea>
+            <div id="powerSubSystem" class="power-subview" role="tabpanel">
+              <div class="inpanel-viz">
+                <p class="viz-subtitle">各境界名称、描述、典型能力、限制与例子可在卡片中编辑；与「技能树」子页 tiers JSON 同步</p>
+                <div id="vizPowerSystemModules" class="viz-modules" aria-label="境界体系可视化"></div>
+              </div>
+              <h3 class="panel-subh">境界概述</h3>
+              <p class="muted tiny" style="margin-top: 0">
+                总览与设计说明见下方文本框；各境结构化字段在上方卡片与「技能树」子页的 JSON 中编辑（两处共用同一份
+                <code>power_system.tiers</code>）。
+              </p>
+              <label class="field-label">总览</label>
+              <textarea id="powerSummary" placeholder="境界总览：力量阶梯在世界中的位置、读者/玩家如何理解各境…"></textarea>
+              <label class="muted">设计说明（境界概述）</label>
+              <textarea id="powerRealmDesign" placeholder="例如：三境递进对应「形 / 意 / 法」；破境代价与叙事钩子；与物品稀有度的挂钩方式…"></textarea>
+            </div>
+            <div id="powerSubTrees" class="power-subview is-hidden" role="tabpanel">
+              <div class="inpanel-viz">
+                <p class="viz-subtitle">
+                  每境卡片：<strong>左栏</strong>为技能树可视化预览，<strong>右栏</strong>编辑 JSON；<code>subclass_paths</code> 可含
+                  <code>profession_id</code>（与「职业体系」子页同境职业 <code>id</code> 对齐）。修改后预览会防抖刷新，亦可使用下方完整 tiers JSON。
+                </p>
+                <div id="vizPowerSkillTreeModules" class="viz-modules" aria-label="境界技能树可视化"></div>
+              </div>
+              <h3 class="panel-subh">境界技能树</h3>
+              <p class="muted tiny" style="margin-top: 0">
+                跨境设计说明见下方；完整备份或批量替换可使用「各境界 tiers」JSON。卡片内为分栏：<strong>预览 + 结构化编辑</strong>。
+              </p>
+              <label class="muted">设计说明（境界技能树）</label>
+              <textarea id="powerSkillTreeDesign" placeholder="例如：节点 id 前缀规则、prereq_ids 含义、通用树与子类分叉如何并存…"></textarea>
+              <label class="muted">各境界 tiers（JSON 数组）</label>
+              <textarea id="powerTiersJson" class="json-editor-compact" spellcheck="false"></textarea>
+            </div>
+            <div id="powerSubProfessions" class="power-subview is-hidden" role="tabpanel">
+              <div class="inpanel-viz">
+                <p class="viz-subtitle">
+                  按境界列出<strong>职业/流派</strong>（叙事与阵营定位）；<strong>左栏</strong>预览，<strong>右栏</strong>编辑本境职业 JSON。派系垄断或秘传职业请填
+                  <code>exclusive_faction_id</code>（与派系页 <code>factions.entities[].id</code> 一致）。在「技能树」子页的
+                  <code>subclass_paths</code> 中可用 <code>profession_id</code> 指向此处同境职业的 <code>id</code>。
+                </p>
+                <div id="vizPowerProfessionModules" class="viz-modules" aria-label="境界职业体系可视化"></div>
+                <div class="profession-promo-section" aria-labelledby="profession-promo-label">
+                  <div class="profession-promo-head">
+                    <span class="ms profession-promo-ic" aria-hidden="true">account_tree</span>
+                    <h3 id="profession-promo-label" class="profession-promo-title">职业晋升图谱</h3>
+                  </div>
+                  <p class="muted tiny profession-promo-hint">
+                    相邻境界若出现相同的 <code>professions[].id</code>，视为同一职业线的<strong>晋升</strong>并连线；间隔多境时用虚线标注。
+                  </p>
+                  <div class="profession-promo-zoom mermaid-zoom-wrap" data-mermaid-zoom>
+                    <div
+                      id="vizProfessionPromoHost"
+                      class="mermaid-host profession-promo-host"
+                      role="img"
+                      aria-label="职业晋升关系图"
+                    ></div>
+                  </div>
+                </div>
+              </div>
+              <h3 class="panel-subh">职业体系总览</h3>
+              <p class="muted tiny" style="margin-top: 0">
+                与 <code>power_system.tiers</code> 并列存储于 <code>power_system.profession_system</code>；各境卡片与境界表顺序一致。
+              </p>
+              <label class="field-label">总览</label>
+              <textarea id="powerProfessionSummary" placeholder="职业/流派在世界中的位置：宗门、军团、公会、秘传等…"></textarea>
+              <label class="muted">设计说明（与派系、文化、技能树对齐方式）</label>
+              <textarea id="powerProfessionDesign" placeholder="例如：何时写 exclusive_faction_id；subclass_paths.profession_id 如何与本页 id 对齐…"></textarea>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-attributes" class="panel">
+          <div class="card">
+            <h2><span class="ms h2-ic" aria-hidden="true">bubble_chart</span>通用人物属性</h2>
+            <p class="muted tiny" style="margin-top: 0">
+              与「境界体系」（power_system）独立：用于描述人物有多强、擅长什么（叙事或检定尺度）。
+              <code>stats[].reference_percent</code> 为雷达<strong>参照轮廓</strong>；
+              <code>tier_average_profiles</code> 可与各境名称对齐，叠画<strong>各境界普通人的平均属性</strong>（<strong>缺键的轴为 0</strong>；与当前 <code>stats</code> 的 id 若无一能对齐则<strong>不绘制</strong>该境）。
+            </p>
+            <p class="muted tiny attr-panel-hint">
+              <strong>载体提示：</strong>创作模式选 <strong>DnD / CoC</strong> 时，可优先采用接近官方人物卡的固定维度（如六维、理智/意志等）；选<strong>小说 / 游戏</strong>时，请按世界观<strong>自定义</strong>
+              <code>stats</code>。若助手在回复中用 <strong>三个反引号包裹的 json 代码块</strong>给出含
+              <code>attribute_system</code> 的对象，发送后会<strong>自动解析</strong>并填入本页、更新雷达（可与「对话后同步」叠加；未开同步时也会写入）。
+            </p>
+            <div class="inpanel-viz">
+              <p class="viz-subtitle">维度雷达（参照轮廓 + 各境界平均，可选）</p>
+              <div id="vizAttributeRadarHost" class="attr-radar-host" role="img" aria-label="属性雷达"></div>
+              <div id="attrStatChips" class="attr-stat-chips" aria-label="各维度刻度"></div>
+              <div id="attrStatIntros" class="attr-stat-intros" aria-label="各维度简介"></div>
+            </div>
+            <label class="field-label">总览</label>
+            <textarea id="attrSummary" placeholder="例如：本世界用六维叙事板，跑团时可对应 d20 加值…"></textarea>
+            <label class="muted">设计说明（如何建卡、如何读雷达、与载体对齐）</label>
+            <textarea id="attrDesignNotes" placeholder="雷达中心为弱、边缘为强；reference_percent 为常态英雄等参照…"></textarea>
+            <label class="muted">stats（JSON 数组：id, name, abbreviation, intro, description, scale, typical_use, reference_percent；可选 radar_icon 为 Material 图标名如 fitness_center）</label>
+            <textarea id="attrStatsJson" class="json-editor-compact" spellcheck="false"></textarea>
+            <label class="muted">tier_average_profiles（JSON：每项 tier_name、averages 为 stat id → 0～100；<strong>缺键该轴为 0</strong>，与当前 stats 的 id 若<strong>无一能对上</strong>则该境<strong>不绘制</strong>）</label>
+            <textarea id="attrTierProfilesJson" class="json-editor-compact" spellcheck="false"></textarea>
           </div>
         </section>
 
@@ -226,7 +395,7 @@
           <div class="card">
             <h2><span class="ms h2-ic" aria-hidden="true">diamond</span>物品品质</h2>
             <div class="inpanel-viz">
-              <p class="viz-subtitle">各档位：名称、含义（稀有叙事）、范例（卡片预览）</p>
+              <p class="viz-subtitle">各档位可在卡片内编辑名称、稀有叙事、典型效果、例子（一行一条）与绑定/规则；与下方 JSON 同步</p>
               <div id="vizItemGradesRoot" class="viz-modules" aria-label="各物品档位可视化"></div>
             </div>
             <textarea id="itemSummary"></textarea>
@@ -243,6 +412,14 @@
               <p class="viz-subtitle">传统 / 教团之间的影响、冲突与融合（与下方实体 id 一致）</p>
               <div class="mermaid-zoom-wrap faction-global-zoom" data-mermaid-zoom>
                 <div class="mermaid-zoom-toolbar" role="toolbar" aria-label="文化关系图缩放">
+                  <button
+                    type="button"
+                    class="ghost btn-sm btn-ic"
+                    id="btnRefreshCultureRelations"
+                    title="根据当前文化/宗教设定调用模型，重算各实体 relations 并保存（用于关系图）"
+                  >
+                    <span class="ms" aria-hidden="true">account_tree</span>修订关系网
+                  </button>
                   <button type="button" class="ghost btn-sm mzoom-out" title="缩小">−</button>
                   <span class="mzoom-pct muted tiny">100%</span>
                   <button type="button" class="ghost btn-sm mzoom-in" title="放大">+</button>
@@ -288,6 +465,14 @@
               <p class="viz-subtitle">全局关系图：滚轮缩放，左键拖拽平移，「重置」恢复位置与比例</p>
               <div class="mermaid-zoom-wrap faction-global-zoom" data-mermaid-zoom>
                 <div class="mermaid-zoom-toolbar" role="toolbar" aria-label="关系图缩放">
+                  <button
+                    type="button"
+                    class="ghost btn-sm btn-ic"
+                    id="btnRefreshFactionRelations"
+                    title="根据当前派系设定调用模型，重算各派系 relations 并保存（用于关系图）"
+                  >
+                    <span class="ms" aria-hidden="true">account_tree</span>修订关系网
+                  </button>
                   <button type="button" class="ghost btn-sm mzoom-out" title="缩小">−</button>
                   <span class="mzoom-pct muted tiny">100%</span>
                   <button type="button" class="ghost btn-sm mzoom-in" title="放大">+</button>
@@ -328,7 +513,7 @@
           <div class="card">
             <h2><span class="ms h2-ic" aria-hidden="true">timeline</span>历史</h2>
             <div class="inpanel-viz">
-              <p class="viz-subtitle">大事件时间轴（与下方 JSON 数组顺序一致）</p>
+              <p class="viz-subtitle">大事件时间轴：时间、标题、摘要、后果与关联派系可在卡片中编辑；与下方 JSON 同步</p>
               <div id="historyMajorTimeline" class="history-major-timeline" aria-label="大事件时间轴"></div>
               <p class="viz-subtitle">因果链导图（上早下晚；边可标首条后果）</p>
               <div id="vizHistoryHost" class="mermaid-host viz-history-host" role="img" aria-label="历史事件链"></div>
@@ -368,10 +553,36 @@
           </div>
         </section>
 
+        <section id="view-search" class="panel">
+          <div class="card">
+            <h2><span class="ms h2-ic" aria-hidden="true">search</span>全文搜索</h2>
+            <p class="muted tiny" style="margin-top: 0">
+              在磁盘上的 <code>world.json</code> 与 <code>world.md</code> 中跨板块查找关键词（大小写不敏感）。与左侧各页表单<strong>未保存的编辑</strong>无关；若刚改过设定请先<strong>保存世界</strong>再搜。
+            </p>
+            <p id="searchPathHint" class="muted tiny" style="margin-bottom: 12px">—</p>
+            <div class="row world-search-row">
+              <input
+                type="search"
+                id="worldSearchQ"
+                class="world-search-input"
+                placeholder="例如：教团、河流、神器名…"
+                autocomplete="off"
+                aria-label="全文搜索关键词"
+              />
+              <button type="button" class="ghost btn-ic" id="btnWorldSearch">
+                <span class="ms" aria-hidden="true">search</span>搜索
+              </button>
+            </div>
+            <div id="worldSearchResults" class="world-search-results muted" aria-live="polite"></div>
+          </div>
+        </section>
+
         <section id="view-files" class="panel">
           <div class="card">
-            <h2><span class="ms h2-ic" aria-hidden="true">folder_open</span>文件与导出</h2>
-            <p class="muted">数据目录：<code id="filesDirHint"></code></p>
+            <h2><span class="ms h2-ic" aria-hidden="true">folder_open</span>导出与快照</h2>
+            <p class="muted">
+              本页仅用于<strong>导出</strong>与查看当前内存中的 <strong>world.json</strong> 快照（与表单是否保存一致）。数据目录：<code id="filesDirHint"></code>
+            </p>
             <div class="row" style="margin: 10px 0; gap: 10px; flex-wrap: wrap; align-items: center">
               <button type="button" class="ghost btn-ic" id="btnCopyWorldId">
                 <span class="ms" aria-hidden="true">content_copy</span>复制世界 ID
@@ -384,7 +595,14 @@
             <button type="button" class="ghost btn-ic" id="btnExportMd">
               <span class="ms" aria-hidden="true">file_export</span>重新导出 world.md
             </button>
-            <pre id="filesDump" class="muted" style="font-size: 12px; max-height: 40vh; overflow: auto"></pre>
+
+            <div class="files-root-block" style="margin-top: 18px">
+              <div class="files-root-head">
+                <span class="ms files-root-ic" aria-hidden="true">data_object</span>
+                <h3 class="files-root-title">当前 world.json 快照</h3>
+              </div>
+              <pre id="filesDump" class="muted" style="font-size: 12px; max-height: 40vh; overflow: auto"></pre>
+            </div>
           </div>
         </section>
       </main>
@@ -393,8 +611,41 @@
         <h3><span class="ms aside-h-ic" aria-hidden="true">dashboard</span>看板</h3>
         <div id="statStrip" class="stat-strip"></div>
         <p class="aside-moved-hint muted tiny">
-          关系图、时间轴与各境界/档位导图已迁至对应模块页顶部；此处仅保留计数与 JSON 快照。
+          关系图、时间轴与各境界/档位导图已迁至对应模块页顶部；此处保留计数、JSON 快照与<strong>版本备份 / diff / 回滚</strong>。
         </p>
+        <details class="raw-fold reference-lint-fold" id="referenceLintFold">
+          <summary><span class="ms sum-ic" aria-hidden="true">rule_folder</span>引用一致性</summary>
+          <p class="muted tiny snapshot-hint">
+            检查地理 <code>relations.target_id</code>、派系/文化关系边、历史 <code>linked_faction_ids</code>、职业
+            <code>exclusive_faction_id</code>、技能树 <code>prereq_ids</code> 等（对照<strong>磁盘</strong>已保存的 world；未保存修改请先点保存）。
+          </p>
+          <div class="reference-lint-toolbar">
+            <button type="button" class="ghost btn-sm" id="btnReferenceLint">运行校验</button>
+          </div>
+          <div id="referenceLintOut" class="reference-lint-out muted tiny" aria-live="polite"></div>
+        </details>
+        <details class="raw-fold snapshot-fold" id="snapshotFold">
+          <summary><span class="ms sum-ic" aria-hidden="true">history</span>版本快照与 diff</summary>
+          <p class="muted tiny snapshot-hint">
+            每次保存会将磁盘上的<strong>上一版</strong>写入 <code>snapshots/v&lt;版本&gt;.json</code>（自动淘汰较早文件）。
+          </p>
+          <div class="snapshot-toolbar">
+            <label class="muted tiny">对比</label>
+            <select id="snapshotDiffLeft" aria-label="diff 左侧版本"></select>
+            <span class="muted tiny">vs</span>
+            <select id="snapshotDiffRight" aria-label="diff 右侧版本"></select>
+            <button type="button" class="ghost btn-sm" id="btnSnapshotDiff">显示 diff</button>
+          </div>
+          <div id="snapshotDiffWrap" class="snapshot-diff-wrap" hidden>
+            <div class="muted tiny" id="snapshotDiffMeta"></div>
+            <pre id="snapshotDiffPre" class="snapshot-diff-pre" aria-live="polite"></pre>
+          </div>
+          <div class="snapshot-toolbar snapshot-toolbar--rollback">
+            <label class="muted tiny">回滚</label>
+            <select id="snapshotRollbackSel" aria-label="选择快照版本"></select>
+            <button type="button" class="ghost btn-sm snapshot-rollback-btn" id="btnSnapshotRollback">回滚到该快照</button>
+          </div>
+        </details>
         <details class="raw-fold">
           <summary><span class="ms sum-ic" aria-hidden="true">data_object</span>原始 JSON</summary>
           <pre id="contextRawJson" class="mono-small"></pre>
@@ -403,6 +654,11 @@
     </div>
 
     <div id="toast" class="toast" role="status"></div>
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js" crossorigin="anonymous"></script>
+    <script
+      src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"
+      crossorigin="anonymous"
+    ></script>
     <script src="/static/app.js"></script>
   </body>
 </html>

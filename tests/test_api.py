@@ -83,6 +83,52 @@ def test_delete_world_missing_404():
     assert client.delete("/api/worlds/nonexistent-world-00000000").status_code == 404
 
 
+def test_search_world_endpoint_hits_json_and_md():
+    wid = client.post("/api/worlds", json={"name": "全文搜测"}).json()["world"]["meta"]["id"]
+    w = client.get(f"/api/worlds/{wid}").json()["world"]
+    token = "TokSearchUniqueXy9"
+    w["geography"]["summary"] = f"含标记 {token}"
+    assert client.put(f"/api/worlds/{wid}", json=w).status_code == 200
+    assert client.post(f"/api/worlds/{wid}/export-md").status_code == 200
+    rs = client.get(f"/api/worlds/{wid}/search", params={"q": token})
+    assert rs.status_code == 200
+    data = rs.json()
+    assert data["query"] == token
+    assert data["total_json"] >= 1
+    assert any(token in (h.get("snippet") or "") for h in data["json_hits"])
+    assert data["total_md"] >= 1
+
+
+def test_search_world_missing_q_422():
+    wid = client.post("/api/worlds", json={"name": "搜空q"}).json()["world"]["meta"]["id"]
+    assert client.get(f"/api/worlds/{wid}/search").status_code == 422
+
+
+def test_search_world_blank_q_400():
+    wid = client.post("/api/worlds", json={"name": "搜空白"}).json()["world"]["meta"]["id"]
+    assert client.get(f"/api/worlds/{wid}/search", params={"q": "   "}).status_code == 400
+
+
+def test_search_world_not_found_404():
+    assert (
+        client.get("/api/worlds/nonexistent-world-00000000/search", params={"q": "a"}).status_code == 404
+    )
+
+
+def test_lint_references_endpoint():
+    wid = client.post("/api/worlds", json={"name": "Lint 接口"}).json()["world"]["meta"]["id"]
+    r = client.get(f"/api/worlds/{wid}/lint-references")
+    assert r.status_code == 200
+    data = r.json()
+    assert "ok" in data and "warnings" in data
+    assert isinstance(data["warnings"], list)
+    assert "counts" in data
+
+
+def test_lint_references_404():
+    assert client.get("/api/worlds/nonexistent-world-00000000/lint-references").status_code == 404
+
+
 def test_list_worlds_returns_id_and_display_name():
     wid = client.post("/api/worlds", json={"name": "列表原名"}).json()["world"]["meta"]["id"]
     r = client.get("/api/worlds")
@@ -116,6 +162,31 @@ def test_outline_saves_file(mock_chat):
     assert "based_on_world_id" in text
     assert "大纲正文" in text
     mock_chat.assert_awaited()
+
+
+def test_snapshots_list_diff_rollback_via_api():
+    wid = client.post("/api/worlds", json={"name": "快照API"}).json()["world"]["meta"]["id"]
+    assert client.get(f"/api/worlds/{wid}/snapshots").json()["snapshots"] == []
+    w = client.get(f"/api/worlds/{wid}").json()["world"]
+    w["geography"]["summary"] = "第一稿"
+    assert client.put(f"/api/worlds/{wid}", json=w).status_code == 200
+    rs = client.get(f"/api/worlds/{wid}/snapshots")
+    assert rs.status_code == 200
+    assert 1 in {s["version"] for s in rs.json()["snapshots"]}
+    diff = client.get(f"/api/worlds/{wid}/snapshots/diff", params={"left": "1", "right": "current"})
+    assert diff.status_code == 200
+    body = diff.json()
+    assert "lines" in body
+    assert any("第一稿" in (ln.get("text") or "") for ln in body["lines"])
+    rb = client.post(f"/api/worlds/{wid}/snapshots/rollback", json={"snapshot_version": 1})
+    assert rb.status_code == 200
+    assert rb.json()["world"]["meta"]["version"] == 3
+    assert rb.json()["world"]["geography"]["summary"] == ""
+
+
+def test_snapshots_diff_requires_left_right():
+    wid = client.post("/api/worlds", json={"name": "diff缺参"}).json()["world"]["meta"]["id"]
+    assert client.get(f"/api/worlds/{wid}/snapshots/diff").status_code == 400
 
 
 def test_chat_503_without_key():
@@ -202,3 +273,130 @@ def test_outline_mode_addon():
     assert outline_mode_addon("novel").strip()
     assert outline_mode_addon("dnd").strip()
     assert outline_mode_addon(None) == ""
+
+
+def test_refresh_faction_relations_empty_entities_no_llm():
+    wid = client.post("/api/worlds", json={"name": "派系关系空"}).json()["world"]["meta"]["id"]
+    r = client.post(f"/api/worlds/{wid}/refresh/faction-relations", json={"persist": True})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["persisted"] is False
+    assert any("无派系实体" in (w or "") for w in (body.get("warnings") or []))
+
+
+@patch("worldforger.relation_graph_refresh.chat_completion", new_callable=AsyncMock)
+def test_refresh_faction_relations_merge_and_persist(mock_llm):
+    mock_llm.return_value = (
+        "```json\n"
+        '{"entities": [{"id": "f1", "relations": [{"target_id": "f2", "type": "ally", "notes": ""}]}]}'
+        "\n```"
+    )
+    wid = client.post("/api/worlds", json={"name": "派系关系测"}).json()["world"]["meta"]["id"]
+    w = client.get(f"/api/worlds/{wid}").json()["world"]
+    w["factions"]["entities"] = [
+        {
+            "id": "f1",
+            "name": "北",
+            "goals": "",
+            "territory": "",
+            "key_figures": [],
+            "relations": [],
+        },
+        {
+            "id": "f2",
+            "name": "南",
+            "goals": "",
+            "territory": "",
+            "key_figures": [],
+            "relations": [],
+        },
+    ]
+    assert client.put(f"/api/worlds/{wid}", json=w).status_code == 200
+    v0 = client.get(f"/api/worlds/{wid}").json()["world"]["meta"]["version"]
+
+    r = client.post(f"/api/worlds/{wid}/refresh/faction-relations", json={"persist": True})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["persisted"] is True
+    rels = body["world"]["factions"]["entities"][0]["relations"]
+    assert rels[0]["target_id"] == "f2"
+    assert rels[0]["type"] == "ally"
+    mock_llm.assert_awaited()
+
+    w_disk = client.get(f"/api/worlds/{wid}").json()["world"]
+    assert w_disk["meta"]["version"] > v0
+    assert w_disk["factions"]["entities"][0]["relations"][0]["type"] == "ally"
+
+
+@patch("worldforger.relation_graph_refresh.chat_completion", new_callable=AsyncMock)
+def test_refresh_culture_relations_ok(mock_llm):
+    mock_llm.return_value = '{"entities": [{"id": "c1", "relations": [{"target_id": "c2", "type": "影响", "notes": ""}]}]}'
+    wid = client.post("/api/worlds", json={"name": "文化关系测"}).json()["world"]["meta"]["id"]
+    w = client.get(f"/api/worlds/{wid}").json()["world"]
+    w["cultures"]["entities"] = [
+        {
+            "id": "c1",
+            "name": "甲",
+            "kind": "culture",
+            "summary": "",
+            "tenets": "",
+            "practices": "",
+            "sacred_sites": [],
+            "key_figures": [],
+            "relations": [],
+        },
+        {
+            "id": "c2",
+            "name": "乙",
+            "kind": "culture",
+            "summary": "",
+            "tenets": "",
+            "practices": "",
+            "sacred_sites": [],
+            "key_figures": [],
+            "relations": [],
+        },
+    ]
+    assert client.put(f"/api/worlds/{wid}", json=w).status_code == 200
+    r = client.post(f"/api/worlds/{wid}/refresh/culture-relations", json={"persist": False})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["persisted"] is False
+    assert body["world"]["cultures"]["entities"][0]["relations"][0]["target_id"] == "c2"
+    w_disk = client.get(f"/api/worlds/{wid}").json()["world"]
+    assert w_disk["cultures"]["entities"][0]["relations"] == []
+    mock_llm.assert_awaited()
+
+
+@patch("worldforger.relation_graph_refresh.chat_completion", new_callable=AsyncMock)
+def test_refresh_faction_relations_parse_error_returns_ok_false(mock_llm):
+    mock_llm.return_value = "not json at all"
+    wid = client.post("/api/worlds", json={"name": "派系解析败"}).json()["world"]["meta"]["id"]
+    w = client.get(f"/api/worlds/{wid}").json()["world"]
+    w["factions"]["entities"] = [
+        {
+            "id": "f1",
+            "name": "A",
+            "goals": "",
+            "territory": "",
+            "key_figures": [],
+            "relations": [],
+        },
+        {
+            "id": "f2",
+            "name": "B",
+            "goals": "",
+            "territory": "",
+            "key_figures": [],
+            "relations": [],
+        },
+    ]
+    assert client.put(f"/api/worlds/{wid}", json=w).status_code == 200
+    r = client.post(f"/api/worlds/{wid}/refresh/faction-relations", json={})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False
+    assert "error" in body

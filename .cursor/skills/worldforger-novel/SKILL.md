@@ -22,3 +22,4 @@ description: >-
 
 - 模式文案：`worldforger/creative_modes.py`（`CHAT_MODE_SYSTEM["novel"]` 等）。
 - API：`app/main.py` 将 `creative_mode` 传给对话、同步与大纲。
+- 派系与要人名单形态见 **`worldforger-factions`**。

@@ -9,21 +9,31 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from worldforger.llm import chat_completion
-from worldforger.creative_modes import chat_mode_system
+from worldforger.creative_modes import chat_guides_content, chat_mode_system, genre_tags_prompt_addon, normalize_chat_guides
 from worldforger.panel_sync import sync_panels_from_dialogue
+from worldforger.relation_graph_refresh import (
+    refresh_world_culture_relations,
+    refresh_world_faction_relations,
+)
 from worldforger.prompts import outline_system_prompt, system_with_world_json
 from worldforger.schemas import World
+from worldforger.snapshot_diff import line_diff_json
+from worldforger.reference_linter import lint_world_references
+from worldforger.world_search import search_world_payload
 from worldforger.world_store import (
     create_world,
     delete_world,
+    list_snapshots,
     list_world_briefs,
+    load_snapshot_dict,
     load_world,
     load_world_markdown_optional,
     outlines_dir,
     rename_world,
+    rollback_to_snapshot,
     save_world,
     sessions_dir,
     world_context_for_prompt,
@@ -41,6 +51,10 @@ class RenameWorldBody(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
 
+class RollbackSnapshotBody(BaseModel):
+    snapshot_version: int = Field(ge=1, le=9_999_999)
+
+
 class ChatMessage(BaseModel):
     role: Literal["system", "user", "assistant"]
     content: str
@@ -50,6 +64,12 @@ class ChatBody(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
     mode: str | None = None
     include_markdown_context: bool = False
+    chat_guides: list[str] = Field(default_factory=list)
+
+    @field_validator("chat_guides", mode="before")
+    @classmethod
+    def _filter_chat_guides(cls, v: object) -> list[str]:
+        return normalize_chat_guides(v)
 
 
 class OutlineBody(BaseModel):
@@ -64,6 +84,7 @@ SyncScope = Literal[
     "geography",
     "power_system",
     "item_quality_system",
+    "attribute_system",
     "factions",
     "cultures",
     "history",
@@ -78,6 +99,13 @@ class SyncPanelsBody(BaseModel):
     persist: bool = False
     scope: SyncScope = "all"
     creative_mode: str | None = None
+
+
+class RefreshRelationsBody(BaseModel):
+    """仅重算派系或文化实体的 relations，供关系图与卡片同步。"""
+
+    creative_mode: str | None = None
+    persist: bool = True
 
 
 app = FastAPI(title="Magic Creater World", version="0.1.0")
@@ -146,6 +174,40 @@ def api_get_world(world_id: str) -> dict[str, Any]:
     return {"world": w.model_dump(mode="json"), "has_nonempty_world_md": has_md}
 
 
+@app.get("/api/worlds/{world_id}/search")
+def api_search_world(world_id: str, q: str, limit_json: int = 120, limit_md: int = 80) -> dict[str, Any]:
+    """在 world.json 与 world.md 中全文检索（大小写不敏感）；用于跨板块找关键词。"""
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    if not (q or "").strip():
+        raise HTTPException(status_code=400, detail="missing or empty query parameter q")
+    lj = max(1, min(int(limit_json), 300))
+    lm = max(1, min(int(limit_md), 200))
+    md = load_world_markdown_optional(world_id)
+    try:
+        return search_world_payload(
+            w.model_dump(mode="json"),
+            md,
+            q,
+            max_json_hits=lj,
+            max_md_hits=lm,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+
+@app.get("/api/worlds/{world_id}/lint-references")
+def api_lint_world_references(world_id: str) -> dict[str, Any]:
+    """纯本地：检查地理/派系/文化/历史/境界等跨 id 引用是否指向存在的实体。"""
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    return lint_world_references(w)
+
+
 @app.put("/api/worlds/{world_id}")
 def api_put_world(world_id: str, body: dict[str, Any]) -> dict[str, Any]:
     try:
@@ -197,6 +259,66 @@ def api_export_md(world_id: str) -> dict[str, str]:
     return {"ok": "true", "path": str(world_json_path(world_id).with_name("world.md"))}
 
 
+def _json_for_diff(world_id: str, ref: str) -> dict[str, Any]:
+    """ref: `current` 或版本号字符串（如 3）。"""
+    r = (ref or "").strip().lower()
+    if r in ("", "current"):
+        p = world_json_path(world_id)
+        if not p.is_file():
+            raise HTTPException(status_code=404, detail="world not found")
+        return json.loads(p.read_text(encoding="utf-8"))
+    if not r.isdigit():
+        raise HTTPException(
+            status_code=400, detail="left/right must be `current` or a positive integer"
+        )
+    try:
+        return load_snapshot_dict(world_id, int(r))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail="snapshot not found") from e
+
+
+@app.get("/api/worlds/{world_id}/snapshots")
+def api_list_snapshots(world_id: str) -> dict[str, Any]:
+    try:
+        load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    return {"snapshots": list_snapshots(world_id)}
+
+
+@app.get("/api/worlds/{world_id}/snapshots/diff")
+def api_snapshots_diff(world_id: str, left: str | None = None, right: str | None = None) -> dict[str, Any]:
+    if left is None or not str(left).strip() or right is None or not str(right).strip():
+        raise HTTPException(
+            status_code=400,
+            detail="queries `left` and `right` are required (each: `current` or a snapshot version number)",
+        )
+    try:
+        load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    dl = _json_for_diff(world_id, str(left))
+    dr = _json_for_diff(world_id, str(right))
+    lines, truncated = line_diff_json(dl, dr)
+    return {
+        "left": str(left).strip().lower(),
+        "right": str(right).strip().lower(),
+        "lines": lines,
+        "truncated": truncated,
+    }
+
+
+@app.post("/api/worlds/{world_id}/snapshots/rollback")
+def api_snapshot_rollback(world_id: str, body: RollbackSnapshotBody) -> dict[str, Any]:
+    try:
+        w = rollback_to_snapshot(world_id, body.snapshot_version)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="snapshot not found") from None
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    return {"world": w.model_dump(mode="json")}
+
+
 @app.post("/api/worlds/{world_id}/chat")
 async def api_chat(world_id: str, body: ChatBody) -> dict[str, str]:
     try:
@@ -211,6 +333,12 @@ async def api_chat(world_id: str, body: ChatBody) -> dict[str, str]:
     addon = chat_mode_system(mode_eff)
     if addon:
         msgs.append({"role": "system", "content": addon})
+    tag_addon = genre_tags_prompt_addon(w.meta.genre_tags)
+    if tag_addon:
+        msgs.append({"role": "system", "content": tag_addon})
+    guide_text = chat_guides_content(body.chat_guides)
+    if guide_text:
+        msgs.append({"role": "system", "content": guide_text})
     for m in body.messages:
         msgs.append({"role": m.role, "content": m.content})
     try:
@@ -276,6 +404,104 @@ async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict
     }
 
 
+@app.post("/api/worlds/{world_id}/refresh/faction-relations")
+async def api_refresh_faction_relations(
+    world_id: str, body: RefreshRelationsBody | None = None
+) -> dict[str, Any]:
+    """
+    根据当前 factions 设定调用 LLM，重写各派系 relations；可选写盘。
+    """
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    eff = body or RefreshRelationsBody()
+    if not w.factions.entities:
+        return {
+            "ok": True,
+            "world": w.model_dump(mode="json"),
+            "warnings": ["当前无派系实体，未调用模型"],
+            "persisted": False,
+        }
+    try:
+        merged, warnings = await refresh_world_faction_relations(
+            w, creative_mode=eff.creative_mode
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except (ValueError, json.JSONDecodeError, TypeError) as e:
+        return {
+            "ok": False,
+            "error": str(e),
+            "world": w.model_dump(mode="json"),
+            "warnings": [],
+            "persisted": False,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"relation refresh error: {e}") from e
+
+    persisted = False
+    if eff.persist:
+        merged.bump_version()
+        save_world(merged, export_markdown=True)
+        persisted = True
+    return {
+        "ok": True,
+        "world": merged.model_dump(mode="json"),
+        "warnings": warnings,
+        "persisted": persisted,
+    }
+
+
+@app.post("/api/worlds/{world_id}/refresh/culture-relations")
+async def api_refresh_culture_relations(
+    world_id: str, body: RefreshRelationsBody | None = None
+) -> dict[str, Any]:
+    """
+    根据当前 cultures 设定调用 LLM，重写各实体 relations；可选写盘。
+    """
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    eff = body or RefreshRelationsBody()
+    if not w.cultures.entities:
+        return {
+            "ok": True,
+            "world": w.model_dump(mode="json"),
+            "warnings": ["当前无文化/宗教实体，未调用模型"],
+            "persisted": False,
+        }
+    try:
+        merged, warnings = await refresh_world_culture_relations(
+            w, creative_mode=eff.creative_mode
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except (ValueError, json.JSONDecodeError, TypeError) as e:
+        return {
+            "ok": False,
+            "error": str(e),
+            "world": w.model_dump(mode="json"),
+            "warnings": [],
+            "persisted": False,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"relation refresh error: {e}") from e
+
+    persisted = False
+    if eff.persist:
+        merged.bump_version()
+        save_world(merged, export_markdown=True)
+        persisted = True
+    return {
+        "ok": True,
+        "world": merged.model_dump(mode="json"),
+        "warnings": warnings,
+        "persisted": persisted,
+    }
+
+
 @app.post("/api/worlds/{world_id}/outline")
 async def api_outline(world_id: str, body: OutlineBody) -> dict[str, str]:
     try:
@@ -288,6 +514,9 @@ async def api_outline(world_id: str, body: OutlineBody) -> dict[str, str]:
     )
     mode_eff = (body.creative_mode or "").strip() or w.meta.creative_mode
     system = outline_system_prompt(body.kind, world_block, creative_mode=mode_eff)
+    tag_addon = genre_tags_prompt_addon(w.meta.genre_tags)
+    if tag_addon:
+        system = system + "\n\n" + tag_addon
     user = body.prompt.strip()
     try:
         reply = await chat_completion(

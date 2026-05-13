@@ -85,6 +85,32 @@ def test_merge_keeps_nonempty_string_when_patch_blank():
     assert out["climate_notes"] == "冷"
 
 
+def test_apply_structure_patch_attribute_system():
+    w = create_world("属性测")
+    patch = {
+        "attribute_system": {
+            "summary": "叙事六维",
+            "design_notes": "雷达为参照，非硬数值。",
+            "stats": [
+                {
+                    "id": "phy",
+                    "name": "体魄",
+                    "abbreviation": "体",
+                    "description": "耐力与爆发",
+                    "scale": "1-10",
+                    "typical_use": "战斗",
+                    "reference_percent": 50,
+                }
+            ],
+        }
+    }
+    merged, keys, _w, _nn = apply_structure_patch(w, patch)
+    assert "attribute_system" in keys
+    assert merged.attribute_system.summary == "叙事六维"
+    assert len(merged.attribute_system.stats) == 1
+    assert merged.attribute_system.stats[0].name == "体魄"
+
+
 def test_merge_replaces_list_when_patch_nonempty():
     base = {"tiers": [{"name": "A"}]}
     patch = {"tiers": [{"name": "A"}, {"name": "B"}]}

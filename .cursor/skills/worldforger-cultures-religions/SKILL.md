@@ -55,3 +55,4 @@ description: >-
 ## 与其它 worldforger-* skill
 
 - 先按载体选用 `worldforger-novel` / `worldforger-game` / `worldforger-coc-trpg` / `worldforger-dnd5e`，**本 skill 补充 cultures 节的专门约定**；二者同时启用时不冲突。
+- 组织政治、派系要人（`factions.entities[].key_figures`）见 **`worldforger-factions`**。

@@ -19,20 +19,102 @@ def world_to_markdown(w: World) -> str:
         w.geography.summary or "（待补充）",
         "",
     ]
-    if w.geography.landmarks:
-        lines += ["### 地标", ""]
-        lines += [f"- {x}" for x in w.geography.landmarks]
-        lines.append("")
     if w.geography.climate_notes:
         lines += ["### 气候", "", w.geography.climate_notes, ""]
-    if w.geography.resources:
-        lines += ["### 资源", ""]
-        lines += [f"- {x}" for x in w.geography.resources]
+    regions = w.geography.regions or []
+    if regions:
+        lines += ["### 大陆与区域", ""]
+        for r in regions:
+            if not isinstance(r, dict):
+                continue
+            nm = (r.get("name") or r.get("id") or "（未命名区域）").strip() or "（未命名区域）"
+            lines.append(f"#### {nm}")
+            lines.append("")
+            if (r.get("summary") or "").strip():
+                lines += [r["summary"].strip(), ""]
+            if (r.get("terrain") or "").strip():
+                lines += [f"**地貌** {r['terrain'].strip()}", ""]
+            if (r.get("climate") or "").strip():
+                lines += [f"**局地气候** {r['climate'].strip()}", ""]
+            if (r.get("notes") or "").strip():
+                lines += [r["notes"].strip(), ""]
+            lm = r.get("landmarks") or []
+            if isinstance(lm, list) and lm:
+                lines.append("**地标**")
+                for x in lm:
+                    if str(x).strip():
+                        lines.append(f"- {str(x).strip()}")
+                lines.append("")
+            res = r.get("resources") or []
+            if isinstance(res, list) and res:
+                lines.append("**资源**")
+                for x in res:
+                    if str(x).strip():
+                        lines.append(f"- {str(x).strip()}")
+                lines.append("")
         lines.append("")
+    elif w.geography.landmarks or w.geography.resources:
+        if w.geography.landmarks:
+            lines += ["### 地标", ""]
+            lines += [f"- {x}" for x in w.geography.landmarks]
+            lines.append("")
+        if w.geography.resources:
+            lines += ["### 资源", ""]
+            lines += [f"- {x}" for x in w.geography.resources]
+            lines.append("")
 
-    lines += ["## 超凡力量体系", "", w.power_system.summary or "（待补充）", ""]
+    lines += ["## 境界体系", ""]
+    lines += ["### 境界概述", "", w.power_system.summary or "（待补充）", ""]
+    if (w.power_system.realm_design_notes or "").strip():
+        lines += ["**设计说明**", "", w.power_system.realm_design_notes.strip(), ""]
+    lines += ["### 境界技能树", ""]
+    if (w.power_system.skill_tree_design_notes or "").strip():
+        lines += ["**设计说明**", "", w.power_system.skill_tree_design_notes.strip(), ""]
+    else:
+        lines += ["*（无单独跨境说明，见各境 skill_tree / subclass_paths）*", ""]
+    ps = w.power_system.profession_system
+    if (ps.summary or "").strip() or (ps.design_notes or "").strip() or ps.by_tier:
+        lines += ["### 境界职业体系", ""]
+        if (ps.summary or "").strip():
+            lines += [ps.summary.strip(), ""]
+        if (ps.design_notes or "").strip():
+            lines += ["**设计说明**", "", ps.design_notes.strip(), ""]
+        for block in ps.by_tier:
+            tname = (block.tier_name or "").strip() or "（未命名境界）"
+            if not block.professions:
+                continue
+            lines += [f"#### {tname}", ""]
+            for pr in block.professions:
+                fac = f" · 派系专属 `{pr.exclusive_faction_id}`" if pr.exclusive_faction_id else ""
+                lines.append(f"- **{pr.name}** (`{pr.id}`){fac}" + (f" — {pr.tagline}" if pr.tagline else ""))
+                if pr.flavor:
+                    lines.append(f"  - {pr.flavor}")
+                if pr.notes:
+                    lines.append(f"  - 备注：{pr.notes}")
+            lines.append("")
     for t in w.power_system.tiers:
         lines += [f"### {t.name}", "", t.description or "（无描述）", ""]
+        if t.skill_tree:
+            lines.append("**本境通用技能树**")
+            for n in t.skill_tree:
+                branch = f" · {n.branch}" if n.branch else ""
+                pre = f"（前置：{', '.join(n.prereq_ids)}）" if n.prereq_ids else ""
+                lines.append(f"- `{n.id}` **{n.name}**{branch}{pre}")
+                if n.summary:
+                    lines.append(f"  - {n.summary}")
+            lines.append("")
+        if t.subclass_paths:
+            lines.append("**子类职业**")
+            for sp in t.subclass_paths:
+                pid = f" · 职业 `{sp.profession_id}`" if sp.profession_id else ""
+                lines.append(f"- **{sp.name}** (`{sp.id}`){pid}" + (f" — {sp.tagline}" if sp.tagline else ""))
+                if sp.flavor:
+                    lines.append(f"  - {sp.flavor}")
+                if sp.skill_tree:
+                    for n in sp.skill_tree:
+                        pre = f" ← {', '.join(n.prereq_ids)}" if n.prereq_ids else ""
+                        lines.append(f"  - `{n.id}` {n.name}{pre}")
+                lines.append("")
         if t.typical_capabilities:
             lines.append("**典型能力**")
             lines += [f"- {c}" for c in t.typical_capabilities]
@@ -56,6 +138,32 @@ def world_to_markdown(w: World) -> str:
         if g.examples:
             lines.append("**范例**")
             lines += [f"- {c}" for c in g.examples]
+            lines.append("")
+
+    lines += ["## 通用人物属性", "", w.attribute_system.summary or "（待补充）", ""]
+    if w.attribute_system.design_notes:
+        lines += ["### 读法与设计说明", "", w.attribute_system.design_notes, ""]
+    if w.attribute_system.stats:
+        lines.append("### 维度")
+        for s in w.attribute_system.stats:
+            ab = f"（{s.abbreviation}）" if s.abbreviation else ""
+            lines.append(f"- **{s.name}** `{s.id}`{ab} · 参照刻度 {s.reference_percent}/100")
+            if (s.intro or "").strip():
+                lines.append(f"  - 简介：{s.intro.strip()}")
+            if s.scale:
+                lines.append(f"  - 刻度：{s.scale}")
+            if s.typical_use:
+                lines.append(f"  - 用途：{s.typical_use}")
+            if s.description:
+                lines.append(f"  - 说明：{s.description}")
+        lines.append("")
+    if w.attribute_system.tier_average_profiles:
+        lines.append("### 各境界平均人物属性（雷达刻度 0–100）")
+        for tp in w.attribute_system.tier_average_profiles:
+            lines.append(f"- **{tp.tier_name}**")
+            if tp.averages:
+                for sid, val in tp.averages.items():
+                    lines.append(f"  - `{sid}`：{val}")
             lines.append("")
 
     lines += ["## 派系与关系", "", w.factions.summary or "（待补充）", ""]

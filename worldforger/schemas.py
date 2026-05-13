@@ -30,6 +30,13 @@ class Meta(BaseModel):
 
 
 class GeographySection(BaseModel):
+    """地理：总览在 summary；大陆/王国等可区分单元在 regions[]。
+
+    每个 region 建议含 id、name、summary；可选 terrain、climate、notes、
+    landmarks[]、resources[]、relations[]（target_id/type/notes）。
+    顶层 landmarks/resources 为可选汇总或与旧档兼容，结构化同步优先写入各区域。
+    """
+
     summary: str = ""
     regions: list[dict[str, Any]] = Field(default_factory=list)
     landmarks: list[str] = Field(default_factory=list)
@@ -38,17 +45,156 @@ class GeographySection(BaseModel):
     map_notes: str = ""
 
 
+class SkillNode(BaseModel):
+    """技能树节点：用于境界通用树或子类职业专属树。"""
+
+    id: str
+    name: str
+    summary: str = ""
+    prereq_ids: list[str] = Field(default_factory=list)
+    branch: str = ""
+
+
+class SubclassPath(BaseModel):
+    """同一境界下的子类职业（流派），带独立技能树。"""
+
+    id: str
+    name: str
+    tagline: str = ""
+    flavor: str = ""
+    skill_tree: list[SkillNode] = Field(default_factory=list)
+    profession_id: str = Field(
+        default="",
+        description="可选：与 power_system.profession_system 中本境对应条目的 ProfessionEntry.id 对齐，便于技能树流派引用职业设定。",
+    )
+
+
+class ProfessionEntry(BaseModel):
+    """某一境界下的职业/流派定位（叙事与规则）；技能树 subclass_paths 可通过 profession_id 引用。"""
+
+    id: str
+    name: str
+    tagline: str = ""
+    flavor: str = ""
+    exclusive_faction_id: str = Field(
+        default="",
+        description="若非空，表示该职业主要由该派系掌握、垄断或秘传；对应 factions.entities[].id。",
+    )
+    notes: str = ""
+
+
+class TierProfessionBlock(BaseModel):
+    """与 power_system.tiers 顺序对齐为佳：第 i 项对应第 i 个境界。"""
+
+    tier_name: str = ""
+    professions: list[ProfessionEntry] = Field(default_factory=list)
+
+
+class ProfessionSystem(BaseModel):
+    summary: str = ""
+    design_notes: str = ""
+    by_tier: list[TierProfessionBlock] = Field(
+        default_factory=list,
+        description="按境界分组的职业表；与 tiers[] 一一对应时 tier_name 建议与 tiers[i].name 一致。",
+    )
+
+
 class PowerTier(BaseModel):
     name: str
     description: str = ""
     typical_capabilities: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     examples: list[str] = Field(default_factory=list)
+    skill_tree: list[SkillNode] = Field(
+        default_factory=list,
+        description="本境界通用技能树（与 subclass_paths 中树并存；节点 id 建议带境界前缀以免冲突）。",
+    )
+    subclass_paths: list[SubclassPath] = Field(
+        default_factory=list,
+        description="子类职业：每条有独立 skill_tree，体现流派差异。",
+    )
 
 
 class PowerSystem(BaseModel):
     summary: str = ""
+    realm_design_notes: str = Field(
+        default="",
+        description="境界概述的设计说明：递进逻辑、命名规则、与叙事或其它力量体系的边界等。",
+    )
+    skill_tree_design_notes: str = Field(
+        default="",
+        description="境界技能树的设计说明：跨境界的节点命名、前置含义、通用树与子类流派树的关系等。",
+    )
+    profession_system: ProfessionSystem = Field(
+        default_factory=ProfessionSystem,
+        description="按境界划分的职业/流派体系；技能树 subclass_paths 可用 profession_id 引用其中条目。",
+    )
     tiers: list[PowerTier] = Field(default_factory=list)
+
+
+class AttributeStat(BaseModel):
+    """通用人物属性维度（叙事或规则向均可）。"""
+
+    id: str
+    name: str
+    abbreviation: str = ""
+    intro: str = Field(
+        default="",
+        description="该维度单独简介（一句话或短段），用于看板展示与雷达旁提示；与 description 长说明区分。",
+    )
+    description: str = ""
+    scale: str = ""
+    typical_use: str = ""
+    reference_percent: int = Field(
+        default=55,
+        ge=0,
+        le=100,
+        description="看板雷达上该维度的参照强度（世界常态/英雄基准等），0–100。",
+    )
+    radar_icon: str = Field(
+        default="",
+        description="雷达轴端 Material Symbols 图标名（ligature，如 fitness_center）；空则按 id/name 启发式匹配。",
+    )
+
+
+class TierAttributeAverage(BaseModel):
+    """某一境界在通用人物属性各维度上的「普通人物」平均刻度，与 stats[].id 对齐。"""
+
+    tier_name: str = Field(
+        default="",
+        description="建议与 power_system.tiers[].name 一致，便于读者对照境界表。",
+    )
+    averages: dict[str, int] = Field(
+        default_factory=dict,
+        description="stat id → 0–100；前端雷达上缺键的轴按 0；与 stats.id 无一能对齐则不绘制该境。",
+    )
+
+    @field_validator("averages", mode="before")
+    @classmethod
+    def _clamp_averages(cls, v: object) -> dict[str, int]:
+        if not isinstance(v, dict):
+            return {}
+        out: dict[str, int] = {}
+        for k, raw in v.items():
+            key = str(k).strip()
+            if not key:
+                continue
+            try:
+                n = int(round(float(raw)))
+            except (TypeError, ValueError):
+                continue
+            out[key] = max(0, min(100, n))
+        return out
+
+
+class AttributeSystem(BaseModel):
+    summary: str = ""
+    design_notes: str = ""
+    stats: list[AttributeStat] = Field(default_factory=list)
+    tier_average_profiles: list[TierAttributeAverage] = Field(
+        default_factory=list,
+        description="各境界在本属性体系下的平均人物雷达；与 power_system 各境名称对应为佳。",
+    )
 
 
 class ItemGrade(BaseModel):
@@ -131,6 +277,7 @@ class World(BaseModel):
     geography: GeographySection = Field(default_factory=GeographySection)
     power_system: PowerSystem = Field(default_factory=PowerSystem)
     item_quality_system: ItemQualitySystem = Field(default_factory=ItemQualitySystem)
+    attribute_system: AttributeSystem = Field(default_factory=AttributeSystem)
     factions: FactionsSection = Field(default_factory=FactionsSection)
     cultures: CulturesSection = Field(default_factory=CulturesSection)
     history: HistorySection = Field(default_factory=HistorySection)

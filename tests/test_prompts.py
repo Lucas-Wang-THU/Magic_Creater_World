@@ -1,0 +1,27 @@
+from worldforger.prompts import system_with_world_json
+
+
+def test_system_with_world_json_appends_geography_hint():
+    s = system_with_world_json('{"meta":{"name":"T"}}')
+    assert "```json" in s
+    assert "geography.summary" in s
+    assert "【地理与 world.json 的 geography 对齐" in s
+    assert "relations" in s
+
+
+def test_system_with_world_json_appends_power_system_hint():
+    s = system_with_world_json("{}")
+    assert "power_system.summary" in s
+    assert "realm_design_notes" in s
+    assert "skill_tree_design_notes" in s
+    assert "prereq_ids" in s
+    assert "profession_system" in s
+    assert "【境界体系与 world.json 的 power_system 对齐" in s
+
+
+def test_system_with_world_json_appends_item_quality_hint():
+    s = system_with_world_json("{}")
+    assert "item_quality_system" in s
+    assert "rarity_narrative" in s
+    assert "binding_rules" in s
+    assert "item_grades" in s
