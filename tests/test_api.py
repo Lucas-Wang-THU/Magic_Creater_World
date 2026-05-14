@@ -129,6 +129,33 @@ def test_lint_references_404():
     assert client.get("/api/worlds/nonexistent-world-00000000/lint-references").status_code == 404
 
 
+def test_fix_references_dry_run_and_apply():
+    wid = client.post("/api/worlds", json={"name": "Fix 引用"}).json()["world"]["meta"]["id"]
+    w = client.get(f"/api/worlds/{wid}").json()["world"]
+    w["factions"]["entities"] = [
+        {"id": "f1", "name": "一", "relations": [{"target_id": "ghost", "type": "enemy"}]},
+    ]
+    assert client.put(f"/api/worlds/{wid}", json=w).status_code == 200
+    assert client.get(f"/api/worlds/{wid}/lint-references").json()["ok"] is False
+    dr = client.post(f"/api/worlds/{wid}/fix-references", json={"dry_run": True})
+    assert dr.status_code == 200
+    dj = dr.json()
+    assert dj["dry_run"] is True
+    assert dj["apply_count"] >= 1
+    assert client.get(f"/api/worlds/{wid}/lint-references").json()["ok"] is False
+    ap = client.post(f"/api/worlds/{wid}/fix-references", json={"dry_run": False})
+    assert ap.status_code == 200
+    aj = ap.json()
+    assert aj["saved"] is True
+    assert aj["lint"]["ok"] is True
+    w2 = client.get(f"/api/worlds/{wid}").json()["world"]
+    assert w2["factions"]["entities"][0]["relations"] == []
+
+
+def test_fix_references_404():
+    assert client.post("/api/worlds/nonexistent-world-00000000/fix-references", json={}).status_code == 404
+
+
 def test_list_worlds_returns_id_and_display_name():
     wid = client.post("/api/worlds", json={"name": "列表原名"}).json()["world"]["meta"]["id"]
     r = client.get("/api/worlds")
@@ -164,6 +191,18 @@ def test_outline_saves_file(mock_chat):
     mock_chat.assert_awaited()
 
 
+@patch("app.main.chat_completion", new_callable=AsyncMock, return_value="生态正文")
+def test_ecology_generate_returns_reply(mock_chat):
+    wid = client.post("/api/worlds", json={"name": "生态API"}).json()["world"]["meta"]["id"]
+    r = client.post(
+        f"/api/worlds/{wid}/ecology-generate",
+        json={"hint": "强调夜行生物"},
+    )
+    assert r.status_code == 200
+    assert r.json().get("reply") == "生态正文"
+    mock_chat.assert_awaited()
+
+
 def test_snapshots_list_diff_rollback_via_api():
     wid = client.post("/api/worlds", json={"name": "快照API"}).json()["world"]["meta"]["id"]
     assert client.get(f"/api/worlds/{wid}/snapshots").json()["snapshots"] == []
@@ -195,8 +234,10 @@ def test_chat_503_without_key():
     get_settings.cache_clear()
     import os
 
-    old = os.environ.pop("PARATERA_API_KEY", None)
-    old2 = os.environ.pop("OPENAI_API_KEY", None)
+    old = os.environ.get("PARATERA_API_KEY")
+    old2 = os.environ.get("OPENAI_API_KEY")
+    os.environ["PARATERA_API_KEY"] = ""
+    os.environ["OPENAI_API_KEY"] = ""
     get_settings.cache_clear()
     try:
         wid = client.post("/api/worlds", json={"name": "K"}).json()["world"]["meta"]["id"]
@@ -208,8 +249,12 @@ def test_chat_503_without_key():
     finally:
         if old is not None:
             os.environ["PARATERA_API_KEY"] = old
+        else:
+            os.environ.pop("PARATERA_API_KEY", None)
         if old2 is not None:
             os.environ["OPENAI_API_KEY"] = old2
+        else:
+            os.environ.pop("OPENAI_API_KEY", None)
         get_settings.cache_clear()
 
 

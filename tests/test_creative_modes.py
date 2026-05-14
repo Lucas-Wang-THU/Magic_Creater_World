@@ -2,10 +2,14 @@ from worldforger.creative_modes import chat_guides_content, genre_tags_prompt_ad
 
 
 def test_normalize_chat_guides_filters_unknown():
-    assert normalize_chat_guides(["skill_trees", "nope", "attribute_system", "profession_system"]) == [
+    assert normalize_chat_guides(
+        ["skill_trees", "nope", "attribute_system", "profession_system", "economy", "ecology"]
+    ) == [
         "skill_trees",
         "attribute_system",
         "profession_system",
+        "economy",
+        "ecology",
     ]
     assert normalize_chat_guides(None) == []
 
@@ -16,6 +20,10 @@ def test_chat_guides_content_joins():
     assert "skill_tree" in text.lower() or "技能树" in text
     assert "profession" in text.lower() or "职业" in text
     assert "attribute_system" in text.lower() or "人物属性" in text
+
+    eco = chat_guides_content(["economy"])
+    assert eco
+    assert "economy" in eco.lower() or "经济" in eco
 
 
 def test_genre_tags_prompt_addon_empty():

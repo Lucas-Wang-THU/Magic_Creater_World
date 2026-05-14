@@ -246,6 +246,32 @@ class HistorySection(BaseModel):
     events: list[HistoryEvent] = Field(default_factory=list)
 
 
+class EconomySection(BaseModel):
+    """经济与流通：货币、市场、商路与贸易品；引用 geography.regions、factions.entities 的 id。"""
+
+    summary: str = ""
+    design_notes: str = ""
+    currencies: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="货币或等价物：id、name；可选 symbol、issuer_faction_id、exchange_notes。",
+    )
+    markets: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="市场层级：id、name；可选 summary、linked_region_ids[]、dominant_faction_ids[]、notes。",
+    )
+    trade_routes: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="商路：id、name、from_region_id、to_region_id；可选 summary、goods_notes、controlling_faction_ids[]、notes。",
+    )
+    trade_goods: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="战略/奢侈/违禁等：id、name；可选 category、summary、notes。",
+    )
+    labor_notes: str = ""
+    taxation_notes: str = ""
+    volatility_notes: str = ""
+
+
 CultureKind = Literal["culture", "religion", "syncretic"]
 
 
@@ -272,15 +298,50 @@ class CulturesSection(BaseModel):
     entities: list[CultureEntity] = Field(default_factory=list)
 
 
+class CharactersSection(BaseModel):
+    """人物卡司：与派系、地理、历史对齐；entities 为角色条目，relations 为角色间有向边。"""
+
+    summary: str = ""
+    design_notes: str = ""
+    entities: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="每项建议 id、name、aliases[]、cast_role（protagonist_core|supporting_major|supporting_minor|antagonist|background）、"
+        "faction_ids[]（factions.entities[].id）、home_region_id（geography.regions[].id）、one_line_hook、notes、notable_skills[]（叙事向人物特长/技能短句，非境界 skill_tree）。",
+    )
+    relations: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="人物关系边：source_id、target_id（均为 characters.entities[].id）、relation_type（如 ally/rival/family/debt/secret）、"
+        "visibility（如 reader|author_only）、notes。",
+    )
+
+
+class EcologySection(BaseModel):
+    """生态：依地理与人物属性维度推演生境、物种与遭遇话术（与 geography / attribute_system 对齐引用）。"""
+
+    summary: str = ""
+    design_notes: str = ""
+    biomes: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="生境群落：每项建议 id、name、summary、linked_region_ids[]（geography.regions[].id）、climate_habitat 等。",
+    )
+    species: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="代表性物种或群落：每项建议 id、name、biome_id、traits[]、notable_skills[]（叙事或规则向技能/行为）、encounter_dialogue（遭遇台词/环境旁白）、danger_notes。",
+    )
+
+
 class World(BaseModel):
     meta: Meta
     geography: GeographySection = Field(default_factory=GeographySection)
+    ecology: EcologySection = Field(default_factory=EcologySection)
     power_system: PowerSystem = Field(default_factory=PowerSystem)
     item_quality_system: ItemQualitySystem = Field(default_factory=ItemQualitySystem)
     attribute_system: AttributeSystem = Field(default_factory=AttributeSystem)
     factions: FactionsSection = Field(default_factory=FactionsSection)
     cultures: CulturesSection = Field(default_factory=CulturesSection)
+    characters: CharactersSection = Field(default_factory=CharactersSection)
     history: HistorySection = Field(default_factory=HistorySection)
+    economy: EconomySection = Field(default_factory=EconomySection)
 
     def bump_version(self) -> None:
         self.meta.version = int(self.meta.version) + 1

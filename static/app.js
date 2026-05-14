@@ -3,19 +3,29 @@ const $ = (id) => document.getElementById(id);
 const state = {
   world: null,
   messages: [],
+  /** 人物生成页独立对话线程（POST …/character-chat） */
+  charMessages: [],
   dirty: false,
   activeView: "chat",
   /** 境界页子页：system | trees | professions */
   powerSubView: "system",
+  /** 生态页子页：overview | biomes | species */
+  ecologySubView: "overview",
+  /** 地理页子页：overview（总览/气候/地图）| regions（大陆/区域+关系图） */
+  geoSubView: "overview",
   /** 各世界观子页是否允许编辑表单（默认开启） */
   worldviewEditMode: {
     geo: true,
+    ecology: true,
     powers: true,
     attributes: true,
     items: true,
     cultures: true,
     factions: true,
     history: true,
+    economy: true,
+    charProtagonists: true,
+    charSupporting: true,
   },
 };
 
@@ -26,33 +36,64 @@ let _searchPanelWorldId = null;
 
 const VIEW_TO_SCOPE = {
   geo: "geography",
+  ecology: "ecology",
   powers: "power_system",
   attributes: "attribute_system",
   items: "item_quality_system",
   cultures: "cultures",
   factions: "factions",
   history: "history",
+  economy: "economy",
+  charChat: "characters",
+  charProtagonists: "characters",
+  charSupporting: "characters",
+  charRelations: "characters",
+  charData: "characters",
 };
 
-/** 主导航中「世界观」各子页（不含对话 / 大纲 / 文件） */
+/** 左侧「角色」分组：各入口为独立 #view-char* 页面 */
+function isCharacterPanelView(name) {
+  return (
+    name === "charProtagonists" ||
+    name === "charSupporting" ||
+    name === "charRelations" ||
+    name === "charData"
+  );
+}
+
+function syncNavActiveButtons() {
+  document.querySelectorAll(".nav button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.view === state.activeView);
+  });
+}
+
+/** 主导航中「世界观」各子页（不含世界观构建页 / 大纲 / 数据页） */
 const WORLDVIEW_EDIT_PANEL_IDS = [
   "geo",
+  "ecology",
   "powers",
   "attributes",
   "items",
   "cultures",
   "factions",
   "history",
+  "economy",
+  "charProtagonists",
+  "charSupporting",
 ];
 
 const WORLDVIEW_EDIT_LABELS = {
   geo: "地理",
+  ecology: "生态与生境",
   powers: "境界体系",
   attributes: "通用人物属性",
   items: "物品品质",
   cultures: "文化与宗教",
   factions: "派系",
   history: "历史",
+  economy: "经济与流通",
+  charProtagonists: "主角团",
+  charSupporting: "重要配角",
 };
 
 function isWorldviewPanelEditEnabled(panelId) {
@@ -96,6 +137,7 @@ function applyWorldviewPanelEditMode(panelId) {
     if (btn.closest(".mermaid-zoom-toolbar")) return;
     btn.disabled = !enabled;
   });
+  if (panelId === "charProtagonists" || panelId === "charSupporting") refreshCharactersVizFromForm();
 }
 
 function applyAllWorldviewEditModes() {
@@ -213,6 +255,498 @@ function syncScopeForRequest() {
   return VIEW_TO_SCOPE[state.activeView] || "all";
 }
 
+/** 人物卡司：从表单 JSON 解析；失败返回 null（调用方勿刷 viz） */
+function tryParseCharacterEntitiesRelations() {
+  const parseJson = (txt, label) => {
+    try {
+      return JSON.parse(txt || "[]");
+    } catch {
+      throw new Error(`${label} JSON 无效`);
+    }
+  };
+  try {
+    const entities = parseJson($("charEntitiesJson")?.value, "characters.entities");
+    const relations = parseJson($("charRelationsJson")?.value, "characters.relations");
+    if (!Array.isArray(entities) || !Array.isArray(relations)) return null;
+    return { entities, relations };
+  } catch {
+    return null;
+  }
+}
+
+const CAST_ROLE_LABELS = {
+  protagonist_core: "主角团",
+  supporting_major: "重要配角",
+  supporting_minor: "配角",
+  antagonist: "对立面",
+  background: "背景",
+};
+
+const CAST_ROLE_HUES = {
+  protagonist_core: 200,
+  supporting_major: 268,
+  supporting_minor: 245,
+  antagonist: 350,
+  background: 160,
+};
+
+/** 卡司卡片内联编辑：与 JSON 锚定 id 一致；勿在卡片内改 id（请用卡司数据 JSON）。 */
+const CHAR_ROSTER_EDIT_ROLE_ORDER = [
+  "protagonist_core",
+  "supporting_major",
+  "supporting_minor",
+  "antagonist",
+  "background",
+];
+
+function escapeAttr(s) {
+  return String(s ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("<", "&lt;");
+}
+
+function charCastRoleSelectHtml(currentRaw) {
+  const cur = String(currentRaw ?? "").trim() || "background";
+  return CHAR_ROSTER_EDIT_ROLE_ORDER.map((r) => {
+    const sel = r === cur ? " selected" : "";
+    const lab = CAST_ROLE_LABELS[r] || r;
+    return `<option value="${escapeAttr(r)}"${sel}>${escapeHtml(lab)}</option>`;
+  }).join("");
+}
+
+function renderCharCastCardEditHtml(ent, variant = "protagonists") {
+  const idRaw = String(ent?.id ?? "").trim();
+  if (!idRaw) return "";
+  const id = escapeHtml(idRaw);
+  const roleRaw = String(ent?.cast_role ?? "").trim();
+  const hue = CAST_ROLE_HUES[roleRaw] ?? 210;
+  const hook = String(ent?.one_line_hook ?? "");
+  const notes = String(ent?.notes ?? "");
+  const skills = Array.isArray(ent?.notable_skills) ? ent.notable_skills : [];
+  const skillsTxt = skills.map((s) => String(s).trim()).filter(Boolean).join("\n");
+  const aliases = Array.isArray(ent?.aliases) ? ent.aliases : [];
+  const aliasesTxt = aliases.map((a) => String(a).trim()).filter(Boolean).join("，");
+  const fac = Array.isArray(ent?.faction_ids) ? ent.faction_ids.map((x) => String(x).trim()).filter(Boolean) : [];
+  const home = String(ent?.home_region_id ?? "").trim();
+  const avIc = variant === "supporting" ? "person" : "badge";
+  return `<article class="char-roster-card char-roster-card--edit" data-char-edit-card="1" data-char-entity-id="${escapeAttr(
+    idRaw
+  )}" style="--char-card-hue:${hue}">
+    <div class="char-roster-card-rim" aria-hidden="true"></div>
+    <div class="char-roster-card-inner">
+      <header class="char-roster-card-head char-roster-card-head--edit">
+        <div class="char-roster-avatar" aria-hidden="true"><span class="ms char-roster-avatar-ic">${avIc}</span></div>
+        <div class="char-roster-head-main">
+          <label class="char-roster-field"><span class="char-roster-field-lbl">名称</span>
+            <input type="text" class="char-roster-field-ctrl" data-char-field="name" value="${escapeAttr(
+              String(ent?.name ?? "").trim()
+            )}" autocomplete="off" spellcheck="true" /></label>
+          <div class="char-roster-idline"><span class="char-roster-k">id</span><code class="char-roster-code">${id}</code></div>
+        </div>
+        <div class="char-roster-edit-head-actions">
+          <label class="char-roster-field char-roster-field--inline"><span class="char-roster-field-lbl">卡司位</span>
+            <select class="char-roster-field-ctrl char-roster-select-role" data-char-field="cast_role" title="cast_role">${charCastRoleSelectHtml(
+              roleRaw
+            )}</select></label>
+          <button type="button" class="ghost btn-sm btn-ic char-roster-del" data-char-delete-entity="${escapeAttr(
+            idRaw
+          )}" title="从卡司删除该实体，并移除 relations 中相关边">
+            <span class="ms" aria-hidden="true">delete</span></button>
+        </div>
+      </header>
+      <section class="char-roster-block char-roster-block--edit"><div class="char-roster-block-hd">叙事钩 · one_line_hook</div>
+        <textarea class="char-roster-field-ta" data-char-field="one_line_hook" rows="2" spellcheck="true">${escapeHtml(
+          hook
+        )}</textarea></section>
+      <section class="char-roster-block char-roster-block--edit"><div class="char-roster-block-hd">备注 · notes</div>
+        <textarea class="char-roster-field-ta" data-char-field="notes" rows="2" spellcheck="true">${escapeHtml(
+          notes
+        )}</textarea></section>
+      <section class="char-roster-block char-roster-block--edit"><div class="char-roster-block-hd">别名 aliases（逗号或顿号分隔）</div>
+        <input type="text" class="char-roster-field-ctrl" data-char-field="aliases" value="${escapeAttr(
+          aliasesTxt
+        )}" autocomplete="off" /></section>
+      <section class="char-roster-block char-roster-block--edit char-roster-block--skills"><div class="char-roster-block-hd">特长 notable_skills（每行一条）</div>
+        <textarea class="char-roster-field-ta" data-char-field="notable_skills" rows="3" spellcheck="true">${escapeHtml(
+          skillsTxt
+        )}</textarea></section>
+      <section class="char-roster-block char-roster-block--edit char-roster-block--meta"><div class="char-roster-block-hd">边界 · 引用锚点</div>
+        <label class="char-roster-field"><span class="char-roster-field-lbl">faction_ids（逗号或空格分隔）</span>
+          <input type="text" class="char-roster-field-ctrl" data-char-field="faction_ids" value="${escapeAttr(
+            fac.join("，")
+          )}" autocomplete="off" /></label>
+        <label class="char-roster-field"><span class="char-roster-field-lbl">home_region_id</span>
+          <input type="text" class="char-roster-field-ctrl" data-char-field="home_region_id" value="${escapeAttr(
+            home
+          )}" autocomplete="off" /></label>
+      </section>
+    </div>
+  </article>`;
+}
+
+function shouldSkipCharRosterReRender(panelId) {
+  const ae = document.activeElement;
+  if (!ae?.closest) return false;
+  if (!isWorldviewPanelEditEnabled(panelId)) return false;
+  const root = document.getElementById(`view-${panelId}`);
+  if (!root?.contains(ae)) return false;
+  return Boolean(ae.closest("[data-char-edit-card]"));
+}
+
+let _charRosterPersistTimer = {};
+
+function readCharEditCardFromDom(article) {
+  const id = String(article?.dataset?.charEntityId ?? "").trim();
+  if (!id) return null;
+  const g = (field) => article.querySelector(`[data-char-field="${field}"]`);
+  const name = (g("name")?.value ?? "").trim();
+  const cast_role = (g("cast_role")?.value ?? "").trim() || "background";
+  const one_line_hook = (g("one_line_hook")?.value ?? "").trim();
+  const notes = (g("notes")?.value ?? "").trim();
+  const aliasesRaw = (g("aliases")?.value ?? "").trim();
+  const aliases = aliasesRaw
+    .split(/[,，;；\n]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const skillsRaw = (g("notable_skills")?.value ?? "").trim();
+  const notable_skills = skillsRaw
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const factionRaw = (g("faction_ids")?.value ?? "").trim();
+  const faction_ids = factionRaw
+    .split(/[,，\s]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const home_region_id = (g("home_region_id")?.value ?? "").trim();
+  return { id, name, cast_role, one_line_hook, notes, aliases, notable_skills, faction_ids, home_region_id };
+}
+
+function persistCharRosterCards(panelId) {
+  const rootId = panelId === "charProtagonists" ? "vizCharProtagonists" : "vizCharSupporting";
+  const root = $(rootId);
+  if (!root || !isWorldviewPanelEditEnabled(panelId)) return;
+  let entities;
+  try {
+    entities = JSON.parse($("charEntitiesJson")?.value || "[]");
+  } catch {
+    return;
+  }
+  if (!Array.isArray(entities)) return;
+  const cards = root.querySelectorAll("[data-char-edit-card]");
+  cards.forEach((article) => {
+    const patch = readCharEditCardFromDom(article);
+    if (!patch) return;
+    const idx = entities.findIndex((e) => String(e?.id ?? "").trim() === patch.id);
+    if (idx < 0) return;
+    const prev = entities[idx] && typeof entities[idx] === "object" ? { ...entities[idx] } : {};
+    const next = {
+      ...prev,
+      id: patch.id,
+      name: patch.name,
+      cast_role: patch.cast_role,
+      aliases: patch.aliases,
+      notable_skills: patch.notable_skills,
+    };
+    if (patch.one_line_hook) next.one_line_hook = patch.one_line_hook;
+    else delete next.one_line_hook;
+    if (patch.notes) next.notes = patch.notes;
+    else delete next.notes;
+    if (patch.faction_ids.length) next.faction_ids = patch.faction_ids;
+    else delete next.faction_ids;
+    if (patch.home_region_id) next.home_region_id = patch.home_region_id;
+    else delete next.home_region_id;
+    entities[idx] = next;
+  });
+  $("charEntitiesJson").value = JSON.stringify(entities, null, 2);
+  setDirty(true);
+  refreshCharactersVizFromForm();
+}
+
+function scheduleCharRosterPersist(panelId) {
+  clearTimeout(_charRosterPersistTimer[panelId]);
+  _charRosterPersistTimer[panelId] = setTimeout(() => persistCharRosterCards(panelId), 320);
+}
+
+function deleteCharacterEntityById(entityId) {
+  const id = String(entityId ?? "").trim();
+  if (!id) return;
+  let entities;
+  let relations;
+  try {
+    entities = JSON.parse($("charEntitiesJson")?.value || "[]");
+    relations = JSON.parse($("charRelationsJson")?.value || "[]");
+  } catch {
+    toast("卡司 JSON 无效，无法删除");
+    return;
+  }
+  if (!Array.isArray(entities)) return;
+  const nextEnt = entities.filter((e) => String(e?.id ?? "").trim() !== id);
+  const nextRel = Array.isArray(relations)
+    ? relations.filter((r) => String(r?.source_id ?? "").trim() !== id && String(r?.target_id ?? "").trim() !== id)
+    : [];
+  $("charEntitiesJson").value = JSON.stringify(nextEnt, null, 2);
+  $("charRelationsJson").value = JSON.stringify(nextRel, null, 2);
+  setDirty(true);
+  refreshCharactersVizFromForm();
+  toast("已删除该角色并清理相关关系边");
+}
+
+function appendCharacterEntity(defaultRole) {
+  let entities;
+  try {
+    entities = JSON.parse($("charEntitiesJson")?.value || "[]");
+  } catch {
+    toast("entities JSON 无效");
+    return;
+  }
+  if (!Array.isArray(entities)) entities = [];
+  const rid = defaultRole === "protagonist_core" ? uid("prot") : uid("sup");
+  entities.push({
+    id: rid,
+    name: defaultRole === "protagonist_core" ? "新主角" : "新配角",
+    cast_role: defaultRole,
+    aliases: [],
+    notable_skills: [],
+  });
+  $("charEntitiesJson").value = JSON.stringify(entities, null, 2);
+  setDirty(true);
+  refreshCharactersVizFromForm();
+  toast("已添加角色，可在卡片中填写详情");
+}
+
+function renderCharCastCardHtml(ent, opts = {}) {
+  const idRaw = String(ent?.id ?? "").trim();
+  const id = escapeHtml(idRaw || "（无 id）");
+  const name = escapeHtml(String(ent?.name ?? "").trim() || idRaw || "未命名");
+  const roleRaw = String(ent?.cast_role ?? "").trim();
+  const roleLab = escapeHtml(CAST_ROLE_LABELS[roleRaw] || roleRaw || "未标注");
+  const hue = CAST_ROLE_HUES[roleRaw] ?? 210;
+  const hookRaw = String(ent?.one_line_hook ?? "").trim();
+  const notesRaw = String(ent?.notes ?? "").trim();
+  const displayHook = hookRaw || notesRaw;
+  const hook = displayHook ? escapeHtml(displayHook) : "";
+  const hookLabel = hookRaw ? "叙事钩 · one_line_hook" : notesRaw ? "备注 · notes" : "叙事";
+  const skills = Array.isArray(ent?.notable_skills) ? ent.notable_skills : [];
+  const skillsLi = skills
+    .map((s) => String(s).trim())
+    .filter(Boolean)
+    .slice(0, 14)
+    .map((s) => `<li>${escapeHtml(s)}</li>`)
+    .join("");
+  const aliases = Array.isArray(ent?.aliases)
+    ? ent.aliases.map((a) => String(a).trim()).filter(Boolean).slice(0, 8)
+    : [];
+  const aliasesStr = aliases.length ? escapeHtml(aliases.join(" · ")) : "";
+  const fac = Array.isArray(ent?.faction_ids) ? ent.faction_ids.map((x) => String(x).trim()).filter(Boolean) : [];
+  const home = String(ent?.home_region_id ?? "").trim();
+  const facRow = fac.length
+    ? `<div class="char-roster-meta-row"><span class="char-roster-k">faction_ids</span><code class="char-roster-code">${escapeHtml(
+        fac.join(" · ")
+      )}</code></div>`
+    : "";
+  const homeRow = home
+    ? `<div class="char-roster-meta-row"><span class="char-roster-k">home_region_id</span><code class="char-roster-code">${escapeHtml(
+        home
+      )}</code></div>`
+    : "";
+  const metaBlock =
+    facRow || homeRow
+      ? `<section class="char-roster-block char-roster-block--meta" aria-label="引用锚点"><div class="char-roster-block-hd">边界 · 引用锚点</div><div class="char-roster-block-bd">${facRow}${homeRow}</div></section>`
+      : "";
+  const avIc = opts.variant === "supporting" ? "person" : "badge";
+  return `<article class="char-roster-card" style="--char-card-hue:${hue}">
+    <div class="char-roster-card-rim" aria-hidden="true"></div>
+    <div class="char-roster-card-inner">
+      <header class="char-roster-card-head">
+        <div class="char-roster-avatar" aria-hidden="true"><span class="ms char-roster-avatar-ic">${avIc}</span></div>
+        <div class="char-roster-head-main">
+          <h3 class="char-roster-name">${name}</h3>
+          <div class="char-roster-idline"><span class="char-roster-k">id</span><code class="char-roster-code">${id}</code></div>
+        </div>
+        <span class="char-roster-role-chip" title="cast_role">${roleLab}</span>
+      </header>
+      ${
+        aliasesStr
+          ? `<section class="char-roster-block"><div class="char-roster-block-hd">别名 aliases</div><div class="char-roster-block-bd char-roster-aliases">${aliasesStr}</div></section>`
+          : ""
+      }
+      ${
+        displayHook
+          ? `<section class="char-roster-block"><div class="char-roster-block-hd">${hookLabel}</div><div class="char-roster-block-bd char-roster-hook">${hook}</div></section>`
+          : ""
+      }
+      ${
+        skillsLi
+          ? `<section class="char-roster-block char-roster-block--skills"><div class="char-roster-block-hd">特长 notable_skills</div><ul class="char-roster-skill-list">${skillsLi}</ul></section>`
+          : ""
+      }
+      ${metaBlock}
+    </div>
+  </article>`;
+}
+
+function renderCharCastSubgrid(panelId, rootId, emptyId, list, variant = "protagonists") {
+  const root = $(rootId);
+  const emptyEl = $(emptyId);
+  if (!root) return;
+  const arr = Array.isArray(list) ? list : [];
+  if (emptyEl) emptyEl.hidden = arr.length > 0;
+  const editing = isWorldviewPanelEditEnabled(panelId);
+  root.innerHTML = arr.length
+    ? arr
+        .map((e) => (editing ? renderCharCastCardEditHtml(e, variant) : renderCharCastCardHtml(e, { variant })))
+        .join("")
+    : "";
+}
+
+function countCharacterGraphEdges(entities, relations) {
+  const list = Array.isArray(entities) ? entities.filter((e) => e && typeof e === "object") : [];
+  const rels = Array.isArray(relations) ? relations.filter((r) => r && typeof r === "object") : [];
+  const idToIdx = new Map();
+  list.forEach((e, i) => {
+    const id = String(e.id ?? "").trim();
+    if (id && !idToIdx.has(id)) idToIdx.set(id, i);
+  });
+  let n = 0;
+  for (const r of rels) {
+    const s = String(r.source_id ?? "").trim();
+    const t = String(r.target_id ?? "").trim();
+    if (!s || !t || s === t) continue;
+    if (idToIdx.get(s) === undefined || idToIdx.get(t) === undefined) continue;
+    n += 1;
+  }
+  return n;
+}
+
+function buildCharacterRelationMermaid(entities, relations) {
+  const list = Array.isArray(entities) ? entities.filter((e) => e && typeof e === "object") : [];
+  const rels = Array.isArray(relations) ? relations.filter((r) => r && typeof r === "object") : [];
+  if (!list.length) return mermaidFactionInit() + 'flowchart TB\n  empty["（无人物实体，无法绘图）"]';
+
+  const idToIdx = new Map();
+  list.forEach((e, i) => {
+    const id = String(e.id ?? "").trim();
+    if (id && !idToIdx.has(id)) idToIdx.set(id, i);
+  });
+
+  const lines = [
+    "flowchart LR",
+    "  classDef chP fill:#e0f2fe,color:#0c4a6e,stroke:#0284c7,stroke-width:1.5px",
+    "  classDef chS fill:#ede9fe,color:#4c1d95,stroke:#7c3aed,stroke-width:1.2px",
+    "  classDef chA fill:#ffe4e6,color:#881337,stroke:#e11d48,stroke-width:1.2px",
+    "  classDef chB fill:#f1f5f9,color:#334155,stroke:#94a3b8",
+  ];
+  list.forEach((e, i) => {
+    const lab = mermaidEscape(e.name || e.id || `角色${i + 1}`);
+    lines.push(`  C${i}["${lab}"]`);
+  });
+  for (const r of rels) {
+    const s = String(r.source_id ?? "").trim();
+    const t = String(r.target_id ?? "").trim();
+    if (!s || !t || s === t) continue;
+    const si = idToIdx.get(s);
+    const ti = idToIdx.get(t);
+    if (si === undefined || ti === undefined) continue;
+    const rt = String(r.relation_type ?? "关联").trim();
+    const notes = String(r.notes ?? "").trim();
+    const edgeLab = mermaidEscape(`${rt}${notes ? " · " + notes : ""}`);
+    lines.push(`  C${si} -->|"${edgeLab}"| C${ti}`);
+  }
+  const clsProt = [];
+  const clsSup = [];
+  const clsAnt = [];
+  const clsBg = [];
+  list.forEach((e, i) => {
+    const cr = String(e?.cast_role ?? "").trim();
+    if (cr === "protagonist_core") clsProt.push(`C${i}`);
+    else if (cr === "antagonist") clsAnt.push(`C${i}`);
+    else if (["supporting_major", "supporting_minor"].includes(cr)) clsSup.push(`C${i}`);
+    else clsBg.push(`C${i}`);
+  });
+  if (clsProt.length) lines.push(`  class ${clsProt.join(",")} chP`);
+  if (clsSup.length) lines.push(`  class ${clsSup.join(",")} chS`);
+  if (clsAnt.length) lines.push(`  class ${clsAnt.join(",")} chA`);
+  if (clsBg.length) lines.push(`  class ${clsBg.join(",")} chB`);
+  return mermaidFactionInit() + lines.join("\n");
+}
+
+function refreshCharRelationNetworkViz() {
+  const host = $("charRelationNetworkHost");
+  const stats = $("charRelationStats");
+  if (!host) return;
+  const parsed = tryParseCharacterEntitiesRelations();
+  if (!parsed) {
+    if (stats) stats.textContent = "";
+    return;
+  }
+  if (stats) {
+    const nEnt = parsed.entities.filter((e) => e && typeof e === "object" && String(e.id ?? "").trim()).length;
+    const nEdge = countCharacterGraphEdges(parsed.entities, parsed.relations);
+    stats.textContent = `${nEnt} 个实体 · ${nEdge} 条可绘制关系边（端点均存在于 entities）`;
+  }
+  void drawMermaidHost(host, buildCharacterRelationMermaid(parsed.entities, parsed.relations));
+}
+
+/** 从当前表单刷新主角团 / 配角卡片；在「人物关系网络」页时刷新关系图 */
+function refreshCharactersVizFromForm() {
+  const parsed = tryParseCharacterEntitiesRelations();
+  if (!parsed) return;
+  const { entities } = parsed;
+  const pro = entities.filter((e) => String(e?.cast_role ?? "").trim() === "protagonist_core");
+  const sup = entities.filter((e) =>
+    ["supporting_major", "supporting_minor", "antagonist"].includes(String(e?.cast_role ?? "").trim())
+  );
+  if (!shouldSkipCharRosterReRender("charProtagonists"))
+    renderCharCastSubgrid("charProtagonists", "vizCharProtagonists", "charProtagonistsEmpty", pro, "protagonists");
+  if (!shouldSkipCharRosterReRender("charSupporting"))
+    renderCharCastSubgrid("charSupporting", "vizCharSupporting", "charSupportingEmpty", sup, "supporting");
+  if (state.activeView === "charRelations") refreshCharRelationNetworkViz();
+}
+
+let _charVizTimer;
+function scheduleCharactersVizFromForm() {
+  clearTimeout(_charVizTimer);
+  _charVizTimer = setTimeout(() => refreshCharactersVizFromForm(), 200);
+}
+
+function setupCharRosterInlineEditors() {
+  const bindPanel = (viewId, panelId) => {
+    const v = $(viewId);
+    if (!v) return;
+    v.addEventListener("input", (ev) => {
+      if (!ev.target.closest("[data-char-edit-card]")) return;
+      if (!isWorldviewPanelEditEnabled(panelId)) return;
+      scheduleCharRosterPersist(panelId);
+    });
+    v.addEventListener("change", (ev) => {
+      if (!ev.target.closest("[data-char-edit-card]")) return;
+      if (!isWorldviewPanelEditEnabled(panelId)) return;
+      if (ev.target.matches('select[data-char-field="cast_role"]')) scheduleCharRosterPersist(panelId);
+    });
+    v.addEventListener("click", (ev) => {
+      const del = ev.target.closest("[data-char-delete-entity]");
+      if (!del) return;
+      if (!isWorldviewPanelEditEnabled(panelId)) return;
+      ev.preventDefault();
+      const eid = del.getAttribute("data-char-delete-entity");
+      if (!eid || !confirm("确定从卡司删除该角色？相关关系边将一并删除。")) return;
+      deleteCharacterEntityById(eid);
+    });
+  };
+  bindPanel("view-charProtagonists", "charProtagonists");
+  bindPanel("view-charSupporting", "charSupporting");
+  $("btnCharProtagonistAdd")?.addEventListener("click", () => {
+    if (!isWorldviewPanelEditEnabled("charProtagonists")) return;
+    appendCharacterEntity("protagonist_core");
+  });
+  $("btnCharSupportingAdd")?.addEventListener("click", () => {
+    if (!isWorldviewPanelEditEnabled("charSupporting")) return;
+    appendCharacterEntity("supporting_major");
+  });
+}
+
 function hasWorldsInSelect() {
   const sel = $("worldSelect");
   if (!sel || !sel.options.length) return false;
@@ -281,7 +815,9 @@ async function deleteCurrentWorldFlow() {
   await api(`/api/worlds/${id}`, { method: "DELETE" });
   toast("世界已删除");
   state.messages = [];
+  state.charMessages = [];
   renderMessages();
+  renderCharMessages();
   await refreshWorldSelect();
   updateEmptyState();
   if (hasWorldsInSelect()) await loadWorld($("worldSelect").value);
@@ -1605,6 +2141,22 @@ function renderPowerTierDashboardModules(w) {
   renderPowerProfessionModules(w);
 }
 
+function setGeoSubView(which) {
+  if (which !== "regions" && which !== "overview") return;
+  state.geoSubView = which;
+  const reg = $("geoSubRegions");
+  const ov = $("geoSubOverview");
+  if (reg) reg.classList.toggle("is-hidden", which !== "regions");
+  if (ov) ov.classList.toggle("is-hidden", which !== "overview");
+  document.querySelectorAll("[data-geo-sub]").forEach((b) => {
+    const on = b.dataset.geoSub === which;
+    b.classList.toggle("is-active", on);
+    b.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  if (which === "regions") requestAnimationFrame(() => refreshGeoNetworkViz());
+  if (which === "overview") requestAnimationFrame(() => refreshGeoMarkdownPreviews());
+}
+
 function setPowerSubView(which) {
   if (which !== "system" && which !== "trees" && which !== "professions") return;
   state.powerSubView = which;
@@ -1620,6 +2172,24 @@ function setPowerSubView(which) {
     b.setAttribute("aria-selected", on ? "true" : "false");
   });
   if (which === "professions") requestAnimationFrame(() => refreshProfessionPromotionViz());
+}
+
+function setEcologySubView(which) {
+  if (which !== "overview" && which !== "biomes" && which !== "species") return;
+  state.ecologySubView = which;
+  const ov = $("ecologySubOverview");
+  const bio = $("ecologySubBiomes");
+  const sp = $("ecologySubSpecies");
+  if (ov) ov.classList.toggle("is-hidden", which !== "overview");
+  if (bio) bio.classList.toggle("is-hidden", which !== "biomes");
+  if (sp) sp.classList.toggle("is-hidden", which !== "species");
+  document.querySelectorAll("[data-ecology-sub]").forEach((b) => {
+    const on = b.dataset.ecologySub === which;
+    b.classList.toggle("is-active", on);
+    b.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  if (which === "overview") requestAnimationFrame(() => refreshEcologyMarkdownPreviews());
+  if (which === "biomes" || which === "species") requestAnimationFrame(() => renderEcologyVizFromForm());
 }
 
 /** 物品：每档位卡片式展示（无 Mermaid 逻辑图）；各栏可在卡片内直接编辑 */
@@ -1897,6 +2467,285 @@ let _geoVizTimer;
 function scheduleGeoVizRefresh() {
   clearTimeout(_geoVizTimer);
   _geoVizTimer = setTimeout(() => refreshGeoNetworkViz(), 240);
+}
+
+let _geoMdPreviewTimer = null;
+function scheduleGeoMarkdownPreviews() {
+  clearTimeout(_geoMdPreviewTimer);
+  _geoMdPreviewTimer = setTimeout(() => refreshGeoMarkdownPreviews(), 140);
+}
+
+/** 总览 / 气候 / 地图：与助手区相同的 Markdown 解析 + 消毒，用于右侧预览 */
+function refreshGeoMarkdownPreviews() {
+  const pairs = [
+    ["geoSummary", "geoSummaryPreview"],
+    ["geoClimate", "geoClimatePreview"],
+    ["geoMap", "geoMapPreview"],
+  ];
+  for (const [srcId, preId] of pairs) {
+    const src = $(srcId);
+    const pre = $(preId);
+    if (!pre) continue;
+    const raw = (src?.value ?? "").toString();
+    if (!raw.trim()) {
+      pre.innerHTML = '<p class="muted tiny" style="margin:0">（空）</p>';
+      continue;
+    }
+    pre.innerHTML = renderAssistantMarkdownHtml(raw);
+  }
+}
+
+/** 生态页：地理区域 id → 显示名（优先当前「大陆/区域」表单，其次已加载 world） */
+function getEcologyRegionLookup() {
+  const m = new Map();
+  try {
+    for (const r of collectRegionsFromDom()) {
+      const id = String(r.id || "").trim();
+      if (id) m.set(id, String(r.name || "").trim() || id);
+    }
+  } catch {
+    /* ignore */
+  }
+  const wr = state.world?.geography?.regions || [];
+  for (const r of wr) {
+    if (!r || typeof r !== "object") continue;
+    const id = String(r.id || "").trim();
+    if (!id || m.has(id)) continue;
+    m.set(id, String(r.name || "").trim() || id);
+  }
+  return m;
+}
+
+function parseEcologyBiomesSpeciesJson() {
+  let biomes = [];
+  let species = [];
+  try {
+    const b = JSON.parse($("ecologyBiomesJson")?.value || "[]");
+    biomes = Array.isArray(b) ? b : [];
+  } catch {
+    biomes = [];
+  }
+  try {
+    const s = JSON.parse($("ecologySpeciesJson")?.value || "[]");
+    species = Array.isArray(s) ? s : [];
+  } catch {
+    species = [];
+  }
+  return { biomes, species };
+}
+
+function ecologyPlainText(v) {
+  return v == null ? "" : String(v).trim();
+}
+
+function ecologyMarkdownOrEmpty(raw) {
+  const t = ecologyPlainText(raw);
+  if (!t) return '<p class="muted tiny" style="margin:0">（空）</p>';
+  return renderAssistantMarkdownHtml(t);
+}
+
+let _ecologyMdTimer = null;
+function scheduleEcologyMarkdownPreviews() {
+  clearTimeout(_ecologyMdTimer);
+  _ecologyMdTimer = setTimeout(() => refreshEcologyMarkdownPreviews(), 140);
+}
+
+function refreshEcologyMarkdownPreviews() {
+  const pairs = [
+    ["ecologySummary", "ecologySummaryPreview"],
+    ["ecologyDesignNotes", "ecologyDesignNotesPreview"],
+  ];
+  for (const [srcId, preId] of pairs) {
+    const src = $(srcId);
+    const pre = $(preId);
+    if (!pre) continue;
+    const raw = (src?.value ?? "").toString();
+    if (!ecologyPlainText(raw)) {
+      pre.innerHTML = '<p class="muted tiny" style="margin:0">（空）</p>';
+      continue;
+    }
+    pre.innerHTML = renderAssistantMarkdownHtml(raw);
+  }
+}
+
+let _ecologyVizTimer = null;
+function scheduleEcologyVizFromForm() {
+  clearTimeout(_ecologyVizTimer);
+  _ecologyVizTimer = setTimeout(() => renderEcologyVizFromForm(), 160);
+}
+
+function renderEcologyVizFromForm() {
+  const biomeRoot = $("vizEcologyBiomes");
+  const speciesRoot = $("vizEcologySpecies");
+  const emptyBio = $("ecologyBiomeEmpty");
+  const emptySp = $("ecologySpeciesEmpty");
+  if (!biomeRoot || !speciesRoot) return;
+  const { biomes, species } = parseEcologyBiomesSpeciesJson();
+  const regionMap = getEcologyRegionLookup();
+
+  biomeRoot.replaceChildren();
+  if (!biomes.length) {
+    if (emptyBio) emptyBio.hidden = false;
+  } else {
+    if (emptyBio) emptyBio.hidden = true;
+    biomes.forEach((b, idx) => {
+      if (!b || typeof b !== "object") return;
+      const card = document.createElement("article");
+      card.className = "ecology-biome-card";
+      card.style.setProperty("--eco-biome-hue", String((152 + idx * 47) % 360));
+      const bid = ecologyPlainText(b.id);
+      const bname = ecologyPlainText(b.name) || "未命名生境";
+      const linked = Array.isArray(b.linked_region_ids) ? b.linked_region_ids : [];
+      const pills = linked
+        .map((rid) => {
+          const id = ecologyPlainText(rid);
+          if (!id) return "";
+          const nm = escapeHtml(regionMap.get(id) || id);
+          const idEsc = escapeHtml(id);
+          return `<span class="ecology-pill ecology-pill--region" title="${idEsc}"><span class="ecology-pill-dot" aria-hidden="true"></span>${nm}</span>`;
+        })
+        .filter(Boolean)
+        .join("");
+
+      const extraBits = [];
+      if (ecologyPlainText(b.climate_habitat))
+        extraBits.push(
+          `<div class="ecology-biome-extra"><span class="ecology-biome-extra-label">生境气候</span><div class="ecology-biome-extra-body msg-body msg-body--md">${ecologyMarkdownOrEmpty(
+            b.climate_habitat
+          )}</div></div>`
+        );
+      if (ecologyPlainText(b.hazards))
+        extraBits.push(
+          `<div class="ecology-biome-extra ecology-biome-extra--hazard"><span class="ecology-biome-extra-label">风险</span><div class="ecology-biome-extra-body msg-body msg-body--md">${ecologyMarkdownOrEmpty(
+            b.hazards
+          )}</div></div>`
+        );
+      if (ecologyPlainText(b.notes))
+        extraBits.push(
+          `<div class="ecology-biome-extra"><span class="ecology-biome-extra-label">备注</span><div class="ecology-biome-extra-body msg-body msg-body--md">${ecologyMarkdownOrEmpty(
+            b.notes
+          )}</div></div>`
+        );
+
+      card.innerHTML = `
+        <div class="ecology-biome-card-top">
+          <div class="ecology-biome-icon" aria-hidden="true"><span class="ms">park</span></div>
+          <div class="ecology-biome-title-block">
+            <h4 class="ecology-biome-name">${escapeHtml(bname)}</h4>
+            ${bid ? `<code class="ecology-biome-id">${escapeHtml(bid)}</code>` : ""}
+          </div>
+        </div>
+        ${
+          pills
+            ? `<div class="ecology-biome-regions"><span class="ecology-biome-regions-label muted tiny">关联区域</span><div class="ecology-pill-row">${pills}</div></div>`
+            : ""
+        }
+        <div class="ecology-biome-summary msg-body msg-body--md">${ecologyMarkdownOrEmpty(b.summary)}</div>
+        ${extraBits.join("")}`;
+      biomeRoot.appendChild(card);
+    });
+  }
+
+  const biomeNameById = new Map();
+  for (const b of biomes) {
+    if (b && typeof b === "object") {
+      const id = ecologyPlainText(b.id);
+      if (id) biomeNameById.set(id, ecologyPlainText(b.name) || id);
+    }
+  }
+
+  speciesRoot.replaceChildren();
+  if (!species.length) {
+    if (emptySp) emptySp.hidden = false;
+  } else {
+    if (emptySp) emptySp.hidden = true;
+    species.forEach((s, idx) => {
+      if (!s || typeof s !== "object") return;
+      const el = document.createElement("article");
+      el.className = "ecology-species-card";
+      el.style.setProperty("--eco-spec-hue", String((210 + idx * 53) % 360));
+      const sid = ecologyPlainText(s.id);
+      const sname = ecologyPlainText(s.name) || "未命名物种";
+      const biomeId = ecologyPlainText(s.biome_id);
+      const biomeLabel = biomeId ? biomeNameById.get(biomeId) || biomeId : "";
+      const traits = Array.isArray(s.traits) ? s.traits : [];
+      const traitHtml = traits
+        .map((t) => ecologyPlainText(t))
+        .filter(Boolean)
+        .map((t) => `<span class="ecology-chip">${escapeHtml(t)}</span>`)
+        .join("");
+      const skills = Array.isArray(s.notable_skills) ? s.notable_skills : [];
+      const skList = skills
+        .map((x) => {
+          if (x && typeof x === "object") return ecologyPlainText((x).name ?? (x).summary ?? JSON.stringify(x));
+          return ecologyPlainText(x);
+        })
+        .filter(Boolean)
+        .map(
+          (x) =>
+            `<li><span class="ms ecology-skill-ic" aria-hidden="true">auto_awesome</span><span class="ecology-skill-txt">${escapeHtml(
+              x
+            )}</span></li>`
+        )
+        .join("");
+      const dial = ecologyPlainText(s.encounter_dialogue);
+      const danger = ecologyPlainText(s.danger_notes);
+
+      el.innerHTML = `
+        <header class="ecology-species-head">
+          <div class="ecology-species-avatar" aria-hidden="true"><span class="ms">pets</span></div>
+          <div class="ecology-species-head-text">
+            <h4 class="ecology-species-name">${escapeHtml(sname)}</h4>
+            <div class="ecology-species-meta">
+              ${sid ? `<code class="ecology-species-id">${escapeHtml(sid)}</code>` : ""}
+              ${
+                biomeId
+                  ? `<span class="ecology-species-biome-badge" title="biome_id: ${escapeHtml(biomeId)}"><span class="ms">park</span>${escapeHtml(
+                      biomeLabel
+                    )}</span>`
+                  : ""
+              }
+            </div>
+          </div>
+        </header>
+        ${
+          traitHtml
+            ? `<div class="ecology-species-traits"><span class="muted tiny ecology-block-label">特征</span><div class="ecology-chip-row">${traitHtml}</div></div>`
+            : ""
+        }
+        ${
+          skList
+            ? `<div class="ecology-species-skills"><span class="muted tiny ecology-block-label">行为与「物种技能」</span><ul class="ecology-skill-list">${skList}</ul></div>`
+            : ""
+        }
+        ${
+          dial
+            ? `<blockquote class="ecology-encounter"><span class="ecology-encounter-label muted tiny">遭遇台词 / 旁白</span><div class="ecology-encounter-body msg-body msg-body--md">${renderAssistantMarkdownHtml(
+                dial
+              )}</div></blockquote>`
+            : ""
+        }
+        ${
+          danger
+            ? `<div class="ecology-danger"><span class="ms ecology-danger-ic" aria-hidden="true">warning</span><div class="ecology-danger-body msg-body msg-body--md muted tiny">${renderAssistantMarkdownHtml(
+                danger
+              )}</div></div>`
+            : ""
+        }`;
+      speciesRoot.appendChild(el);
+    });
+  }
+}
+
+function refreshEcologyGenerateMarkdown(raw) {
+  const out = $("ecologyGenerateOut");
+  if (!out) return;
+  const t = ecologyPlainText(raw);
+  if (!t) {
+    out.innerHTML = '<p class="muted tiny" style="margin:0">（尚无生成结果）</p>';
+    return;
+  }
+  out.innerHTML = renderAssistantMarkdownHtml(t);
 }
 
 function refreshGeoNetworkViz() {
@@ -2342,6 +3191,13 @@ function renderStatStrip(w) {
   const fc = (w.factions?.entities || []).length;
   const cu = (w.cultures?.entities || []).length;
   const ev = (w.history?.events || []).length;
+  const eb = (w.ecology?.biomes || []).length;
+  const es = (w.ecology?.species || []).length;
+  const econ =
+    (w.economy?.currencies?.length || 0) +
+    (w.economy?.markets?.length || 0) +
+    (w.economy?.trade_routes?.length || 0) +
+    (w.economy?.trade_goods?.length || 0);
   const wlabel = escapeHtml((w.meta?.name || w.meta?.id || "世界").toString().slice(0, 24));
   const pill = (icon, t) =>
     `<span class="pill"><span class="ms pill-ic" aria-hidden="true">${icon}</span>${t}</span>`;
@@ -2355,21 +3211,32 @@ function renderStatStrip(w) {
     pill("groups", `派系 ${fc}`),
     pill("diversity_3", `文化 ${cu}`),
     pill("event", `事件 ${ev}`),
-    pill("search", "搜索"),
-    pill("folder_open", "导出与快照"),
+    pill("forest", `生态 ${eb}/${es}`),
+    pill("payments", `经济 ${econ}`),
+    pill("recent_actors", `人物 ${(w.characters?.entities || []).length}`),
     pill("tag", `v${w.meta?.version ?? 0}`),
   ].join("");
 }
 
-function setThinking(phase) {
-  const el = $("chatThinking");
-  if (!el) return;
-  const lab = el.querySelector(".thinking-label");
+function setThinking(phase, opts = {}) {
   if (!phase) {
-    el.hidden = true;
-    el.classList.remove("thinking-strip--visible");
+    for (const id of ["chatThinking", "charChatThinking"]) {
+      const strip = $(id);
+      if (!strip) continue;
+      strip.hidden = true;
+      strip.classList.remove("thinking-strip--visible");
+    }
     return;
   }
+  const panel = opts.panel ?? (state.activeView === "charChat" ? "char" : "world");
+  const el = panel === "char" ? $("charChatThinking") : $("chatThinking");
+  const hideOther = panel === "char" ? $("chatThinking") : $("charChatThinking");
+  if (hideOther) {
+    hideOther.hidden = true;
+    hideOther.classList.remove("thinking-strip--visible");
+  }
+  if (!el) return;
+  const lab = el.querySelector(".thinking-label");
   el.hidden = false;
   el.classList.add("thinking-strip--visible");
   if (lab) {
@@ -2787,9 +3654,7 @@ async function runSnapshotRollback() {
 
 function switchView(name) {
   state.activeView = name;
-  document.querySelectorAll(".nav button").forEach((b) => {
-    b.classList.toggle("active", b.dataset.view === name);
-  });
+  syncNavActiveButtons();
   document.querySelectorAll(".panel").forEach((p) => {
     p.classList.toggle("active", p.id === `view-${name}`);
   });
@@ -2799,8 +3664,23 @@ function switchView(name) {
   if (name === "cultures") scheduleCultureVizRefresh();
   updateCultureHint();
   if (name === "chat") refreshFactionChatViz();
+  if (name === "charChat") renderCharMessages();
+  if (isCharacterPanelView(name)) scheduleCharactersVizFromForm();
   if (name === "powers") setPowerSubView(state.powerSubView || "system");
+  if (name === "geo") setGeoSubView(state.geoSubView || "overview");
+  if (name === "ecology") {
+    requestAnimationFrame(() => setEcologySubView(state.ecologySubView || "overview"));
+  }
   refreshContextPanel();
+}
+
+/** 对话后同步若写入了 economy，切换到「经济」页以便立即看到表单与 JSON（须已 worldToForm） */
+function navigateToEconomyAfterSyncIfNeeded(updatedSections) {
+  if (!Array.isArray(updatedSections) || !updatedSections.includes("economy")) return;
+  requestAnimationFrame(() => {
+    switchView("economy");
+    $("view-economy")?.querySelector(".card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
 }
 
 /** 将 profession_system.by_tier 按当前 tiers 顺序与 tier_name 对齐，避免模型输出顺序与境界表不一致导致卡片错位 */
@@ -2866,15 +3746,42 @@ function worldToForm(w) {
     $("culturesJson").value = "[]";
     $("historySummary").value = "";
     $("historyJson").value = "[]";
+    if ($("economySummary")) $("economySummary").value = "";
+    if ($("economyDesignNotes")) $("economyDesignNotes").value = "";
+    if ($("economyLaborNotes")) $("economyLaborNotes").value = "";
+    if ($("economyTaxationNotes")) $("economyTaxationNotes").value = "";
+    if ($("economyVolatilityNotes")) $("economyVolatilityNotes").value = "";
+    if ($("economyCurrenciesJson")) $("economyCurrenciesJson").value = "[]";
+    if ($("economyMarketsJson")) $("economyMarketsJson").value = "[]";
+    if ($("economyTradeRoutesJson")) $("economyTradeRoutesJson").value = "[]";
+    if ($("economyTradeGoodsJson")) $("economyTradeGoodsJson").value = "[]";
     if ($("attrSummary")) $("attrSummary").value = "";
     if ($("attrDesignNotes")) $("attrDesignNotes").value = "";
     if ($("attrStatsJson")) $("attrStatsJson").value = "[]";
     if ($("attrTierProfilesJson")) $("attrTierProfilesJson").value = "[]";
+    if ($("ecologySummary")) $("ecologySummary").value = "";
+    if ($("ecologyDesignNotes")) $("ecologyDesignNotes").value = "";
+    if ($("ecologyBiomesJson")) $("ecologyBiomesJson").value = "[]";
+    if ($("ecologySpeciesJson")) $("ecologySpeciesJson").value = "[]";
+    if ($("ecologyGenerateHint")) $("ecologyGenerateHint").value = "";
+    if ($("ecologyGenerateOut")) $("ecologyGenerateOut").innerHTML = "";
+    if ($("charEntitiesJson")) $("charEntitiesJson").value = "[]";
+    if ($("charRelationsJson")) $("charRelationsJson").value = "[]";
+    if ($("charIncludeMd")) $("charIncludeMd").checked = false;
+    if ($("charAutoSyncPanels")) $("charAutoSyncPanels").checked = true;
+    state.charMessages = [];
+    renderCharMessages();
+    renderCharCastSubgrid("charProtagonists", "vizCharProtagonists", "charProtagonistsEmpty", [], "protagonists");
+    renderCharCastSubgrid("charSupporting", "vizCharSupporting", "charSupportingEmpty", [], "supporting");
     const gm = $("genreMode");
     if (gm) gm.value = "";
     renderRegionCards([]);
     renderFactionCards([]);
     renderCultureCards([]);
+    refreshGeoMarkdownPreviews();
+    refreshEcologyMarkdownPreviews();
+    renderEcologyVizFromForm();
+    refreshEcologyGenerateMarkdown("");
     updateGenreModeHint();
     updateCultureHint();
     updateFactionGlobalBriefPreview();
@@ -2919,6 +3826,20 @@ function worldToForm(w) {
   $("historySummary").value = w.history?.summary ?? "";
   $("historyJson").value = JSON.stringify(w.history?.events ?? [], null, 2);
 
+  const eco = w.economy || {};
+  if ($("economySummary")) $("economySummary").value = eco.summary ?? "";
+  if ($("economyDesignNotes")) $("economyDesignNotes").value = eco.design_notes ?? "";
+  if ($("economyLaborNotes")) $("economyLaborNotes").value = eco.labor_notes ?? "";
+  if ($("economyTaxationNotes")) $("economyTaxationNotes").value = eco.taxation_notes ?? "";
+  if ($("economyVolatilityNotes")) $("economyVolatilityNotes").value = eco.volatility_notes ?? "";
+  if ($("economyCurrenciesJson"))
+    $("economyCurrenciesJson").value = JSON.stringify(eco.currencies ?? [], null, 2);
+  if ($("economyMarketsJson")) $("economyMarketsJson").value = JSON.stringify(eco.markets ?? [], null, 2);
+  if ($("economyTradeRoutesJson"))
+    $("economyTradeRoutesJson").value = JSON.stringify(eco.trade_routes ?? [], null, 2);
+  if ($("economyTradeGoodsJson"))
+    $("economyTradeGoodsJson").value = JSON.stringify(eco.trade_goods ?? [], null, 2);
+
   if ($("attrSummary")) $("attrSummary").value = w.attribute_system?.summary ?? "";
   if ($("attrDesignNotes")) $("attrDesignNotes").value = w.attribute_system?.design_notes ?? "";
   if ($("attrStatsJson"))
@@ -2930,9 +3851,26 @@ function worldToForm(w) {
       2
     );
 
+  if ($("ecologySummary")) $("ecologySummary").value = w.ecology?.summary ?? "";
+  if ($("ecologyDesignNotes")) $("ecologyDesignNotes").value = w.ecology?.design_notes ?? "";
+  if ($("ecologyBiomesJson"))
+    $("ecologyBiomesJson").value = JSON.stringify(w.ecology?.biomes ?? [], null, 2);
+  if ($("ecologySpeciesJson"))
+    $("ecologySpeciesJson").value = JSON.stringify(w.ecology?.species ?? [], null, 2);
+
+  const ch = w.characters || {};
+  if ($("charEntitiesJson"))
+    $("charEntitiesJson").value = JSON.stringify(ch.entities ?? [], null, 2);
+  if ($("charRelationsJson"))
+    $("charRelationsJson").value = JSON.stringify(ch.relations ?? [], null, 2);
+
   renderRegionCards(w.geography?.regions);
   renderFactionCards(w.factions?.entities);
   renderCultureCards(w.cultures?.entities);
+
+  refreshGeoMarkdownPreviews();
+  refreshEcologyMarkdownPreviews();
+  renderEcologyVizFromForm();
 
   const gm = $("genreMode");
   if (gm) gm.value = w.meta?.creative_mode || "";
@@ -2940,6 +3878,7 @@ function worldToForm(w) {
   updateCultureHint();
   updateFactionGlobalBriefPreview();
   refreshFactionChatViz();
+  scheduleCharactersVizFromForm();
 }
 
 function formToWorld() {
@@ -3013,6 +3952,38 @@ function formToWorld() {
     "境界平均属性 tier_average_profiles"
   );
 
+  if (!w.ecology) w.ecology = { summary: "", design_notes: "", biomes: [], species: [] };
+  w.ecology.summary = ($("ecologySummary")?.value ?? "").trim();
+  w.ecology.design_notes = ($("ecologyDesignNotes")?.value ?? "").trim();
+  w.ecology.biomes = parseJson($("ecologyBiomesJson")?.value || "[]", "生态 biomes");
+  w.ecology.species = parseJson($("ecologySpeciesJson")?.value || "[]", "生态 species");
+
+  if (!w.economy)
+    w.economy = {
+      summary: "",
+      design_notes: "",
+      currencies: [],
+      markets: [],
+      trade_routes: [],
+      trade_goods: [],
+      labor_notes: "",
+      taxation_notes: "",
+      volatility_notes: "",
+    };
+  w.economy.summary = ($("economySummary")?.value ?? "").trim();
+  w.economy.design_notes = ($("economyDesignNotes")?.value ?? "").trim();
+  w.economy.labor_notes = ($("economyLaborNotes")?.value ?? "").trim();
+  w.economy.taxation_notes = ($("economyTaxationNotes")?.value ?? "").trim();
+  w.economy.volatility_notes = ($("economyVolatilityNotes")?.value ?? "").trim();
+  w.economy.currencies = parseJson($("economyCurrenciesJson")?.value || "[]", "经济 currencies");
+  w.economy.markets = parseJson($("economyMarketsJson")?.value || "[]", "经济 markets");
+  w.economy.trade_routes = parseJson($("economyTradeRoutesJson")?.value || "[]", "经济 trade_routes");
+  w.economy.trade_goods = parseJson($("economyTradeGoodsJson")?.value || "[]", "经济 trade_goods");
+
+  if (!w.characters) w.characters = { summary: "", design_notes: "", entities: [], relations: [] };
+  w.characters.entities = parseJson($("charEntitiesJson")?.value || "[]", "人物 entities");
+  w.characters.relations = parseJson($("charRelationsJson")?.value || "[]", "人物 relations");
+
   return w;
 }
 
@@ -3066,7 +4037,12 @@ function refreshSearchView() {
 
 async function runReferenceLintFlow(opts = {}) {
   const quietToast = Boolean(opts.quietToast);
+  const skipClearFixPanel = Boolean(opts.skipClearFixPanel);
   const out = $("referenceLintOut");
+  if (!skipClearFixPanel) {
+    const fixOut = $("referenceLintFixOut");
+    if (fixOut) fixOut.innerHTML = "";
+  }
   if (!state.world?.meta?.id) {
     if (out) out.innerHTML = "";
     return;
@@ -3092,7 +4068,7 @@ async function runReferenceLintFlow(opts = {}) {
     if (!quietToast) {
       toast(warns.length ? `引用校验：${warns.length} 条提示` : "引用校验：未发现引用问题");
     } else if (warns.length) {
-      toast(`保存完成；引用校验有 ${warns.length} 条提示（见看板「引用一致性」）`);
+      toast(`保存完成；引用校验有 ${warns.length} 条提示（见「数据」→「引用一致性」）`);
     }
   } catch (e) {
     const msg = e?.message || String(e);
@@ -3101,6 +4077,109 @@ async function runReferenceLintFlow(opts = {}) {
       out.innerHTML = `<p>${escapeHtml(msg)}</p>`;
     }
     if (!quietToast) toast("引用校验失败：" + msg);
+  }
+}
+
+function formatReferenceLintFollowupHtml(lint) {
+  if (!lint || lint.ok) return "";
+  const w = lint.warnings || [];
+  if (!w.length) return "";
+  return (
+    '<p class="muted tiny" style="margin:8px 0 4px">自动修复后仍可能存在的提示（需人工）：</p>' +
+    `<ul style="margin:0;padding-left:1.1em">${w.map((x) => `<li>${escapeHtml(String(x))}</li>`).join("")}</ul>`
+  );
+}
+
+async function runReferenceFixPreview() {
+  const fixOut = $("referenceLintFixOut");
+  if (!state.world?.meta?.id) {
+    if (fixOut) fixOut.innerHTML = "";
+    return toast("请先选择世界");
+  }
+  if (fixOut) {
+    fixOut.classList.add("muted");
+    fixOut.innerHTML = "<p>生成预览…</p>";
+  }
+  try {
+    const res = await api(`/api/worlds/${state.world.meta.id}/fix-references`, {
+      method: "POST",
+      body: JSON.stringify({ dry_run: true }),
+    });
+    const lines = res.would_apply || [];
+    const cnt = typeof res.apply_count === "number" ? res.apply_count : lines.length;
+    if (fixOut) {
+      const noSteps = !lines.length;
+      fixOut.classList.toggle("muted", noSteps && res.lint_after && res.lint_after.ok);
+      const head = noSteps
+        ? `<p class="tiny" style="margin:0 0 6px">预览：<strong>0</strong> 步变更（当前规则下无需自动修复）。</p>`
+        : `<p class="tiny" style="margin:0 0 6px">预览：<strong>${cnt}</strong> 步（未写盘），应用后将执行：</p><ul style="margin:0;padding-left:1.1em">${lines
+            .map((l) => `<li>${escapeHtml(String(l))}</li>`)
+            .join("")}</ul>`;
+      fixOut.innerHTML = head + formatReferenceLintFollowupHtml(res.lint_after);
+    }
+    toast(
+      lines.length ? `预览：${lines.length} 步自动修复（未写盘）` : "预览：当前无需自动修复项"
+    );
+  } catch (e) {
+    const msg = e?.message || String(e);
+    if (fixOut) {
+      fixOut.classList.add("muted");
+      fixOut.innerHTML = `<p>${escapeHtml(msg)}</p>`;
+    }
+    toast("预览自动修复失败：" + msg);
+  }
+}
+
+async function runReferenceFixApply() {
+  const fixOut = $("referenceLintFixOut");
+  if (!state.world?.meta?.id) {
+    if (fixOut) fixOut.innerHTML = "";
+    return toast("请先选择世界");
+  }
+  if (
+    !confirm(
+      "将按预览相同规则修改磁盘上的 world.json 并升级版本保存；表单中未保存的更改将丢失。是否继续？"
+    )
+  ) {
+    return;
+  }
+  if (fixOut) {
+    fixOut.classList.add("muted");
+    fixOut.innerHTML = "<p>正在应用…</p>";
+  }
+  const id = state.world.meta.id;
+  try {
+    const res = await api(`/api/worlds/${id}/fix-references`, {
+      method: "POST",
+      body: JSON.stringify({ dry_run: false }),
+    });
+    if (!res.saved) {
+      if (fixOut) {
+        fixOut.classList.add("muted");
+        fixOut.innerHTML =
+          "<p>未写盘：当前磁盘 world 在本规则下无需修改（或已与修复结果一致）。可先运行校验查看剩余提示。</p>";
+      }
+      toast("引用自动修复：无需写盘");
+      return;
+    }
+    await loadWorld(id);
+    const applied = res.applied || [];
+    if (fixOut) {
+      fixOut.classList.remove("muted");
+      fixOut.innerHTML =
+        `<p class="tiny" style="margin:0 0 6px">已应用 <strong>${applied.length}</strong> 步并落盘：</p><ul style="margin:0;padding-left:1.1em">${applied
+          .map((l) => `<li>${escapeHtml(String(l))}</li>`)
+          .join("")}</ul>` + formatReferenceLintFollowupHtml(res.lint);
+    }
+    await runReferenceLintFlow({ quietToast: true, skipClearFixPanel: true });
+    toast(`引用自动修复已落盘（${applied.length} 步）`);
+  } catch (e) {
+    const msg = e?.message || String(e);
+    if (fixOut) {
+      fixOut.classList.add("muted");
+      fixOut.innerHTML = `<p>${escapeHtml(msg)}</p>`;
+    }
+    toast("应用自动修复失败：" + msg);
   }
 }
 
@@ -3206,6 +4285,10 @@ async function loadWorld(id) {
   const inc = $("includeMd");
   if (inc && typeof data.has_nonempty_world_md === "boolean") {
     inc.checked = data.has_nonempty_world_md;
+  }
+  const charInc = $("charIncludeMd");
+  if (charInc && typeof data.has_nonempty_world_md === "boolean") {
+    charInc.checked = data.has_nonempty_world_md;
   }
   worldToForm(w);
   setDirty(false);
@@ -3318,12 +4401,13 @@ async function init() {
   }
 
   ensureWorldviewEditModeToolbars();
+  setupCharRosterInlineEditors();
 
   try {
     const cfg = await api("/api/config");
     $("apiHint").textContent = cfg.has_api_key
-      ? `对话：${cfg.default_model} · 同步：${cfg.structure_sync_model ?? cfg.default_model}`
-      : "未配置 PARATERA_API_KEY（对话/大纲/板块同步将不可用）";
+      ? `世界观构建：${cfg.default_model} · 同步：${cfg.structure_sync_model ?? cfg.default_model}`
+      : "未配置 PARATERA_API_KEY（世界观构建 / 大纲 / 板块同步将不可用）";
   } catch {
     $("apiHint").textContent = "无法连接 API";
   }
@@ -3341,7 +4425,7 @@ async function init() {
   const sh = $("syncHint");
   if (sh) {
     sh.textContent =
-      "默认关闭「仅当前页模块」：助手一次可同步多个板块。若开启，仅在当前导航对应模块写入（地理/境界/物品/文化·宗教/派系/历史等），其它模块输出会被丢弃。";
+      "默认关闭「仅当前页模块」：助手一次可同步多个板块。若开启，仅在当前导航对应模块写入（地理/生态/境界/物品/属性/文化·宗教/派系/历史/**经济**/**人物卡司** 等），其它模块输出会被丢弃。在「人物生成」或左侧「主角团 / 重要配角 / 人物关系网络 / 卡司数据」任一页开启时，scope 为 **characters**；在「经济」页开启时，scope 为 **economy**。";
   }
   updateGenreModeHint();
   updateCultureHint();
@@ -3431,9 +4515,21 @@ async function init() {
   });
   setPowerSubView(state.powerSubView || "system");
 
+  document.querySelectorAll("[data-geo-sub]").forEach((btn) => {
+    btn.addEventListener("click", () => setGeoSubView(btn.dataset.geoSub));
+  });
+  setGeoSubView(state.geoSubView || "overview");
+
+  document.querySelectorAll("[data-ecology-sub]").forEach((btn) => {
+    btn.addEventListener("click", () => setEcologySubView(btn.dataset.ecologySub));
+  });
+  setEcologySubView(state.ecologySubView || "overview");
+
   $("btnSnapshotDiff")?.addEventListener("click", () => void runSnapshotDiff());
   $("btnSnapshotRollback")?.addEventListener("click", () => void runSnapshotRollback());
   $("btnReferenceLint")?.addEventListener("click", () => void runReferenceLintFlow({ quietToast: false }));
+  $("btnReferenceLintFixPreview")?.addEventListener("click", () => void runReferenceFixPreview());
+  $("btnReferenceLintFixApply")?.addEventListener("click", () => void runReferenceFixApply());
 
   $("btnNewWorld").addEventListener("click", () => createWorldFlow().catch((e) => toast(e.message)));
   $("btnRenameWorld")?.addEventListener("click", () =>
@@ -3445,10 +4541,15 @@ async function init() {
   $("btnEmptyCreate").addEventListener("click", () => createWorldFlow().catch((e) => toast(e.message)));
 
   const markDirty = () => setDirty(true);
+  ["geoSummary", "geoClimate", "geoMap"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("input", () => {
+      markDirty();
+      scheduleGeoMarkdownPreviews();
+    });
+  });
   [
-    "geoSummary",
-    "geoClimate",
-    "geoMap",
     "powerSummary",
     "powerRealmDesign",
     "powerSkillTreeDesign",
@@ -3461,11 +4562,44 @@ async function init() {
     "culturesJson",
     "historySummary",
     "historyJson",
+    "economySummary",
+    "economyDesignNotes",
+    "economyLaborNotes",
+    "economyTaxationNotes",
+    "economyVolatilityNotes",
+    "economyCurrenciesJson",
+    "economyMarketsJson",
+    "economyTradeRoutesJson",
+    "economyTradeGoodsJson",
     "attrSummary",
     "attrDesignNotes",
     "attrStatsJson",
     "attrTierProfilesJson",
   ].forEach((id) => $(id).addEventListener("input", markDirty));
+  ["charEntitiesJson", "charRelationsJson"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("input", () => {
+      markDirty();
+      scheduleCharactersVizFromForm();
+    });
+  });
+  ["ecologySummary", "ecologyDesignNotes"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("input", () => {
+      markDirty();
+      scheduleEcologyMarkdownPreviews();
+    });
+  });
+  ["ecologyBiomesJson", "ecologySpeciesJson"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("input", () => {
+      markDirty();
+      scheduleEcologyVizFromForm();
+    });
+  });
   $("powerProfessionSummary")?.addEventListener("input", () => {
     markDirty();
     scheduleSyncProfessionFromVizToState();
@@ -3536,6 +4670,7 @@ async function init() {
     const card = ev.target.closest(".region-card");
     if (card) syncRegionCardIcon(card);
     scheduleGeoVizRefresh();
+    scheduleEcologyVizFromForm();
   });
   $("factionCards")?.addEventListener("input", () => {
     markDirty();
@@ -3578,6 +4713,47 @@ async function init() {
   $("btnSaveWorld").addEventListener("click", () =>
     persistWorldFromForm().catch((e) => toast("保存失败：" + e.message))
   );
+
+  $("btnQuitApp")?.addEventListener("click", async () => {
+    const warn = state.dirty
+      ? "有未保存更改，确定仍要退出？本地服务将停止，未保存内容将丢失。"
+      : "确定退出？将停止本地服务并尝试关闭本页。";
+    if (!confirm(warn)) return;
+    const btn = $("btnQuitApp");
+    if (btn) btn.disabled = true;
+    try {
+      const r = await fetch(API + "/api/shutdown", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        let detail = r.statusText;
+        try {
+          const j = JSON.parse(t || "{}");
+          if (j?.detail) detail = typeof j.detail === "string" ? j.detail : JSON.stringify(j.detail);
+          else if (t) detail = t;
+        } catch {
+          if (t) detail = t;
+        }
+        throw new Error(detail);
+      }
+    } catch (e) {
+      if (btn) btn.disabled = false;
+      toast("退出失败：" + (e?.message || e));
+      return;
+    }
+    document.body.innerHTML = `<main class="shutdown-screen" role="status"><p class="shutdown-title">服务已停止</p><p class="shutdown-hint">可关闭本浏览器标签页；若浏览器未自动关闭窗口，请手动关闭。</p></main>`;
+    requestAnimationFrame(() => {
+      try {
+        window.open("", "_self");
+        window.close();
+      } catch (_) {
+        /* 用户直接打开的标签页可能不允许脚本关闭，保留占位页即可 */
+      }
+    });
+  });
 
   document.addEventListener("keydown", (e) => {
     const mac =
@@ -3623,11 +4799,13 @@ async function init() {
     if ($("guideSkillTrees")?.checked) chat_guides.push("skill_trees");
     if ($("guideProfessions")?.checked) chat_guides.push("profession_system");
     if ($("guideAttributes")?.checked) chat_guides.push("attribute_system");
+    if ($("guideEcology")?.checked) chat_guides.push("ecology");
+    if ($("guideEconomy")?.checked) chat_guides.push("economy");
     const userMsg = text;
     state.messages.push({ role: "user", content: text });
     $("chatInput").value = "";
     renderMessages();
-    setThinking("chat");
+    setThinking("chat", { panel: "world" });
     let res;
     try {
       res = await api(`/api/worlds/${state.world.meta.id}/chat`, {
@@ -3651,6 +4829,7 @@ async function init() {
     setThinking(false);
 
     let shouldPersist = false;
+    let syncUpdatedSections = null;
     const applyAttrFromReply = () => {
       if (mergeAttributeSystemFromAssistantReply(res.reply)) {
         worldToForm(state.world);
@@ -3676,7 +4855,7 @@ async function init() {
       return;
     }
 
-    setThinking("sync");
+    setThinking("sync", { panel: "world" });
     try {
       const syncRes = await api(
         `/api/worlds/${state.world.meta.id}/sync-panels-from-chat`,
@@ -3697,6 +4876,7 @@ async function init() {
         setDirty(true);
         refreshContextPanel();
         refreshOutlineHeader();
+        syncUpdatedSections = syncRes.updated_sections;
         if (Array.isArray(syncRes.updated_sections) && syncRes.updated_sections.length > 0) {
           shouldPersist = true;
         }
@@ -3746,6 +4926,119 @@ async function init() {
         toast("落盘失败：" + (e?.message || e));
       }
     }
+    navigateToEconomyAfterSyncIfNeeded(syncUpdatedSections);
+  }
+
+  async function submitCharChatFromUI() {
+    if (!state.world) return toast("请先选择世界");
+    const text = ($("charChatInput")?.value ?? "").trim();
+    if (!text) return;
+    const mode = $("genreMode")?.value || null;
+    const includeMd = $("charIncludeMd")?.checked ?? false;
+    const chat_guides = [];
+    if ($("guideCharacterRoster")?.checked) chat_guides.push("character_roster");
+    const userMsg = text;
+    state.charMessages.push({ role: "user", content: text });
+    if ($("charChatInput")) $("charChatInput").value = "";
+    renderCharMessages();
+    setThinking("chat", { panel: "char" });
+    let res;
+    try {
+      res = await api(`/api/worlds/${state.world.meta.id}/character-chat`, {
+        method: "POST",
+        body: JSON.stringify({
+          messages: state.charMessages,
+          mode,
+          include_markdown_context: includeMd,
+          chat_guides,
+        }),
+      });
+    } catch (e) {
+      state.charMessages.pop();
+      renderCharMessages();
+      toast("人物对话失败：" + e.message);
+      setThinking(false);
+      return;
+    }
+    state.charMessages.push({ role: "assistant", content: res.reply });
+    renderCharMessages();
+    setThinking(false);
+
+    let shouldPersist = false;
+    let syncUpdatedSections = null;
+    if (!$("charAutoSyncPanels")?.checked) return;
+
+    setThinking("sync", { panel: "char" });
+    try {
+      const syncRes = await api(
+        `/api/worlds/${state.world.meta.id}/sync-panels-from-chat`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            user_message: userMsg,
+            assistant_reply: res.reply,
+            persist: false,
+            scope: syncScopeForRequest(),
+            creative_mode: $("genreMode")?.value || null,
+          }),
+        }
+      );
+      if (syncRes.ok) {
+        state.world = syncRes.world;
+        worldToForm(syncRes.world);
+        setDirty(true);
+        refreshContextPanel();
+        refreshOutlineHeader();
+        syncUpdatedSections = syncRes.updated_sections;
+        if (Array.isArray(syncRes.updated_sections) && syncRes.updated_sections.length > 0) {
+          shouldPersist = true;
+        }
+        if (syncRes.merge_warnings?.length) {
+          toast("校验提示：" + syncRes.merge_warnings.join("；"));
+        }
+        const nn = syncRes.normalize_notes;
+        if (nn && typeof nn === "object") {
+          const nnLines = Object.entries(nn)
+            .filter(([, arr]) => Array.isArray(arr) && arr.length)
+            .map(([k, arr]) => k + "：" + arr.join("；"));
+          if (nnLines.length) {
+            toast("结构归一化：" + nnLines.join(" | "));
+          }
+        }
+        if (
+          syncRes.scope_applied &&
+          syncRes.scope_applied !== "all" &&
+          Array.isArray(syncRes.structure_output_keys)
+        ) {
+          const dropped = syncRes.structure_output_keys.filter(
+            (k) => k !== syncRes.scope_applied
+          );
+          if (dropped.length) {
+            toast("已按「仅当前模块」忽略：" + dropped.join("、"));
+          }
+        }
+        if (syncRes.updated_sections?.length) {
+          toast("已更新：" + syncRes.updated_sections.join("、"));
+        } else if (!syncRes.merge_warnings?.length) {
+          toast("同步：本轮无结构化变更（可检查助手是否像闲聊或未写可落盘设定）");
+        }
+      } else {
+        toast("同步解析失败：" + (syncRes.error || ""));
+      }
+    } catch (se) {
+      toast("同步未执行：" + se.message);
+    } finally {
+      setThinking(false);
+    }
+
+    if (shouldPersist) {
+      try {
+        await persistWorldFromForm();
+      } catch (e) {
+        toast("落盘失败：" + (e?.message || e));
+      }
+    }
+    navigateToEconomyAfterSyncIfNeeded(syncUpdatedSections);
   }
 
   $("btnSend").addEventListener("click", () => void submitChatFromUI());
@@ -3754,6 +5047,13 @@ async function init() {
     if (e.key !== "Enter" || !e.ctrlKey) return;
     e.preventDefault();
     void submitChatFromUI();
+  });
+
+  $("btnCharSend")?.addEventListener("click", () => void submitCharChatFromUI());
+  $("charChatInput")?.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter" || !e.ctrlKey) return;
+    e.preventDefault();
+    void submitCharChatFromUI();
   });
 
   $("btnOutline").addEventListener("click", async () => {
@@ -3776,6 +5076,32 @@ async function init() {
     } catch (e) {
       toast("大纲失败：" + e.message);
     }
+  });
+
+  $("btnEcologyGenerate")?.addEventListener("click", () => {
+    void (async () => {
+      if (!state.world) return toast("请先选择世界");
+      const hint = ($("ecologyGenerateHint")?.value ?? "").trim();
+      setThinking("chat");
+      try {
+        const res = await api(`/api/worlds/${state.world.meta.id}/ecology-generate`, {
+          method: "POST",
+          body: JSON.stringify({
+            hint,
+            creative_mode: $("genreMode")?.value || null,
+          }),
+        });
+        const reply = (res.reply ?? "").toString();
+        if (out) refreshEcologyGenerateMarkdown(reply);
+        const det = $("ecologyGenDetails");
+        if (det && reply) det.open = true;
+        toast(reply ? "生态生成完成（见上方预览；可复制 JSON 后同步或手填）" : "模型返回为空");
+      } catch (e) {
+        toast("生态生成失败：" + (e?.message || e));
+      } finally {
+        setThinking(false);
+      }
+    })();
   });
 
   const GEO_CHAT_PROMPT =
@@ -3835,6 +5161,52 @@ async function init() {
     "若已有 attribute_system，请对照修订并说明改动理由。输出需便于我开启「对话后同步」写入 attribute_system。\n\n" +
     "请尽量在回复末尾用 **json 代码块**（```json … ```）给出完整 `attribute_system` 对象（含 summary、design_notes、stats、可选 tier_average_profiles），前端会在发送后自动合并到「属性」页并更新雷达。";
 
+  const ECOLOGY_CHAT_PROMPT =
+    "请为当前世界补充或修订 **生态与生境**（world.json 的 **ecology**；与 **geography**、**attribute_system** 对齐；便于「对话后同步」落盘）。请用自然语言 + 清晰小节，尽量与下列键名对齐（不必默认输出整段 JSON，除非我要求）：\n\n" +
+    "1）**总览 ecology.summary**：全图生态位、危险带、文明与荒野/超凡力量的交界叙事。\n" +
+    "2）**设计说明 ecology.design_notes**：哪些 **geography.regions[].id**、气候/地貌与 **attribute_system.stats** 的叙事刻度如何对应野外压力或魔化生态。\n" +
+    "3）**生境群落 ecology.biomes[]**：每项 **id**、**name**、**summary**；**linked_region_ids[]** 只能使用已有 **geography.regions[].id**（无则不要虚构 id）；可选 **climate_habitat**、**hazards**、**notes**。\n" +
+    "4）**代表物种 ecology.species[]**：每项 **id**、**name**、**biome_id**（须为 **biomes[].id**）；**traits[]**；**notable_skills[]**（物种行为或叙事向「类技能」短句，**非**境界 **power_system.skill_tree** 节点）；**encounter_dialogue**（一句遭遇旁白或台词，供跑团/DM 使用）；可选 **danger_notes**。\n\n" +
+    "若 JSON 中已有 **biomes/species**，请对照修订并说明是否新增或重命名了 **id**（以便我检查 **biome_id** 与 **linked_region_ids**）。\n\n" +
+    "若你准备给出可机读补丁，请在回复**文末**用单个 **```json** 代码块给出根对象 `{ \"ecology\": { ... } }`（字段与上述一致）。";
+
+  const ECONOMY_CHAT_PROMPT =
+    "请为当前世界补充或修订 **经济与流通**（world.json 的 **economy**；与 **geography.regions**、**factions.entities**、**item_quality_system** 对齐；便于「对话后同步」落盘）。请用自然语言 + 清晰小节，尽量与下列键名对齐（不必默认输出整段 JSON，除非我要求）：\n\n" +
+    "1）**总览 economy.summary**：通货、铸币权、商会与黑市、关税与走私带等宏观叙事。\n" +
+    "2）**设计说明 economy.design_notes**：哪些 **regions[].id**、**factions.entities[].id**、物品档位如何牵动现金流与危机。\n" +
+    "3）**货币 economy.currencies[]**：每项 **id**、**name**；可选 **symbol**、**issuer_faction_id**（须为已有派系 **id**）、**exchange_notes**。\n" +
+    "4）**市场 economy.markets[]**：每项 **id**、**name**；可选 **summary**、**linked_region_ids[]**（仅已有区域 **id**）、**dominant_faction_ids[]**、**notes**。\n" +
+    "5）**商路 economy.trade_routes[]**：每项 **id**、**name**、**from_region_id**、**to_region_id**（须为已有区域 **id**）；可选 **summary**、**goods_notes**、**controlling_faction_ids[]**、**notes**。\n" +
+    "6）**贸易品 economy.trade_goods[]**：每项 **id**、**name**；可选 **category**（如 strategic|luxury|common|contraband）、**summary**、**notes**。\n" +
+    "7）**labor_notes**、**taxation_notes**、**volatility_notes**：劳动力、税收再分配、物价波动与危机等条款式说明。\n\n" +
+    "若你准备给出可机读补丁，请在回复**文末**用单个 **```json** 代码块给出根对象 `{ \"economy\": { ... } }`（字段与上述一致）。";
+
+  const CHARACTER_ROSTER_CHAT_PROMPT =
+    "请为当前世界补充或修订 **人物卡司**（world.json 的 **characters**；与派系、地理 id 对齐；便于「对话后同步」落盘）。请用自然语言 + 清晰小节，尽量与下列键名对齐（不必默认输出整段 JSON，除非我要求）：\n\n" +
+    "1）**characters.summary**：谁在驱动主线/副线，卡司规模与叙事功能。\n" +
+    "2）**characters.design_notes**：与 **factions** 要人、**history**、**geography.regions** 籍贯等 **id** 的对齐与防漂移约定。\n" +
+    "3）**characters.entities[]**：每项 **id**、**name**；**cast_role** 取 `protagonist_core`（主角团核心）| `supporting_major` | `supporting_minor` | `antagonist` | `background`；**faction_ids[]** 须对齐已有 **factions.entities[].id**；**home_region_id** 须对齐已有 **geography.regions[].id**；可选 **aliases[]**、**one_line_hook**、**notes**、**notable_skills[]**（人物叙事或玩法向特长短句，**非**境界 **power_system.skill_tree** 节点）。\n" +
+    "4）**characters.relations[]**：**source_id**、**target_id**（均为 **entities[].id**）；**relation_type**（如 ally/rival/family/debt/secret）；可选 **visibility**、**notes**。\n\n" +
+    "若你准备给出可机读补丁，请在回复**文末**用单个 **```json** 代码块给出根对象 `{ \"characters\": { ... } }`。";
+
+  function fillCharChatPromptTemplate(text, { mode = "replace", enableCharacterGuide = false } = {}) {
+    if (!state.world) {
+      toast("请先选择世界");
+      return;
+    }
+    if (enableCharacterGuide) {
+      const g = $("guideCharacterRoster");
+      if (g) g.checked = true;
+    }
+    const inp = $("charChatInput");
+    if (!inp) return;
+    const cur = (inp.value || "").trim();
+    if (mode === "append" && cur) inp.value = `${cur}\n\n${text}`;
+    else inp.value = text;
+    inp.focus();
+    if (enableCharacterGuide) toast("已开启「人物卡司」引导，提示已填入输入框");
+  }
+
   function fillChatPromptTemplate(
     text,
     {
@@ -3842,6 +5214,8 @@ async function init() {
       enableAttrGuide = false,
       enableSkillTreeGuide = false,
       enableProfessionGuide = false,
+      enableEcologyGuide = false,
+      enableEconomyGuide = false,
     } = {}
   ) {
     if (!state.world) {
@@ -3851,6 +5225,14 @@ async function init() {
     if (enableAttrGuide) {
       const g = $("guideAttributes");
       if (g) g.checked = true;
+    }
+    if (enableEcologyGuide) {
+      const e = $("guideEcology");
+      if (e) e.checked = true;
+    }
+    if (enableEconomyGuide) {
+      const y = $("guideEconomy");
+      if (y) y.checked = true;
     }
     if (enableSkillTreeGuide) {
       const s = $("guideSkillTrees");
@@ -3869,6 +5251,8 @@ async function init() {
     if (enableSkillTreeGuide) toast("已开启「境界技能树」引导，提示已填入输入框");
     else if (enableProfessionGuide) toast("已开启「境界职业体系」引导，提示已填入输入框");
     else if (enableAttrGuide) toast("已开启「人物属性」引导，提示已填入输入框");
+    else if (enableEcologyGuide) toast("已开启「生态与生境」引导，提示已填入输入框");
+    else if (enableEconomyGuide) toast("已开启「经济系统」引导，提示已填入输入框");
   }
 
   const chips = [
@@ -3883,6 +5267,8 @@ async function init() {
     ],
     ["account_tree", "境界技能树", SKILL_TREE_CHAT_PROMPT, { skillTreeGuide: true, append: true }],
     ["bubble_chart", "人物属性", ATTR_CHAT_PROMPT, { attrGuide: true, append: true }],
+    ["forest", "写生态", ECOLOGY_CHAT_PROMPT, { ecologyGuide: true, append: true }],
+    ["payments", "写经济", ECONOMY_CHAT_PROMPT, { economyGuide: true, append: true }],
     ["diamond", "写物品品质", ITEM_QUALITY_CHAT_PROMPT],
     [
       "diversity_3",
@@ -3898,23 +5284,52 @@ async function init() {
     ["history_edu", "写历史", "请写一条重大历史事件及后果，并挂钩现有派系。"],
   ];
   const chipBox = $("promptChips");
-  chips.forEach((row) => {
-    const [glyph, label, text] = row;
-    const meta = row.length > 3 && row[3] ? row[3] : {};
-    const b = document.createElement("button");
-    b.type = "button";
-    b.className = "chip-btn";
-    b.innerHTML = `<span class="ms chip-glyph" aria-hidden="true">${glyph}</span>${label}`;
-    b.addEventListener("click", () => {
-      fillChatPromptTemplate(text, {
-        mode: meta.append ? "append" : "replace",
-        enableAttrGuide: !!meta.attrGuide,
-        enableSkillTreeGuide: !!meta.skillTreeGuide,
-        enableProfessionGuide: !!meta.professionGuide,
+  if (chipBox)
+    chips.forEach((row) => {
+      const [glyph, label, text] = row;
+      const meta = row.length > 3 && row[3] ? row[3] : {};
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip-btn";
+      b.innerHTML = `<span class="ms chip-glyph" aria-hidden="true">${glyph}</span>${label}`;
+      b.addEventListener("click", () => {
+        fillChatPromptTemplate(text, {
+          mode: meta.append ? "append" : "replace",
+          enableAttrGuide: !!meta.attrGuide,
+          enableSkillTreeGuide: !!meta.skillTreeGuide,
+          enableProfessionGuide: !!meta.professionGuide,
+          enableEcologyGuide: !!meta.ecologyGuide,
+          enableEconomyGuide: !!meta.economyGuide,
+        });
       });
+      chipBox.appendChild(b);
     });
-    chipBox.appendChild(b);
-  });
+
+  const charChipBox = $("charPromptChips");
+  if (charChipBox) {
+    const charChips = [
+      ["groups", "对齐派系 id", "请列出当前 world.json 中已有 **factions.entities[].id** 与 **geography.regions[].id**，据此设计 3～6 名主要人物：每人给出建议 **id**、**name**、**cast_role**、**faction_ids[]**、**home_region_id**、**one_line_hook**，并说明与现有派系/区域如何挂钩。"],
+      ["family_history", "人物关系边", "在已有或拟新增的 **characters.entities[]** 上，补充 **characters.relations[]**：每条 **source_id**、**target_id**、**relation_type**、**notes**；关系要有戏剧功能（债务、秘密、家族、对立、同盟）。"],
+      ["military_tech", "主角团张力", "请设计 **cast_role** 为 **protagonist_core** 的主角团（3～5 人）：写清每人 **notable_skills[]**（叙事向短句）、内在目标冲突，以及他们为何被迫同行。"],
+      ["person_alert", "反派与压力", "请增加或修订 **antagonist** 与 **supporting_major**：每人 **one_line_hook**、与主角团的 **relations**（rival/debt/secret 等），并挂钩 **history** 或 **factions**。"],
+      ["auto_stories", "卡司总览", CHARACTER_ROSTER_CHAT_PROMPT, { charGuide: true, append: false }],
+    ];
+    charChips.forEach((row) => {
+      const [glyph, label, text] = row;
+      const meta = row.length > 3 && row[3] ? row[3] : {};
+      const b = document.createElement("button");
+      b.type = "button";
+      b.className = "chip-btn";
+      b.innerHTML = `<span class="ms chip-glyph" aria-hidden="true">${glyph}</span>${label}`;
+      b.addEventListener("click", () => {
+        fillCharChatPromptTemplate(text, {
+          mode: meta.append ? "append" : "replace",
+          enableCharacterGuide: !!meta.charGuide,
+        });
+      });
+      charChipBox.appendChild(b);
+    });
+  }
 }
 
 /** 助手回复：Markdown → HTML（GFM），经 DOMPurify 消毒 */
@@ -3938,6 +5353,26 @@ function renderMessages() {
   const box = $("messages");
   box.innerHTML = "";
   for (const m of state.messages) {
+    const div = document.createElement("div");
+    div.className = `msg ${m.role}`;
+    const roleIc = m.role === "user" ? "person" : "smart_toy";
+    const body =
+      m.role === "assistant"
+        ? renderAssistantMarkdownHtml(m.content)
+        : escapeHtml(m.content).replaceAll("\n", "<br/>");
+    const bodyClass =
+      m.role === "assistant" ? "msg-body msg-body--assistant msg-body--md" : "msg-body msg-body--user";
+    div.innerHTML = `<div class="role"><span class="ms role-ic" aria-hidden="true">${roleIc}</span>${m.role}</div><div class="${bodyClass}">${body}</div>`;
+    box.appendChild(div);
+  }
+  box.scrollTop = box.scrollHeight;
+}
+
+function renderCharMessages() {
+  const box = $("charMessages");
+  if (!box) return;
+  box.innerHTML = "";
+  for (const m of state.charMessages) {
     const div = document.createElement("div");
     div.className = `msg ${m.role}`;
     const roleIc = m.role === "user" ? "person" : "smart_toy";

@@ -245,3 +245,21 @@ def test_normalize_attribute_system_tier_profiles_and_stat_intro():
     assert len(att["tier_average_profiles"]) == 2
     assert att["tier_average_profiles"][1]["tier_name"] == "筑基"
     assert att["tier_average_profiles"][1]["averages"]["phy"] == 55
+
+
+def test_normalize_zh_economy_top_level_key():
+    out, notes = normalize_structure_patch_detailed({"经济": {"summary": "盐与贝壳", "currencies": [{"name": "盐券"}]}})
+    assert "经济" not in out
+    assert out["economy"]["summary"] == "盐与贝壳"
+    assert out["economy"]["currencies"][0]["id"].startswith("cur_")
+    assert "economy" in notes
+
+
+def test_normalize_economy_trade_routes_alias():
+    out, _ = normalize_structure_patch_detailed(
+        {"economy": {"trade_routes": [{"name": "北路", "from": "a", "to": "b"}]}}
+    )
+    r = out["economy"]["trade_routes"][0]
+    assert r["from_region_id"] == "a"
+    assert r["to_region_id"] == "b"
+

@@ -793,6 +793,341 @@ def _normalize_cultures_dict(section: dict[str, Any], notes: dict[str, list[str]
     return out
 
 
+def _normalize_characters_dict(section: dict[str, Any], notes: dict[str, list[str]] | None = None) -> dict[str, Any]:
+    """将 LLM 输出的 characters 压成可通过 CharactersSection 校验的结构。"""
+    if not isinstance(section, dict):
+        return {"summary": "", "design_notes": "", "entities": [], "relations": []}
+    out: dict[str, Any] = {
+        "summary": _as_str(section.get("summary")).strip(),
+        "design_notes": _as_str(section.get("design_notes")).strip(),
+        "entities": [],
+        "relations": [],
+    }
+    raw_ent = section.get("entities") or section.get("roster") or section.get("cast")
+    if isinstance(raw_ent, dict):
+        if notes is not None:
+            _note(notes, "characters", "entities 已由单对象包装为数组")
+        raw_ent = [raw_ent]
+    if isinstance(raw_ent, list):
+        for item in raw_ent:
+            if not isinstance(item, dict):
+                continue
+            d = dict(item)
+            cid = _as_str(d.get("id") or d.get("character_id")).strip()
+            name = _as_str(d.get("name") or d.get("姓名") or d.get("title")).strip() or cid or "未命名角色"
+            if not cid:
+                cid = "ch_" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:12]
+            row: dict[str, Any] = {"id": cid, "name": name}
+            als = _normalize_str_list_field(d.get("aliases") or d.get("别名"))
+            if als:
+                row["aliases"] = als
+            cr = _as_str(d.get("cast_role") or d.get("role") or d.get("类型") or "background").strip().lower()
+            if cr:
+                row["cast_role"] = cr
+            fids = _normalize_str_list_field(d.get("faction_ids") or d.get("factions"))
+            if fids:
+                row["faction_ids"] = fids
+            hri = _as_str(d.get("home_region_id") or d.get("region_id") or d.get("籍贯")).strip()
+            if hri:
+                row["home_region_id"] = hri
+            ol = _as_str(d.get("one_line_hook") or d.get("hook") or d.get("一句")).strip()
+            if ol:
+                row["one_line_hook"] = ol
+            nt = _join_if_list(d.get("notes") or d.get("背景"))
+            if nt.strip():
+                row["notes"] = nt.strip()
+            sk = _normalize_str_list_field(d.get("notable_skills") or d.get("skills") or d.get("人物技能"))
+            if sk:
+                row["notable_skills"] = sk
+            out["entities"].append(row)
+
+    raw_rels = section.get("relations") or section.get("character_relations") or []
+    if isinstance(raw_rels, dict):
+        if notes is not None:
+            _note(notes, "characters", "relations 已由单对象包装为数组")
+        raw_rels = [raw_rels]
+    if isinstance(raw_rels, list):
+        for item in raw_rels:
+            if not isinstance(item, dict):
+                continue
+            s = _as_str(item.get("source_id") or item.get("from") or item.get("source")).strip()
+            t = _as_str(item.get("target_id") or item.get("to") or item.get("target")).strip()
+            if not s or not t:
+                continue
+            rel: dict[str, Any] = {"source_id": s, "target_id": t}
+            rt = _as_str(item.get("relation_type") or item.get("type") or item.get("关系")).strip()
+            if rt:
+                rel["relation_type"] = rt
+            vis = _as_str(item.get("visibility") or item.get("可见")).strip()
+            if vis:
+                rel["visibility"] = vis
+            n = _as_str(item.get("notes") or "").strip()
+            if n:
+                rel["notes"] = n
+            out["relations"].append(rel)
+    return out
+
+
+def _normalize_ecology_dict(section: dict[str, Any], notes: dict[str, list[str]] | None = None) -> dict[str, Any]:
+    """将 LLM 输出的 ecology 压成可通过 EcologySection 校验的结构。"""
+    if not isinstance(section, dict):
+        return {"summary": "", "design_notes": "", "biomes": [], "species": []}
+    out: dict[str, Any] = {
+        "summary": _as_str(section.get("summary")).strip(),
+        "design_notes": _as_str(section.get("design_notes")).strip(),
+        "biomes": [],
+        "species": [],
+    }
+
+    def norm_biome(raw: Any) -> dict[str, Any] | None:
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            s = raw.strip()
+            if not s:
+                return None
+            bid = "biome_" + hashlib.sha256(s.encode("utf-8")).hexdigest()[:10]
+            return {"id": bid, "name": s, "summary": "", "linked_region_ids": []}
+        if not isinstance(raw, dict):
+            return None
+        d = dict(raw)
+        bid = _as_str(d.get("id") or d.get("biome_id")).strip()
+        name = _as_str(d.get("name") or d.get("title") or d.get("生境")).strip() or bid or "未命名生境"
+        if not bid:
+            bid = "biome_" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:10]
+        row: dict[str, Any] = {
+            "id": bid,
+            "name": name,
+            "summary": _join_if_list(d.get("summary") or d.get("desc") or d.get("概述")),
+        }
+        lids = d.get("linked_region_ids") or d.get("region_ids") or d.get("regions")
+        lr: list[str] = []
+        if isinstance(lids, list):
+            lr = [_as_str(x).strip() for x in lids if _as_str(x).strip()]
+        elif isinstance(lids, str) and lids.strip():
+            lr = [x.strip() for x in lids.replace("，", ",").split(",") if x.strip()]
+        if lr:
+            row["linked_region_ids"] = lr
+        ch = _as_str(d.get("climate_habitat") or d.get("climate") or d.get("栖息地")).strip()
+        if ch:
+            row["climate_habitat"] = ch
+        hz = _join_if_list(d.get("hazards") or d.get("危险"))
+        if hz:
+            row["hazards"] = hz
+        for k in ("notes", "notes_narrative"):
+            if k in d and _as_str(d.get(k)).strip():
+                row.setdefault("notes", _as_str(d.get(k)).strip())
+        return row
+
+    def norm_species(raw: Any) -> dict[str, Any] | None:
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            s = raw.strip()
+            if not s:
+                return None
+            sid = "sp_" + hashlib.sha256(s.encode("utf-8")).hexdigest()[:10]
+            return {"id": sid, "name": s, "biome_id": "", "traits": [], "notable_skills": [], "encounter_dialogue": ""}
+        if not isinstance(raw, dict):
+            return None
+        d = dict(raw)
+        sid = _as_str(d.get("id") or d.get("species_id")).strip()
+        name = _as_str(d.get("name") or d.get("物种") or d.get("title")).strip() or sid or "未命名物种"
+        if not sid:
+            sid = "sp_" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:10]
+        row: dict[str, Any] = {
+            "id": sid,
+            "name": name,
+            "biome_id": _as_str(d.get("biome_id") or d.get("biome") or d.get("生境id")).strip(),
+        }
+        traits = _normalize_str_list_field(d.get("traits") or d.get("标签"))
+        if traits:
+            row["traits"] = traits
+        skills = d.get("notable_skills") or d.get("skills") or d.get("技能")
+        row["notable_skills"] = _normalize_str_list_field(skills)
+        ed = _as_str(d.get("encounter_dialogue") or d.get("dialogue") or d.get("台词") or d.get("遭遇")).strip()
+        if ed:
+            row["encounter_dialogue"] = ed
+        dn = _as_str(d.get("danger_notes") or d.get("danger") or d.get("威胁")).strip()
+        if dn:
+            row["danger_notes"] = dn
+        en = _join_if_list(d.get("ecology_notes") or d.get("notes"))
+        if en:
+            row["ecology_notes"] = en
+        return row
+
+    for item in section.get("biomes") or []:
+        nb = norm_biome(item)
+        if nb:
+            out["biomes"].append(nb)
+    for item in section.get("species") or []:
+        ns = norm_species(item)
+        if ns:
+            out["species"].append(ns)
+
+    return out
+
+
+def _eco_to_list(raw: Any) -> list[Any]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, dict):
+        return [raw]
+    return []
+
+
+def _eco_id_list(val: Any) -> list[str]:
+    if isinstance(val, list):
+        return [_as_str(x).strip() for x in val if _as_str(x).strip()]
+    if isinstance(val, str) and val.strip():
+        return [x.strip() for x in val.replace("，", ",").split(",") if x.strip()]
+    return []
+
+
+def _normalize_economy_dict(section: dict[str, Any], notes: dict[str, list[str]] | None = None) -> dict[str, Any]:
+    """将 LLM 输出的 economy 压成可通过 EconomySection 校验的结构。"""
+    if not isinstance(section, dict):
+        return {
+            "summary": "",
+            "design_notes": "",
+            "currencies": [],
+            "markets": [],
+            "trade_routes": [],
+            "trade_goods": [],
+            "labor_notes": "",
+            "taxation_notes": "",
+            "volatility_notes": "",
+        }
+    out: dict[str, Any] = {
+        "summary": _as_str(section.get("summary")).strip(),
+        "design_notes": _as_str(section.get("design_notes")).strip(),
+        "currencies": [],
+        "markets": [],
+        "trade_routes": [],
+        "trade_goods": [],
+        "labor_notes": _as_str(section.get("labor_notes")).strip(),
+        "taxation_notes": _as_str(section.get("taxation_notes")).strip(),
+        "volatility_notes": _as_str(section.get("volatility_notes")).strip(),
+    }
+
+    def norm_currency(raw: Any) -> dict[str, Any] | None:
+        if raw is None:
+            return None
+        if isinstance(raw, str):
+            s = raw.strip()
+            if not s:
+                return None
+            cid = "cur_" + hashlib.sha256(s.encode("utf-8")).hexdigest()[:10]
+            return {"id": cid, "name": s}
+        if not isinstance(raw, dict):
+            return None
+        d = dict(raw)
+        cid = _as_str(d.get("id") or d.get("currency_id")).strip()
+        name = _as_str(d.get("name") or d.get("货币") or d.get("title")).strip() or cid or "未命名货币"
+        if not cid:
+            cid = "cur_" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:10]
+        row: dict[str, Any] = {"id": cid, "name": name}
+        sym = _as_str(d.get("symbol")).strip()
+        if sym:
+            row["symbol"] = sym
+        iss = _as_str(d.get("issuer_faction_id") or d.get("issuer")).strip()
+        if iss:
+            row["issuer_faction_id"] = iss
+        ex = _as_str(d.get("exchange_notes") or d.get("exchange")).strip()
+        if ex:
+            row["exchange_notes"] = ex
+        return row
+
+    def norm_market(raw: Any) -> dict[str, Any] | None:
+        if not isinstance(raw, dict):
+            return None
+        d = dict(raw)
+        mid = _as_str(d.get("id")).strip()
+        name = _as_str(d.get("name") or d.get("市场")).strip() or mid or "未命名市场"
+        if not mid:
+            mid = "mkt_" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:10]
+        row: dict[str, Any] = {"id": mid, "name": name}
+        sm = _join_if_list(d.get("summary") or d.get("desc"))
+        if sm:
+            row["summary"] = sm
+        lr = _eco_id_list(d.get("linked_region_ids") or d.get("region_ids"))
+        if lr:
+            row["linked_region_ids"] = lr
+        df = _eco_id_list(d.get("dominant_faction_ids") or d.get("faction_ids"))
+        if df:
+            row["dominant_faction_ids"] = df
+        nt = _as_str(d.get("notes")).strip()
+        if nt:
+            row["notes"] = nt
+        return row
+
+    def norm_route(raw: Any) -> dict[str, Any] | None:
+        if not isinstance(raw, dict):
+            return None
+        d = dict(raw)
+        rid = _as_str(d.get("id")).strip()
+        name = _as_str(d.get("name") or d.get("商路")).strip() or rid or "未命名商路"
+        if not rid:
+            rid = "route_" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:10]
+        fr = _as_str(d.get("from_region_id") or d.get("from") or d.get("source_region_id")).strip()
+        to = _as_str(d.get("to_region_id") or d.get("to") or d.get("target_region_id")).strip()
+        row: dict[str, Any] = {"id": rid, "name": name, "from_region_id": fr, "to_region_id": to}
+        sm = _join_if_list(d.get("summary") or d.get("desc"))
+        if sm:
+            row["summary"] = sm
+        gn = _as_str(d.get("goods_notes") or d.get("goods")).strip()
+        if gn:
+            row["goods_notes"] = gn
+        cf = _eco_id_list(d.get("controlling_faction_ids"))
+        if cf:
+            row["controlling_faction_ids"] = cf
+        nt = _as_str(d.get("notes")).strip()
+        if nt:
+            row["notes"] = nt
+        return row
+
+    def norm_good(raw: Any) -> dict[str, Any] | None:
+        if not isinstance(raw, dict):
+            return None
+        d = dict(raw)
+        gid = _as_str(d.get("id")).strip()
+        name = _as_str(d.get("name") or d.get("商品")).strip() or gid or "未命名商品"
+        if not gid:
+            gid = "good_" + hashlib.sha256(name.encode("utf-8")).hexdigest()[:10]
+        row: dict[str, Any] = {"id": gid, "name": name}
+        cat = _as_str(d.get("category") or d.get("type")).strip()
+        if cat:
+            row["category"] = cat
+        sm = _join_if_list(d.get("summary") or d.get("desc"))
+        if sm:
+            row["summary"] = sm
+        nt = _as_str(d.get("notes")).strip()
+        if nt:
+            row["notes"] = nt
+        return row
+
+    for item in _eco_to_list(section.get("currencies")):
+        nc = norm_currency(item)
+        if nc:
+            out["currencies"].append(nc)
+    for item in _eco_to_list(section.get("markets")):
+        nm = norm_market(item)
+        if nm:
+            out["markets"].append(nm)
+    for item in _eco_to_list(section.get("trade_routes") or section.get("routes")):
+        nr = norm_route(item)
+        if nr:
+            out["trade_routes"].append(nr)
+    for item in _eco_to_list(section.get("trade_goods") or section.get("goods")):
+        ng = norm_good(item)
+        if ng:
+            out["trade_goods"].append(ng)
+
+    return out
+
+
 def normalize_structure_patch_detailed(
     patch: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, list[str]]]:
@@ -984,6 +1319,72 @@ def normalize_structure_patch_detailed(
                 _note(notes, "power_system", "power_system 非法 JSON 字符串，已丢弃该键")
         if "power_system" in p and isinstance(p["power_system"], dict):
             p["power_system"] = _normalize_power_system_dict(p["power_system"], notes=notes)
+
+    zh_eco_key = "\u751f\u6001"  # 生态
+    if zh_eco_key in p and isinstance(p[zh_eco_key], dict) and "ecology" not in p:
+        p["ecology"] = p.pop(zh_eco_key)
+        _note(notes, "ecology", "已将顶层「生态」键映射为 ecology")
+
+    if "ecology" in p:
+        raw_e = p["ecology"]
+        if isinstance(raw_e, str):
+            raw_s = raw_e.strip()
+            try:
+                p["ecology"] = json.loads(raw_s)
+                _note(notes, "ecology", "已从 JSON 字符串解析 ecology")
+            except (json.JSONDecodeError, TypeError, ValueError):
+                del p["ecology"]
+                _note(notes, "ecology", "ecology 非法 JSON 字符串，已丢弃该键")
+        if "ecology" in p and isinstance(p["ecology"], dict):
+            p["ecology"] = _normalize_ecology_dict(p["ecology"], notes=notes)
+        elif "ecology" in p:
+            del p["ecology"]
+            _note(notes, "ecology", "ecology 根类型无效，已丢弃该键")
+
+    if "character_roster" in p and isinstance(p["character_roster"], dict) and "characters" not in p:
+        p["characters"] = p.pop("character_roster")
+        _note(notes, "characters", "已将 character_roster 映射为 characters")
+    zh_char_key = "\u4eba\u7269"  # 人物
+    if zh_char_key in p and isinstance(p[zh_char_key], dict) and "characters" not in p:
+        p["characters"] = p.pop(zh_char_key)
+        _note(notes, "characters", "已将顶层「人物」键映射为 characters")
+
+    if "characters" in p:
+        raw_ch = p["characters"]
+        if isinstance(raw_ch, str):
+            raw_s = raw_ch.strip()
+            try:
+                p["characters"] = json.loads(raw_s)
+                _note(notes, "characters", "已从 JSON 字符串解析 characters")
+            except (json.JSONDecodeError, TypeError, ValueError):
+                del p["characters"]
+                _note(notes, "characters", "characters 非法 JSON 字符串，已丢弃该键")
+        if "characters" in p and isinstance(p["characters"], dict):
+            p["characters"] = _normalize_characters_dict(p["characters"], notes=notes)
+        elif "characters" in p:
+            del p["characters"]
+            _note(notes, "characters", "characters 根类型无效，已丢弃该键")
+
+    zh_econ_key = "\u7ecf\u6d4e"  # 经济
+    if zh_econ_key in p and isinstance(p[zh_econ_key], dict) and "economy" not in p:
+        p["economy"] = p.pop(zh_econ_key)
+        _note(notes, "economy", "已将顶层「经济」键映射为 economy")
+
+    if "economy" in p:
+        raw_ec = p["economy"]
+        if isinstance(raw_ec, str):
+            raw_s = raw_ec.strip()
+            try:
+                p["economy"] = json.loads(raw_s)
+                _note(notes, "economy", "已从 JSON 字符串解析 economy")
+            except (json.JSONDecodeError, TypeError, ValueError):
+                del p["economy"]
+                _note(notes, "economy", "economy 非法 JSON 字符串，已丢弃该键")
+        if "economy" in p and isinstance(p["economy"], dict):
+            p["economy"] = _normalize_economy_dict(p["economy"], notes=notes)
+        elif "economy" in p:
+            del p["economy"]
+            _note(notes, "economy", "economy 根类型无效，已丢弃该键")
 
     return p, notes
 

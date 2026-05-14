@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -10,6 +12,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.requests import Request
 
 from worldforger.llm import chat_completion
 from worldforger.creative_modes import chat_guides_content, chat_mode_system, genre_tags_prompt_addon, normalize_chat_guides
@@ -18,10 +22,16 @@ from worldforger.relation_graph_refresh import (
     refresh_world_culture_relations,
     refresh_world_faction_relations,
 )
-from worldforger.prompts import outline_system_prompt, system_with_world_json
+from worldforger.prompts import (
+    character_chat_system_prompt,
+    ecology_generate_system_prompt,
+    ecology_generate_user_payload,
+    outline_system_prompt,
+    system_with_world_json,
+)
 from worldforger.schemas import World
 from worldforger.snapshot_diff import line_diff_json
-from worldforger.reference_linter import lint_world_references
+from worldforger.reference_linter import fix_world_references, lint_world_references
 from worldforger.world_search import search_world_payload
 from worldforger.world_store import (
     create_world,
@@ -43,6 +53,26 @@ from worldforger.world_store import (
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
 
+def _static_nocache_enabled() -> bool:
+    """本地调试：避免 /static/* 长期 304，浏览器拿不到最新 app.js。"""
+    v = (os.environ.get("MCW_NO_STATIC_CACHE") or "").strip().lower()
+    return v in ("1", "true", "yes", "on")
+
+
+class DevStaticCacheBypassMiddleware(BaseHTTPMiddleware):
+    """在 MCW_NO_STATIC_CACHE 开启时，去掉对 /static/ 的条件 GET，并禁止缓存。"""
+
+    async def dispatch(self, request: Request, call_next):
+        if not _static_nocache_enabled() or not request.url.path.startswith("/static/"):
+            return await call_next(request)
+        scope = dict(request.scope)
+        skip = {b"if-none-match", b"if-modified-since"}
+        scope["headers"] = [(k, v) for k, v in scope.get("headers", ()) if k.lower() not in skip]
+        response = await call_next(Request(scope))
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        return response
+
+
 class CreateWorldBody(BaseModel):
     name: str = Field(min_length=1, max_length=200)
 
@@ -53,6 +83,12 @@ class RenameWorldBody(BaseModel):
 
 class RollbackSnapshotBody(BaseModel):
     snapshot_version: int = Field(ge=1, le=9_999_999)
+
+
+class FixReferencesBody(BaseModel):
+    """引用自动修复：仅移除悬空边 / 无效 id 引用等；不合并重复区域、不生成缺失 id。"""
+
+    dry_run: bool = False
 
 
 class ChatMessage(BaseModel):
@@ -79,14 +115,23 @@ class OutlineBody(BaseModel):
     creative_mode: str | None = None
 
 
+class EcologyGenerateBody(BaseModel):
+    """一键生成生态叙事 + 文末 ecology JSON 代码块（用户可复制或再开对话后同步）。"""
+
+    hint: str = Field(default="", max_length=6000)
+    creative_mode: str | None = None
+
+
 SyncScope = Literal[
     "all",
     "geography",
+    "ecology",
     "power_system",
     "item_quality_system",
     "attribute_system",
     "factions",
     "cultures",
+    "characters",
     "history",
 ]
 
@@ -110,6 +155,17 @@ class RefreshRelationsBody(BaseModel):
 
 app = FastAPI(title="Magic Creater World", version="0.1.0")
 
+
+def _shutdown_request_allowed(request: Request) -> bool:
+    """仅允许回环地址触发退出，避免误将服务暴露到公网时被远程关停。"""
+    host = (request.client.host if request.client else "") or ""
+    if host in ("127.0.0.1", "::1"):
+        return True
+    if host.startswith("::ffff:") and host[len("::ffff:") :] == "127.0.0.1":
+        return True
+    return False
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -117,6 +173,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(DevStaticCacheBypassMiddleware)
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -150,6 +207,22 @@ def public_config() -> dict[str, Any]:
         "structure_sync_model": (s.structure_sync_model.strip() or s.openai_chat_model),
         "has_api_key": bool(s.paratera_api_key.strip()),
     }
+
+
+@app.post("/api/shutdown")
+def api_shutdown(request: Request) -> dict[str, Any]:
+    """结束本地 Uvicorn 进程（工作台「退出」）。仅本机回环可调用。"""
+    if not _shutdown_request_allowed(request):
+        raise HTTPException(status_code=403, detail="仅允许从本机回环地址关闭服务")
+
+    def _exit_process() -> None:
+        import time
+
+        time.sleep(0.35)
+        os._exit(0)
+
+    threading.Thread(target=_exit_process, daemon=True).start()
+    return {"ok": True, "message": "服务即将停止"}
 
 
 @app.get("/api/worlds")
@@ -206,6 +279,45 @@ def api_lint_world_references(world_id: str) -> dict[str, Any]:
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="world not found") from None
     return lint_world_references(w)
+
+
+@app.post("/api/worlds/{world_id}/fix-references")
+def api_fix_world_references(world_id: str, body: FixReferencesBody = FixReferencesBody()) -> dict[str, Any]:
+    """
+    基于磁盘当前 world 做保守引用修复；dry_run 时只返回将执行的操作与修复后校验结果，不写盘。
+    """
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    w2, applied = fix_world_references(w)
+    lint_after = lint_world_references(w2)
+    if body.dry_run:
+        return {
+            "dry_run": True,
+            "would_apply": applied,
+            "apply_count": len(applied),
+            "lint_after": lint_after,
+        }
+    if not applied:
+        return {
+            "dry_run": False,
+            "applied": [],
+            "saved": False,
+            "world": w.model_dump(mode="json"),
+            "lint": lint_world_references(w),
+        }
+    if w2.meta.id != world_id:
+        raise HTTPException(status_code=500, detail="fix produced mismatched meta.id")
+    w2.bump_version()
+    save_world(w2, export_markdown=True)
+    return {
+        "dry_run": False,
+        "applied": applied,
+        "saved": True,
+        "world": w2.model_dump(mode="json"),
+        "lint": lint_after,
+    }
 
 
 @app.put("/api/worlds/{world_id}")
@@ -328,6 +440,40 @@ async def api_chat(world_id: str, body: ChatBody) -> dict[str, str]:
 
     ctx = world_context_for_prompt(w, include_markdown=body.include_markdown_context)
     system = system_with_world_json(ctx)
+    msgs: list[dict[str, Any]] = [{"role": "system", "content": system}]
+    mode_eff = (body.mode or "").strip() or w.meta.creative_mode
+    addon = chat_mode_system(mode_eff)
+    if addon:
+        msgs.append({"role": "system", "content": addon})
+    tag_addon = genre_tags_prompt_addon(w.meta.genre_tags)
+    if tag_addon:
+        msgs.append({"role": "system", "content": tag_addon})
+    guide_text = chat_guides_content(body.chat_guides)
+    if guide_text:
+        msgs.append({"role": "system", "content": guide_text})
+    for m in body.messages:
+        msgs.append({"role": m.role, "content": m.content})
+    try:
+        reply = await chat_completion(msgs)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
+
+    _append_session_log(world_id, body.messages, reply)
+    return {"reply": reply}
+
+
+@app.post("/api/worlds/{world_id}/character-chat")
+async def api_character_chat(world_id: str, body: ChatBody) -> dict[str, str]:
+    """与「世界观构建」同级的人物/卡司对话：系统提示侧重 characters 节。"""
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found")
+
+    ctx = world_context_for_prompt(w, include_markdown=body.include_markdown_context)
+    system = character_chat_system_prompt(ctx)
     msgs: list[dict[str, Any]] = [{"role": "system", "content": system}]
     mode_eff = (body.mode or "").strip() or w.meta.creative_mode
     addon = chat_mode_system(mode_eff)
@@ -544,6 +690,35 @@ async def api_outline(world_id: str, body: OutlineBody) -> dict[str, str]:
     )
     out.write_text(header + reply, encoding="utf-8")
     return {"reply": reply, "saved": str(out)}
+
+
+@app.post("/api/worlds/{world_id}/ecology-generate")
+async def api_ecology_generate(
+    world_id: str, body: EcologyGenerateBody = EcologyGenerateBody(),
+) -> dict[str, str]:
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found")
+
+    sys_p = ecology_generate_system_prompt()
+    user_p = ecology_generate_user_payload(w, hint=body.hint)
+    msgs: list[dict[str, str]] = [{"role": "system", "content": sys_p}]
+    mode_eff = (body.creative_mode or "").strip() or w.meta.creative_mode
+    addon = chat_mode_system(mode_eff)
+    if addon:
+        msgs.append({"role": "system", "content": addon})
+    tag_addon = genre_tags_prompt_addon(w.meta.genre_tags)
+    if tag_addon:
+        msgs.append({"role": "system", "content": tag_addon})
+    msgs.append({"role": "user", "content": user_p})
+    try:
+        reply = await chat_completion(msgs, temperature=0.35, max_tokens=8192)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
+    return {"reply": reply}
 
 
 def _append_session_log(

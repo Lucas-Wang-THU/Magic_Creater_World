@@ -85,6 +85,42 @@ def test_merge_keeps_nonempty_string_when_patch_blank():
     assert out["climate_notes"] == "冷"
 
 
+def test_apply_structure_patch_ecology():
+    w = create_world("生态合并")
+    w.geography.regions = [{"id": "r1", "name": "一区"}]
+    patch = {
+        "ecology": {
+            "summary": "干草原与盐湖带",
+            "design_notes": "体魄高区多大型掠食者",
+            "biomes": [
+                {
+                    "id": "b_salt",
+                    "name": "盐湖荒原",
+                    "summary": "结晶岸与嗜盐菌毯",
+                    "linked_region_ids": ["r1"],
+                }
+            ],
+            "species": [
+                {
+                    "id": "sp_crab",
+                    "name": "盐壳蟹",
+                    "biome_id": "b_salt",
+                    "traits": ["甲壳", "夜行"],
+                    "notable_skills": ["扬沙遮蔽视线"],
+                    "encounter_dialogue": "甲壳摩擦如细沙洒落，你闻到苦咸与金属味。",
+                }
+            ],
+        }
+    }
+    merged, keys, _w, _nn = apply_structure_patch(w, patch)
+    assert "ecology" in keys
+    assert merged.ecology.summary == "干草原与盐湖带"
+    assert len(merged.ecology.biomes) == 1
+    assert merged.ecology.biomes[0].get("linked_region_ids") == ["r1"]
+    assert len(merged.ecology.species) == 1
+    assert merged.ecology.species[0].get("biome_id") == "b_salt"
+
+
 def test_apply_structure_patch_attribute_system():
     w = create_world("属性测")
     patch = {
@@ -116,3 +152,70 @@ def test_merge_replaces_list_when_patch_nonempty():
     patch = {"tiers": [{"name": "A"}, {"name": "B"}]}
     out = merge_section_conservative(base, patch)
     assert len(out["tiers"]) == 2
+
+
+def test_apply_structure_patch_characters():
+    w = create_world("人物测")
+    w.geography.regions = [{"id": "r_cap", "name": "王都"}]
+    w.factions.entities = [{"id": "f_guard", "name": "禁卫", "goals": "", "territory": "", "key_figures": [], "relations": []}]
+    patch = {
+        "characters": {
+            "summary": "三人小队驱动主线",
+            "design_notes": "籍贯与派系 id 对齐",
+            "entities": [
+                {
+                    "id": "ch_hero",
+                    "name": "阿绫",
+                    "cast_role": "protagonist_core",
+                    "faction_ids": ["f_guard"],
+                    "home_region_id": "r_cap",
+                    "one_line_hook": "被迫拿起旧印",
+                    "notable_skills": ["辨印纹真伪"],
+                },
+                {
+                    "id": "ch_rival",
+                    "name": "朔夜",
+                    "cast_role": "antagonist",
+                    "faction_ids": [],
+                    "one_line_hook": "觊觎同一印记",
+                    "notable_skills": [],
+                },
+            ],
+            "relations": [
+                {
+                    "source_id": "ch_hero",
+                    "target_id": "ch_rival",
+                    "relation_type": "rival",
+                    "notes": "旧识",
+                }
+            ],
+        }
+    }
+    merged, keys, _w, _nn = apply_structure_patch(w, patch)
+    assert "characters" in keys
+    assert merged.characters.summary == "三人小队驱动主线"
+    assert len(merged.characters.entities) == 2
+    assert merged.characters.entities[0].get("id") == "ch_hero"
+    assert len(merged.characters.relations) == 1
+    assert merged.characters.relations[0].get("relation_type") == "rival"
+
+
+def test_apply_structure_patch_economy():
+    w = create_world("经济合并")
+    patch = {
+        "economy": {
+            "summary": "盐铁专营",
+            "currencies": [{"id": "cur1", "name": "官钞", "exchange_notes": "1:10"}],
+            "markets": [{"id": "m1", "name": "城关市", "summary": "课税重"}],
+            "trade_routes": [],
+            "trade_goods": [{"id": "g1", "name": "粗盐", "category": "strategic"}],
+        }
+    }
+    merged, keys, warns, _nn = apply_structure_patch(w, patch)
+    assert not warns
+    assert "economy" in keys
+    assert merged.economy.summary == "盐铁专营"
+    assert len(merged.economy.currencies) == 1
+    assert merged.economy.currencies[0]["name"] == "官钞"
+    assert len(merged.economy.trade_goods) == 1
+

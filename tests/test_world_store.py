@@ -1,5 +1,15 @@
 from worldforger.markdown_export import world_to_markdown
-from worldforger.schemas import FactionEntity, GeographySection, HistoryEvent, Meta, PowerTier, ProfessionEntry, TierProfessionBlock, World
+from worldforger.schemas import (
+    EconomySection,
+    FactionEntity,
+    GeographySection,
+    HistoryEvent,
+    Meta,
+    PowerTier,
+    ProfessionEntry,
+    TierProfessionBlock,
+    World,
+)
 from worldforger.world_store import (
     create_world,
     list_world_briefs,
@@ -71,6 +81,7 @@ def test_export_contains_headings():
         FactionEntity(id="f1", name="学派", goals="求知", territory="北境")
     )
     w.attribute_system.summary = "六维叙事板"
+    w.economy = EconomySection(summary="盐铁与关榷", currencies=[{"id": "c1", "name": "官钞"}])
     md = world_to_markdown(w)
     assert "境界体系" in md
     assert "### 境界概述" in md
@@ -81,3 +92,4 @@ def test_export_contains_headings():
     assert "第一境" in md
     assert "学派" in md
     assert "元年" in md
+    assert "## 经济与流通" in md

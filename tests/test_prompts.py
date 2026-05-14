@@ -1,4 +1,4 @@
-from worldforger.prompts import system_with_world_json
+from worldforger.prompts import ecology_generate_user_payload, system_with_world_json
 
 
 def test_system_with_world_json_appends_geography_hint():
@@ -25,3 +25,28 @@ def test_system_with_world_json_appends_item_quality_hint():
     assert "rarity_narrative" in s
     assert "binding_rules" in s
     assert "item_grades" in s
+
+
+def test_system_with_world_json_appends_ecology_hint():
+    s = system_with_world_json("{}")
+    assert "【生态与 world.json 的 ecology 对齐" in s
+    assert "notable_skills" in s
+
+
+def test_system_with_world_json_appends_economy_hint():
+    s = system_with_world_json("{}")
+    assert "【经济与 world.json 的 economy 对齐" in s
+    assert "trade_routes" in s
+    assert "issuer_faction_id" in s
+
+
+def test_ecology_generate_user_payload_contains_region_ids():
+    from worldforger.schemas import GeographySection, Meta, World
+
+    w = World(
+        meta=Meta(id="t-abcd1234", name="T"),
+        geography=GeographySection(regions=[{"id": "north", "name": "北境"}]),
+    )
+    p = ecology_generate_user_payload(w, hint="突出苔原")
+    assert "north" in p
+    assert "突出苔原" in p

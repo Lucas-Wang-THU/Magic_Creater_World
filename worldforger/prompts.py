@@ -1,4 +1,7 @@
+import json
+
 from worldforger.creative_modes import outline_mode_addon
+from worldforger.schemas import World
 
 SYSTEM_WORLD_ARCHITECT = """你是「世界观架构师」助手，帮助用户搭建小说、游戏、CoC 或 DnD 跑团用的世界设定。
 你必须严格依据用户提供的「当前世界 JSON 设定」进行补充与修订；若用户要求新增内容，需与已有设定自洽，不要自相矛盾。
@@ -31,6 +34,24 @@ ITEM_QUALITY_CHAT_SCHEMA_HINT = """【物品品质与 world.json 的 item_qualit
 - 档位之间边界要清晰（谁能持有、何时破损、与剧情冲突点）；**勿**与 **attribute_system**（人物属性刻度）混写。
 - 讨论后可按上述键用小节组织，便于「对话后同步」抽取；不必默认输出整段 JSON。"""
 
+ECOLOGY_CHAT_SCHEMA_HINT = """【生态与 world.json 的 ecology 对齐】
+- **ecology.summary**：全图生态位、危险带、与文明/超凡力量的交界叙事。
+- **ecology.design_notes**：如何与 **geography**、**attribute_system** 互证（哪些区域/属性维度对应何种野外压力）。
+- **ecology.biomes[]**：生境群落；每项 **id**、**name**、**summary**；**linked_region_ids[]** 须对齐已有 **geography.regions[].id**；可选 **climate_habitat**、**hazards**、**notes**。
+- **ecology.species[]**：代表性物种或群落；**id**、**name**、**biome_id**（对齐 **biomes[].id**）；**traits[]**；**notable_skills[]**（物种行为或叙事向「技能」短句，**非**境界 **power_system.skill_tree** 节点）；**encounter_dialogue**（遭遇台词或环境旁白，供跑团/叙事直接使用）；可选 **danger_notes**。
+- 自然语言讨论时可按上述键用小节组织；「对话后同步」落盘时顶层键为 **ecology**。"""
+
+
+ECONOMY_CHAT_SCHEMA_HINT = """【经济与 world.json 的 economy 对齐】
+- **economy.summary**：通货与总流通叙事；与 **item_quality_system**、**factions**、**geography** 的叙事衔接。
+- **economy.design_notes**：铸币权、商会、关税与 **regions[].id** / **factions.entities[].id** 的对齐约定。
+- **economy.currencies[]**：**id**、**name**；可选 **symbol**、**issuer_faction_id**（须已有派系 **id**）、**exchange_notes**。
+- **economy.markets[]**：**id**、**name**；可选 **summary**、**linked_region_ids[]**（须 **geography.regions[].id**）、**dominant_faction_ids[]**、**notes**。
+- **economy.trade_routes[]**：**id**、**name**、**from_region_id**、**to_region_id**；可选 **summary**、**goods_notes**、**controlling_faction_ids[]**、**notes**。
+- **economy.trade_goods[]**：**id**、**name**；可选 **category**（如 strategic|luxury|common|contraband）、**summary**、**notes**。
+- **economy.labor_notes**、**economy.taxation_notes**、**economy.volatility_notes**：劳动力/税收与再分配/危机波动等条款式说明。
+- 自然语言讨论时可按上述键用小节组织；「对话后同步」落盘时顶层键为 **economy**。"""
+
 
 def system_with_world_json(world_json_text: str) -> str:
     return (
@@ -43,6 +64,10 @@ def system_with_world_json(world_json_text: str) -> str:
         + POWER_SYSTEM_CHAT_SCHEMA_HINT
         + "\n\n"
         + ITEM_QUALITY_CHAT_SCHEMA_HINT
+        + "\n\n"
+        + ECOLOGY_CHAT_SCHEMA_HINT
+        + "\n\n"
+        + ECONOMY_CHAT_SCHEMA_HINT
     )
 
 
@@ -64,4 +89,83 @@ def outline_system_prompt(
         + tail
         + "\n\n--- 世界设定（JSON 为主；若包含 world.md 片段，与 JSON 冲突时以 JSON 为准） ---\n\n"
         + world_block
+    )
+
+
+def ecology_generate_system_prompt() -> str:
+    return (
+        "你是「生态与生物群落」顾问，输出**简体中文**，结构清晰。\n"
+        "你必须依据用户给出的 **geography** 与 **attribute_system** 摘要推演自洽的野外生态，不要与已有区域 id 列表矛盾。\n\n"
+        "输出格式：\n"
+        "1. 使用 Markdown：先写全图生态概述，再分小节写 **生境群落** 与 **代表物种**（可用三级标题）。\n"
+        "2. 物种小节内用列表给出 **notable_skills**（叙事或规则向行为短句，非 PC 职业技、非 power_system.skill_tree 节点）与一句 **encounter_dialogue**（遭遇旁白或台词）。\n"
+        "3. **文末仅追加一个** JSON 代码块（ fenced ```json ），根对象只含键 **ecology** ，其值对象字段为："
+        "**summary**、**design_notes**、**biomes[]**、**species[]** —— 与工作台 world.json 的 **ecology** 节一致；"
+        "**biomes[].linked_region_ids** 只能使用用户给出的区域 **id** 列表中的值（没有的就不要写虚构 id）；"
+        "**species[].biome_id** 必须指向本次 JSON 内 **biomes[].id**。\n"
+        "4. 不要输出 meta；不要在代码块外交替嵌套第二份 JSON。"
+    )
+
+
+def ecology_generate_user_payload(world: World, *, hint: str) -> str:
+    g = world.geography.model_dump(mode="json")
+    a = world.attribute_system.model_dump(mode="json")
+    regions = g.get("regions") if isinstance(g.get("regions"), list) else []
+    region_ids: list[str] = []
+    for r in regions:
+        if not isinstance(r, dict):
+            continue
+        rid = str(r.get("id") or "").strip()
+        if rid:
+            region_ids.append(rid)
+    geo_snip = {
+        "summary": g.get("summary"),
+        "climate_notes": g.get("climate_notes"),
+        "map_notes": g.get("map_notes"),
+        "regions": regions,
+    }
+    attr_snip = {
+        "summary": a.get("summary"),
+        "design_notes": a.get("design_notes"),
+        "stats": a.get("stats"),
+        "tier_average_profiles": a.get("tier_average_profiles"),
+    }
+    parts = [
+        "【写作任务】请生成生态与生境物种（要求见系统消息）。",
+        "",
+        "【用户补充说明】",
+        (hint.strip() or "（无补充说明；请结合下列数据自行推断。）"),
+        "",
+        "【geography（节选）】",
+        json.dumps(geo_snip, ensure_ascii=False, indent=2),
+        "",
+        "【attribute_system（节选）】",
+        json.dumps(attr_snip, ensure_ascii=False, indent=2),
+        "",
+        "【允许的 geography.regions[].id 列表（仅可将这些字符串写入 ecology.biomes[].linked_region_ids）】",
+        json.dumps(region_ids, ensure_ascii=False),
+        "",
+        "【已有 ecology（可合并或覆盖；若为空对象可忽略）】",
+        json.dumps(world.ecology.model_dump(mode="json"), ensure_ascii=False, indent=2),
+    ]
+    return "\n".join(parts)
+
+
+CHARACTER_CHAT_SCHEMA_HINT = """【与 world.json 的 characters 对齐】
+- **characters.summary**：卡司总览、谁在驱动主线/副线冲突。
+- **characters.design_notes**：与派系要人、历史事件、地理籍贯等 **id** 的对齐与防漂移约定。
+- **characters.entities[]**：每项 **id**、**name**；**cast_role** 取 `protagonist_core`（主角团核心）| `supporting_major`（重要配角）| `supporting_minor` | `antagonist` | `background`；**faction_ids[]** 须对齐已有 **factions.entities[].id**；**home_region_id** 须对齐已有 **geography.regions[].id**；可选 **aliases[]**、**one_line_hook**、**notes**、**notable_skills[]**（人物叙事或玩法向特长短句，**非**境界 **power_system.skill_tree** 节点）。
+- **characters.relations[]**：**source_id**、**target_id**（均为 **entities[].id**）；**relation_type**（如 ally/rival/family/debt/secret）；可选 **visibility**（reader/author_only）、**notes**。"""
+
+SYSTEM_CHARACTER_ARCHITECT = """你是「人物与卡司」策划助手，帮助用户基于**已有**世界设定（派系、文化、地理、历史、属性体系等）扩展或修订**人物卡司**。
+回答使用简体中文，结构清晰；需要列出条目时使用 Markdown。不要编造与 JSON 事实冲突的派系 id、区域 id 或人物 id；若需新角色请给出稳定短 **id**（小写 slug 或 ch_ 前缀亦可）。"""
+
+
+def character_chat_system_prompt(world_json_text: str) -> str:
+    return (
+        SYSTEM_CHARACTER_ARCHITECT
+        + "\n\n以下为当前世界的权威设定（JSON）。请以此为事实来源：\n\n```json\n"
+        + world_json_text
+        + "\n```\n\n"
+        + CHARACTER_CHAT_SCHEMA_HINT
     )

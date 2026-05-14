@@ -78,7 +78,7 @@ flowchart LR
 ```mermaid
 flowchart TB
   subgraph UI["Web 工作台"]
-    CHAT[对话]
+    CHAT[世界观构建]
     GEO[地理]
     POW[境界体系]
     ITEM[物品品质]
@@ -111,7 +111,7 @@ flowchart TB
 
 | 模块 | 说明 |
 |:--|:--|
-| **对话** | 与架构师聊天；**Ctrl+Enter** 快捷发送；快捷词条（含文化·宗教、**派系要人**）；对话区 **派系要人快照**（各派系 `key_figures` 预览，与派系页卡片或未保存编辑一致）；可选「对话后同步表单」；若磁盘上 **world.md 非空**，加载世界时会**自动勾选**「附带 world.md 上下文」 |
+| **世界观构建** | 与架构师自然语言交流；**Ctrl+Enter** 快捷发送；快捷词条（含文化·宗教、**派系要人**）；**派系要人快照**（各派系 `key_figures` 预览，与派系页卡片或未保存编辑一致）；可选「对话后同步表单」；若磁盘上 **world.md 非空**，加载世界时会**自动勾选**「附带 world.md 上下文」 |
 | **地理** | 大陆 / 区域卡片、区域关系网络图、区域类型图标；结构化同步含地理归一化与稳定区域 id（`rg_*`） |
 | **力量 / 物品** | 分境界 / 分档卡片化预览（能力、限制、范例等）；**职业体系**子页含按境编辑的 `profession_system` 与 **职业晋升图谱**（Mermaid：相邻境界相同 `professions[].id` 视为晋升连线） |
 | **文化·宗教** | `cultures` 总览与实体卡片、关系图（Mermaid）；第二路白名单键 **`cultures`**；可与创作模式提示联动 |
@@ -121,13 +121,15 @@ flowchart TB
 
 **世界管理**：顶栏可 **重命名**（`PATCH`，仅改显示名与 `meta.name`）、**删除**（`DELETE` 整目录）；世界下拉列表显示 **显示名 · id**。
 
-**看板（右侧）**：**引用一致性** 调用 `GET …/lint-references` 对照磁盘 world 检查跨 id 引用；**保存世界** 成功后会静默再跑一遍，若有提示会 toast 并写入下列表。`meta.genre_tags`（若在世界 JSON 中填写）会作为 system 片段注入 **对话**、**对话后结构化同步** 与 **大纲生成**。`/` 为界面，`/api/*` 为接口，`/static/*` 为前端资源（根路径不整站挂载静态目录，避免抢占 API）。
+**看板（右侧）**：**计数条**与可折叠 **原始 JSON**。**引用一致性**（`GET …/lint-references`；`POST …/fix-references` 预览/落盘保守修复）与**版本快照 / diff / 回滚**在左侧导航 **数据** 分组中进入对应页面；**保存世界** 成功后仍会静默跑一次引用校验，若有提示会 toast，列表见 **数据 → 引用一致性**。`meta.genre_tags`（若在世界 JSON 中填写）会作为 system 片段注入 **世界观构建**、**对话后结构化同步** 与 **大纲生成**。
+
+工作台为 **单页静态前端 + FastAPI**：`/` 为界面，`/api/*` 为接口，`/static/*` 为前端资源（根路径不整站挂载静态目录，避免抢占 API）。
 
 ---
 
 ## 后续路线：角色与关系网络
 
-当前版本已把 **地理、力量、物品、文化、派系、历史、大纲** 等结构化进 `world.json`，并有多处 **Mermaid 关系图**（派系、文化、历史、地理、职业晋升等）。**人物**仍以大纲与对话产出为主，尚未有独立的「角色卡 + 关系边」数据节与专用视图。
+当前版本已在 `world.json` 中提供 **`characters`**（卡司实体 + `relations[]`），工作台含 **「人物生成」**（`character-chat`）与左侧 **「角色」** 分区看板；**大纲** 仍负责长文人物/情节稿。
 
 以下为建议的 **下游迭代顺序**（详细拆解见 [`todolist.md`](todolist.md) 中「下游任务：角色、主角团与关系网络」）。
 
@@ -137,12 +139,12 @@ flowchart LR
     M1[角色 roster schema]
     M2[引用校验 / 派系·区域 id]
   end
-  subgraph 中期["中期：生成与同步"]
-    G1[角色 / 主角团生成提示与大纲模板]
-    G2[第二路白名单 characters + normalize]
+  subgraph 中期["中期：同步与大纲联动"]
+    G1[第二路白名单 characters + normalize]
+    G2[大纲与卡司版本 / 模板联动]
   end
   subgraph 远期["远期：可视化与叙事工具"]
-    V1[人物关系 Mermaid / 筛选视图]
+    V1[人物关系 Mermaid / 筛选视图深化]
     V2[与历史事件 / 派系要人联动]
   end
   M1 --> M2
@@ -154,7 +156,6 @@ flowchart LR
 
 | 方向 | 说明 |
 |:--|:--|
-| **角色生成** | 基于当前 `world.json` 与可选 `world.md`，在「大纲」或新接口中生成单卡（动机、秘密、声口、与派系/区域挂钩字段）。 |
 | **主角团** | 在 roster 中增加角色类标签（如 `cast_role: protagonist_core`），便于导出与对话芯片引用。 |
 | **关键配角** | 与 `factions.key_figures`、历史事件参与者对齐 id，减少「同名不同人」。 |
 | **人物关系网络** | 存 `relations[]`（`source_id`、`target_id`、`type`、`notes`），前端复用派系图缩放模式做 **人物关系图**。 |
@@ -261,6 +262,8 @@ python run.py --reload
 python run.py --no-browser
 ```
 
+使用 **`--reload`** 时，会自动设置环境变量 **`MCW_NO_STATIC_CACHE=1`**：对 `/static/*` 去掉条件请求头并返回 `Cache-Control: no-store`，避免 `app.js` 等长期 **304 Not Modified** 导致浏览器仍用旧脚本。若未使用 `--reload` 也需要强制刷新静态资源，可手动执行 `MCW_NO_STATIC_CACHE=1 python run.py`（Windows 可先 `set MCW_NO_STATIC_CACHE=1`）。
+
 等价方式（未使用 `run.py` 时）：
 
 ```bash
@@ -298,6 +301,7 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765
 | `POST` | `/api/worlds/{id}/outline` | 大纲 |
 | `GET` | `/api/worlds/{id}/search` | 全文搜索：`q` 查询磁盘 `world.json` + `world.md` |
 | `GET` | `/api/worlds/{id}/lint-references` | 纯本地引用一致性检查（地理/派系/文化/历史/境界等 id），返回 `warnings`、`ok`、`counts` |
+| `POST` | `/api/worlds/{id}/fix-references` | 保守自动修复：`{ "dry_run": true }` 仅返回 `would_apply`、`lint_after`；`dry_run: false` 写盘并 `bump_version` |
 | `POST` | `/api/worlds/{id}/export-md` | 重新导出 `world.md` |
 
 ---
@@ -314,5 +318,5 @@ python -m pytest tests -q
 
 | 文档 | 内容 |
 |:--|:--|
-| [`todolist.md`](todolist.md) | 路线图、**下游任务（角色生成 / 主角团 / 关键配角 / 人物关系网络）**、架构速记与 backlog |
+| [`todolist.md`](todolist.md) | 路线图、**下游任务（主角团 / 关键配角 / 人物关系网络）**、架构速记与 backlog |
 | [`.cursor/skills/`](.cursor/skills/) | Cursor Agent Skills（如 `worldforger-factions`、`worldforger-cultures-religions`、各创作载体 skill） |

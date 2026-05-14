@@ -531,6 +531,27 @@ main.main--empty .empty-state {
 
 .reference-lint-toolbar {
   margin-bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.reference-lint-fix-out {
+  margin-top: 10px;
+  max-height: 200px;
+  overflow: auto;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.reference-lint-fix-out ul {
+  margin: 0;
+  padding-left: 1.1em;
+}
+
+.reference-lint-fix-out li {
+  margin-bottom: 4px;
 }
 
 .reference-lint-out {
@@ -2157,6 +2178,10 @@ button.ghost {
   display: none;
 }
 
+.ecology-subview.is-hidden {
+  display: none;
+}
+
 .subsection-head {
   display: flex;
   flex-wrap: wrap;
@@ -2185,10 +2210,268 @@ button.ghost {
   margin-bottom: 6px;
 }
 
+.geo-card > .panel-subtabs {
+  margin-bottom: 14px;
+}
+
+.geo-subview.is-hidden {
+  display: none;
+}
+
+.geo-md-split {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 18px;
+  align-items: stretch;
+}
+
+.geo-md-split--framed {
+  padding-left: 6px;
+}
+
+.geo-md-split--stack-sm {
+  margin-top: 0;
+}
+
+@media (max-width: 900px) {
+  .geo-md-split {
+    grid-template-columns: 1fr;
+  }
+
+  .geo-md-split-pane--preview {
+    min-height: 120px;
+  }
+}
+
+.geo-md-split-pane--edit,
+.geo-md-split-pane--preview {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.geo-md-split-pane--edit textarea,
+.geo-md-split-pane textarea {
+  width: 100%;
+  min-height: 140px;
+  border-radius: 11px;
+  box-sizing: border-box;
+}
+
+.geo-md-pane-tag {
+  display: inline-flex;
+  align-self: flex-start;
+  padding: 3px 10px;
+  margin-bottom: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #64748b;
+  background: rgba(241, 245, 249, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 999px;
+}
+
+.geo-md-pane-tag--preview {
+  color: #4338ca;
+  background: rgba(238, 242, 255, 0.98);
+  border-color: rgba(129, 140, 248, 0.5);
+}
+
+.geo-textarea--framed {
+  flex: 1;
+  border: 1px solid rgba(203, 213, 225, 0.95);
+  background: #fff;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.geo-textarea--framed:focus {
+  outline: none;
+  border-color: #93c5fd;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+}
+
+.geo-md-preview {
+  flex: 1;
+  min-height: 140px;
+  max-height: 380px;
+  overflow: auto;
+  padding: 14px 16px;
+  border-radius: 11px;
+  border: 1px solid rgba(199, 210, 254, 0.7);
+  background: linear-gradient(180deg, #fcfcff 0%, #f8fafc 55%, #f1f5f9 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  font-size: 13px;
+  line-height: 1.58;
+  scrollbar-color: rgba(148, 163, 184, 0.6) transparent;
+}
+
+.geo-md-preview img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+.geo-md-split-pane--preview .geo-md-preview {
+  margin: 0;
+}
+
+/* 总览 / 气候 / 地图：横幅与叙事卡片 */
+.geo-overview-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+  border-radius: 12px;
+  border: 1px solid rgba(99, 102, 241, 0.22);
+  background: linear-gradient(135deg, rgba(238, 242, 255, 0.96) 0%, rgba(248, 250, 252, 0.92) 100%);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.05);
+}
+
+.geo-overview-banner-ic {
+  font-size: 22px;
+  color: #6366f1;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.geo-overview-banner-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #334155;
+  max-width: 62ch;
+}
+
+.geo-narrative-card {
+  position: relative;
+  border-radius: 14px;
+  padding: 16px 18px 18px;
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  background: linear-gradient(165deg, #ffffff 0%, #f8fafc 45%, #f1f5f9 100%);
+  box-shadow:
+    0 1px 3px rgba(15, 23, 42, 0.06),
+    0 10px 28px rgba(15, 23, 42, 0.05);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.geo-narrative-card:hover {
+  border-color: rgba(148, 163, 184, 0.58);
+  box-shadow:
+    0 2px 6px rgba(15, 23, 42, 0.07),
+    0 14px 36px rgba(15, 23, 42, 0.07);
+}
+
+.geo-narrative-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 4px;
+  border-radius: 0 4px 4px 0;
+  background: linear-gradient(180deg, #818cf8, #4f46e5);
+}
+
+.geo-narrative-card--summary::before {
+  background: linear-gradient(180deg, #818cf8, #4338ca);
+}
+
+.geo-narrative-card--climate::before {
+  background: linear-gradient(180deg, #7dd3fc, #0284c7);
+}
+
+.geo-narrative-card--map::before {
+  background: linear-gradient(180deg, #fcd34d, #c2410c);
+}
+
+.geo-narrative-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-left: 8px;
+}
+
+.geo-narrative-card-head--inline {
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.geo-narrative-card-ic {
+  font-size: 24px;
+  color: #64748b;
+  opacity: 0.92;
+}
+
+.geo-narrative-card-title {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+
+.geo-narrative-card-sub {
+  margin: 0;
+  line-height: 1.5;
+  max-width: 58ch;
+}
+
+.geo-narrative-inline-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #0f172a;
+  margin: 0;
+  cursor: pointer;
+  letter-spacing: -0.01em;
+}
+
+.geo-global-stack-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.38);
+}
+
+.geo-global-stack-ic {
+  font-size: 22px;
+  color: #64748b;
+}
+
+.geo-global-stack-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+}
+
+.geo-global-stack-meta {
+  flex: 1 1 220px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.geo-climate-map-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
 .geo-stack {
   display: flex;
   flex-direction: column;
   gap: 0;
+}
+
+.geo-subview-lead {
+  margin-top: 0;
+  margin-bottom: 2px;
 }
 
 .geo-section {
@@ -2206,10 +2489,10 @@ button.ghost {
 }
 
 .geo-summary-input {
-  min-height: 100px;
-  border-radius: 12px;
-  border-color: #e2e8f0;
-  background: linear-gradient(180deg, #fff 0%, #fafbfc 100%);
+  min-height: 120px;
+  border-radius: 11px;
+  border-color: rgba(203, 213, 225, 0.95);
+  background: #fff;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -2218,10 +2501,14 @@ button.ghost {
   box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
 }
 
+.geo-section--overview {
+  margin-bottom: 20px;
+}
+
 .geo-section--global {
-  padding-bottom: 18px;
-  margin-bottom: 6px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.4);
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
 }
 
 .geo-section-head {
@@ -2249,23 +2536,6 @@ button.ghost {
   opacity: 0.9;
 }
 
-.geo-global-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-@media (max-width: 720px) {
-  .geo-global-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.geo-field textarea {
-  min-height: 92px;
-  border-radius: 10px;
-}
-
 .geo-field-label {
   display: inline-flex;
   align-items: center;
@@ -2284,7 +2554,7 @@ button.ghost {
 .geo-section--regions .geo-regions-head.subsection-head {
   margin-top: 0;
   margin-bottom: 14px;
-  padding-top: 18px;
+  padding-top: 8px;
   border-top: none;
   border-bottom: none;
   align-items: center;
@@ -3813,4 +4083,973 @@ textarea.json-editor-tiny {
 
 .adv-fold--json summary {
   font-size: 12px;
+}
+
+/* --- 生态与生境看板 --- */
+.ecology-card {
+  overflow: hidden;
+}
+
+.ecology-card > .panel-subtabs {
+  margin-top: 2px;
+  margin-bottom: 14px;
+}
+
+.ecology-page-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px 16px;
+  margin-bottom: 4px;
+}
+
+.ecology-page-head h2 {
+  margin: 0;
+}
+
+.ecology-page-kicker {
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+}
+
+.ecology-lede {
+  margin: 0 0 16px;
+  line-height: 1.55;
+}
+
+.ecology-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  background: linear-gradient(135deg, #f0fdf9 0%, #eef6ff 100%);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.ecology-toolbar-grow {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+.ecology-toolbar-grow label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.ecology-toolbar-textarea {
+  width: 100%;
+  min-height: 52px;
+  resize: vertical;
+  font: inherit;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  padding: 8px 10px;
+}
+
+.ecology-toolbar-btn {
+  flex: 0 0 auto;
+}
+
+.ecology-details {
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.ecology-details summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  padding: 10px 14px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-deep);
+  border-bottom: 1px solid transparent;
+}
+
+.ecology-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.ecology-details summary::before {
+  content: "▸";
+  font-size: 12px;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.ecology-details[open] summary::before {
+  transform: rotate(90deg);
+}
+
+.ecology-details-title {
+  flex: 1 1 auto;
+}
+
+.ecology-details-sub {
+  font-weight: 400;
+}
+
+.ecology-details--accent summary {
+  background: linear-gradient(90deg, #ecfdf5, #f0f9ff);
+  border-bottom-color: var(--border);
+}
+
+.ecology-gen-md {
+  max-height: min(420px, 52vh);
+  overflow: auto;
+  padding: 14px 16px 18px;
+  border-top: 1px solid var(--border);
+  background: #fafbfc;
+}
+
+.ecology-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ecology-overview-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid #c7e9df;
+  background: linear-gradient(120deg, #ecfdf5, #f8fafc);
+}
+
+.ecology-overview-banner-ic {
+  font-size: 22px !important;
+  color: #0d9488 !important;
+  flex-shrink: 0;
+}
+
+.ecology-overview-banner-text {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.55;
+  color: #334155;
+}
+
+.ecology-narrative.ecology-narrative--summary::before {
+  background: linear-gradient(180deg, #14b8a6, #0d9488) !important;
+}
+
+.ecology-narrative.ecology-narrative--design::before {
+  background: linear-gradient(180deg, #3b82f6, #2563eb) !important;
+}
+
+.ecology-viz-section {
+  padding: 4px 0 8px;
+}
+
+.ecology-viz-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.ecology-viz-head-ic {
+  font-size: 28px !important;
+  color: #0d9488 !important;
+  margin-top: 2px;
+}
+
+.ecology-viz-title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.ecology-viz-sub {
+  margin: 2px 0 0;
+}
+
+.ecology-biome-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 14px;
+}
+
+.ecology-biome-card {
+  --eco-biome-hue: 152;
+  position: relative;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 14px 14px 16px;
+  overflow: hidden;
+}
+
+.ecology-biome-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 14px 0 0 14px;
+  background: linear-gradient(
+    180deg,
+    hsl(var(--eco-biome-hue), 55%, 48%),
+    hsl(calc(var(--eco-biome-hue) + 24), 45%, 42%)
+  );
+}
+
+.ecology-biome-card-top {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+
+.ecology-biome-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: hsla(var(--eco-biome-hue), 48%, 92%, 1);
+  flex-shrink: 0;
+}
+
+.ecology-biome-icon .ms {
+  font-size: 26px !important;
+  color: hsl(var(--eco-biome-hue), 42%, 38%) !important;
+}
+
+.ecology-biome-title-block {
+  min-width: 0;
+}
+
+.ecology-biome-name {
+  margin: 0 0 4px;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.ecology-biome-id {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--bg-deep);
+  color: var(--muted);
+}
+
+.ecology-biome-regions {
+  margin-bottom: 10px;
+}
+
+.ecology-biome-regions-label {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.ecology-pill-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ecology-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: #e0f2fe;
+  color: #0369a1;
+  border: 1px solid #bae6fd;
+}
+
+.ecology-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #0284c7;
+}
+
+.ecology-biome-summary {
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.ecology-biome-extra {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.ecology-biome-extra-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.ecology-biome-extra--hazard .ecology-biome-extra-label {
+  color: #b45309;
+}
+
+.ecology-biome-extra--hazard .ecology-biome-extra-body {
+  color: #92400e;
+}
+
+.ecology-species-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+  gap: 16px;
+}
+
+.ecology-species-card {
+  --eco-spec-hue: 210;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: linear-gradient(165deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: var(--shadow-lg);
+  padding: 16px 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.ecology-species-card::after {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 3px;
+  background: linear-gradient(
+    90deg,
+    hsl(var(--eco-spec-hue), 50%, 52%),
+    hsl(calc(var(--eco-spec-hue) + 40), 45%, 58%)
+  );
+  opacity: 0.9;
+}
+
+.ecology-species-head {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.ecology-species-avatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: hsla(var(--eco-spec-hue), 40%, 93%, 1);
+  flex-shrink: 0;
+}
+
+.ecology-species-avatar .ms {
+  font-size: 28px !important;
+  color: hsl(var(--eco-spec-hue), 38%, 40%) !important;
+}
+
+.ecology-species-head-text {
+  min-width: 0;
+}
+
+.ecology-species-name {
+  margin: 0 0 6px;
+  font-size: 1.12rem;
+  font-weight: 700;
+}
+
+.ecology-species-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+}
+
+.ecology-species-id {
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--bg-deep);
+  color: var(--muted);
+}
+
+.ecology-species-biome-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px 3px 6px;
+  border-radius: 999px;
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+}
+
+.ecology-species-biome-badge .ms {
+  font-size: 16px !important;
+  color: #059669 !important;
+}
+
+.ecology-block-label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.ecology-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ecology-chip {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+}
+
+.ecology-skill-list {
+  margin: 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.ecology-skill-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid #f1f5f9;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.ecology-skill-list li:last-child {
+  border-bottom: 0;
+}
+
+.ecology-skill-ic {
+  font-size: 16px !important;
+  color: #7c3aed !important;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.ecology-encounter {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border-left: 4px solid #6366f1;
+  background: #f5f3ff;
+  color: #3730a3;
+}
+
+.ecology-encounter-label {
+  display: block;
+  margin-bottom: 6px;
+}
+
+.ecology-encounter-body {
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.ecology-danger {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+}
+
+.ecology-danger-ic {
+  font-size: 20px !important;
+  color: #ea580c !important;
+  flex-shrink: 0;
+}
+
+.ecology-danger-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ecology-empty-hint {
+  margin: 8px 0 0;
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--bg-deep);
+  border: 1px dashed var(--border);
+}
+
+.ecology-details--json .muted {
+  display: block;
+  margin: 10px 0 4px;
+}
+
+.ecology-details--json textarea.json-editor-compact {
+  max-height: 36vh;
+}
+
+@media (max-width: 720px) {
+  .ecology-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .ecology-toolbar-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+/* —— 人物角色：各子页外层边界模块（独立 section 内复用）—— */
+.char-viz-boundary {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  background: linear-gradient(180deg, var(--panel) 0%, var(--bg-deep) 100%);
+  box-shadow: 0 2px 14px rgba(15, 23, 42, 0.07);
+  margin-top: 10px;
+}
+
+.char-viz-boundary--protagonists {
+  border-color: #7dd3fc;
+  box-shadow: 0 2px 16px rgba(14, 165, 233, 0.14);
+}
+
+.char-viz-boundary--supporting {
+  border-color: #c4b5fd;
+  box-shadow: 0 2px 16px rgba(139, 92, 246, 0.12);
+}
+
+.char-viz-boundary--graph {
+  border-color: #94a3b8;
+  box-shadow: 0 2px 14px rgba(71, 85, 105, 0.1);
+}
+
+.char-viz-boundary-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.92), rgba(248, 250, 252, 0.85));
+}
+
+.char-viz-boundary--protagonists .char-viz-boundary-head {
+  background: linear-gradient(90deg, #e0f2fe, rgba(255, 255, 255, 0.95));
+}
+
+.char-viz-boundary--supporting .char-viz-boundary-head {
+  background: linear-gradient(90deg, #ede9fe, rgba(255, 255, 255, 0.95));
+}
+
+.char-viz-boundary--graph .char-viz-boundary-head {
+  background: linear-gradient(90deg, #f1f5f9, rgba(255, 255, 255, 0.95));
+}
+
+.char-viz-boundary-ic {
+  font-size: 24px !important;
+  line-height: 1 !important;
+  color: #0f766e !important;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.char-viz-boundary--protagonists .char-viz-boundary-ic {
+  color: #0369a1 !important;
+}
+
+.char-viz-boundary--supporting .char-viz-boundary-ic {
+  color: #6d28d9 !important;
+}
+
+.char-viz-boundary--graph .char-viz-boundary-ic {
+  color: #475569 !important;
+}
+
+.char-viz-boundary-titles {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.char-viz-boundary-title {
+  font-weight: 800;
+  font-size: 14px;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.char-viz-boundary-sub {
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.char-viz-boundary-body {
+  padding: 14px 16px 16px;
+}
+
+.char-viz-boundary-body--graph {
+  padding: 0;
+  background: var(--bg-deep);
+}
+
+.char-relation-zoom .mermaid-zoom-viewport {
+  min-height: 300px;
+  max-height: min(56vh, 520px);
+}
+
+.char-relation-mermaid-host {
+  min-height: 260px;
+  padding: 12px 8px;
+  background: #fafbfc;
+}
+
+.char-viz-empty {
+  margin: 0;
+  padding: 16px;
+  border-radius: 10px;
+  border: 1px dashed var(--border);
+  background: rgba(255, 255, 255, 0.65);
+  text-align: center;
+}
+
+/* —— 人物卡：卡片内分块边界（与 viz-module 语义对齐）—— */
+.char-cast-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+  gap: 14px;
+}
+
+.char-roster-card {
+  position: relative;
+  border-radius: 13px;
+  border: 1px solid var(--border);
+  background: linear-gradient(168deg, #fff 0%, #f8fafc 100%);
+  box-shadow: 0 2px 12px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+  --char-card-hue: 210;
+}
+
+.char-roster-card-rim {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(
+    180deg,
+    hsl(var(--char-card-hue), 72%, 52%) 0%,
+    hsl(var(--char-card-hue), 58%, 38%) 100%
+  );
+  pointer-events: none;
+  z-index: 1;
+}
+
+.char-roster-card-inner {
+  position: relative;
+  z-index: 2;
+  padding: 13px 14px 14px 18px;
+}
+
+.char-roster-card-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding-bottom: 2px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.35);
+  margin-bottom: 2px;
+}
+
+.char-roster-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: linear-gradient(
+    145deg,
+    hsl(var(--char-card-hue), 52%, 93%) 0%,
+    hsl(var(--char-card-hue), 45%, 82%) 100%
+  );
+  border: 1px solid hsla(var(--char-card-hue), 50%, 42%, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.65);
+}
+
+.char-roster-avatar-ic {
+  font-size: 26px !important;
+  color: hsl(var(--char-card-hue), 38%, 32%) !important;
+  opacity: 0.92;
+}
+
+.char-roster-head-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.char-roster-name {
+  font-weight: 800;
+  font-size: 16px;
+  margin: 0 0 4px;
+  line-height: 1.25;
+  color: var(--text);
+  letter-spacing: -0.02em;
+}
+
+.char-roster-idline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.char-roster-k {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #64748b;
+}
+
+.char-roster-code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #334155;
+  word-break: break-all;
+  background: rgba(241, 245, 249, 0.95);
+  padding: 1px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+}
+
+.char-roster-role-chip {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: hsla(var(--char-card-hue), 55%, 94%, 0.95);
+  border: 1px solid hsla(var(--char-card-hue), 45%, 55%, 0.35);
+  color: hsl(var(--char-card-hue), 32%, 26%);
+}
+
+.char-roster-block {
+  margin-top: 10px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset;
+}
+
+.char-roster-block--skills {
+  border-style: solid;
+  border-color: hsla(var(--char-card-hue), 40%, 78%, 0.85);
+  background: linear-gradient(180deg, hsla(var(--char-card-hue), 45%, 98%, 1), #fff);
+}
+
+.char-roster-block--meta {
+  border-style: dashed;
+  background: #f8fafc;
+}
+
+.char-roster-block-hd {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: #64748b;
+  margin-bottom: 6px;
+}
+
+.char-roster-block-bd {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.char-roster-hook {
+  margin: 0;
+}
+
+.char-roster-aliases {
+  font-size: 12px;
+  color: #475569;
+}
+
+.char-roster-skill-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: #334155;
+}
+
+.char-roster-skill-list li {
+  margin-bottom: 3px;
+}
+
+.char-roster-skill-list li:last-child {
+  margin-bottom: 0;
+}
+
+.char-roster-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: flex-start;
+  margin-bottom: 6px;
+}
+
+.char-roster-meta-row:last-child {
+  margin-bottom: 0;
+}
+
+.char-viz-boundary-actions {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  margin-left: auto;
+}
+
+.char-roster-card--edit .char-roster-card-head--edit {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.char-roster-edit-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px 10px;
+  margin-left: auto;
+  justify-content: flex-end;
+}
+
+.char-roster-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+}
+
+.char-roster-field--inline {
+  width: auto;
+  min-width: 120px;
+}
+
+.char-roster-field-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+.char-roster-field-ctrl,
+.char-roster-field-ta {
+  font: inherit;
+  font-size: 13px;
+  width: 100%;
+  min-width: 0;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--text);
+}
+
+.char-roster-field-ta {
+  resize: vertical;
+  min-height: 48px;
+  font-family: inherit;
+}
+
+.char-roster-select-role {
+  width: auto;
+  min-width: 8.5rem;
+}
+
+.char-roster-block--edit {
+  margin-top: 10px;
+}
+
+.char-roster-del {
+  color: #b91c1c;
+}
+
+@media (max-width: 720px) {
+  .char-cast-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .char-relation-zoom .mermaid-zoom-viewport {
+    min-height: 240px;
+  }
+}
+
+/* 退出：服务已停止占位页（body 被替换后仍沿用全局样式变量） */
+.shutdown-screen {
+  box-sizing: border-box;
+  min-height: 100vh;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 2rem;
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text);
+  text-align: center;
+}
+
+.shutdown-title {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.shutdown-hint {
+  margin: 0;
+  max-width: 28rem;
+  font-size: 0.95rem;
+  color: var(--muted);
+  line-height: 1.5;
 }
