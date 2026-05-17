@@ -1128,6 +1128,191 @@ def _normalize_economy_dict(section: dict[str, Any], notes: dict[str, list[str]]
     return out
 
 
+_VALID_FACTION_REL = frozenset({"ally", "enemy", "neutral", "complex"})
+
+
+def _normalize_faction_relation_type(raw: Any) -> str:
+    s = _as_str(raw).strip().lower()
+    if s in _VALID_FACTION_REL:
+        return s
+    if s in ("rival", "hostile", "antagonist", "foe", "opposed", "war", "opposition"):
+        return "enemy"
+    if s in ("allied", "alliance", "partner", "friendly", "friend", "cooperative"):
+        return "ally"
+    if s in ("neutral", "neutrality", "independent", "nonaligned"):
+        return "neutral"
+    t = _as_str(raw)
+    if any(x in t for x in ("敌", "对立", "战争", "敌对")):
+        return "enemy"
+    if "中立" in t:
+        return "neutral"
+    if any(x in t for x in ("友", "盟", "同盟")):
+        return "ally"
+    return "complex"
+
+
+def _normalize_faction_relation_item(raw: Any) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    tid = _as_str(
+        raw.get("target_id")
+        or raw.get("target")
+        or raw.get("to")
+        or raw.get("faction_id")
+        or raw.get("with")
+        or raw.get("对方")
+    ).strip()
+    if not tid:
+        return None
+    typ = _normalize_faction_relation_type(raw.get("type") or raw.get("relation_type") or raw.get("relationship"))
+    notes = _as_str(raw.get("notes") or raw.get("note") or raw.get("description") or raw.get("detail"))
+    return {"target_id": tid, "type": typ, "notes": notes}
+
+
+def _synth_faction_id(name: str) -> str:
+    h = hashlib.sha256(name.encode("utf-8")).hexdigest()[:10]
+    return f"f_{h}"
+
+
+def _collect_faction_key_figures(ent: dict[str, Any], notes: dict[str, list[str]] | None) -> list[str]:
+    acc: list[str] = []
+    seen: set[str] = set()
+    flattened_obj = False
+    for key in (
+        "key_figures",
+        "leaders",
+        "notable_members",
+        "important_people",
+        "figures",
+        "key_personnel",
+        "members",
+        "leadership",
+    ):
+        if key not in ent:
+            continue
+        raw = ent[key]
+        if isinstance(raw, list):
+            for x in raw:
+                if isinstance(x, dict):
+                    flattened_obj = True
+                    nm = _as_str(x.get("name") or x.get("title") or x.get("id")).strip()
+                    if not nm:
+                        continue
+                    role = _as_str(x.get("role") or x.get("position") or x.get("职务")).strip()
+                    hook = _as_str(x.get("hook") or x.get("secret") or x.get("notes")).strip()
+                    line = f"{nm} · {role}" if role else nm
+                    if hook and len(hook) < 120:
+                        line = f"{line}（{hook}）"
+                    if line not in seen:
+                        seen.add(line)
+                        acc.append(line)
+                elif isinstance(x, str) and x.strip():
+                    s = x.strip()
+                    if s not in seen:
+                        seen.add(s)
+                        acc.append(s)
+        elif isinstance(raw, str) and raw.strip():
+            for s in _normalize_str_list_field(raw):
+                if s not in seen:
+                    seen.add(s)
+                    acc.append(s)
+    if flattened_obj and notes is not None:
+        _note(notes, "factions", "已将 key_figures/leaders 等中的对象项压平为字符串")
+    return acc
+
+
+def _normalize_factions_dict(section: dict[str, Any], notes: dict[str, list[str]] | None = None) -> dict[str, Any]:
+    """将 LLM 输出的 factions 压成可通过 FactionsSection 校验的结构。"""
+    if not isinstance(section, dict):
+        return {"summary": "", "entities": []}
+    out: dict[str, Any] = {"summary": _as_str(section.get("summary")).strip(), "entities": []}
+    raw_ent = (
+        section.get("entities")
+        or section.get("factions")
+        or section.get("factions_list")
+        or section.get("organizations")
+        or section.get("faction_entities")
+    )
+    rows: list[dict[str, Any]] = []
+    if raw_ent is None:
+        out["entities"] = []
+        return out
+    if isinstance(raw_ent, dict):
+        vals = list(raw_ent.values())
+        if (
+            vals
+            and all(isinstance(v, dict) for v in vals)
+            and not any(
+                isinstance(raw_ent.get(k), str) and _as_str(raw_ent.get(k)).strip() for k in ("id", "name")
+            )
+        ):
+            rows = [v for v in vals if isinstance(v, dict)]
+            if notes is not None:
+                _note(notes, "factions", "已将 entities 对象映射（键→值）还原为数组")
+        else:
+            rows = [raw_ent]
+    elif isinstance(raw_ent, list):
+        rows = [x for x in raw_ent if isinstance(x, dict)]
+    else:
+        if notes is not None:
+            _note(notes, "factions", "entities 类型无效，已置为空数组")
+        out["entities"] = []
+        return out
+
+    cleaned: list[dict[str, Any]] = []
+    for i, ent in enumerate(rows):
+        if not isinstance(ent, dict):
+            continue
+        fid = _as_str(ent.get("id") or ent.get("faction_id") or ent.get("slug")).strip()
+        name = _as_str(ent.get("name") or ent.get("title") or ent.get("faction_name")).strip()
+        if not name and not fid:
+            continue
+        if not fid:
+            fid = _synth_faction_id(name or f"row_{i}")
+            if notes is not None:
+                _note(notes, "factions", f"实体「{name or '?'}」已补全 id：{fid}")
+        if not name:
+            name = fid
+        goals = _as_str(
+            ent.get("goals")
+            or ent.get("objectives")
+            or ent.get("purpose")
+            or ent.get("mission")
+            or _join_if_list(ent.get("aims") or ent.get("objective_list"))
+        )
+        territory = _as_str(
+            ent.get("territory")
+            or ent.get("domains")
+            or ent.get("holdings")
+            or ent.get("sphere")
+            or _join_if_list(ent.get("territories"))
+        )
+        kf = _collect_faction_key_figures(ent, notes)
+        rel_raw = ent.get("relations") or ent.get("relationships") or ent.get("diplomacy")
+        rel_out: list[dict[str, Any]] = []
+        if isinstance(rel_raw, list):
+            for r in rel_raw:
+                nr = _normalize_faction_relation_item(r)
+                if nr:
+                    rel_out.append(nr)
+        elif isinstance(rel_raw, dict):
+            nr = _normalize_faction_relation_item(rel_raw)
+            if nr:
+                rel_out.append(nr)
+        cleaned.append(
+            {
+                "id": fid,
+                "name": name,
+                "goals": goals,
+                "territory": territory,
+                "key_figures": kf,
+                "relations": rel_out,
+            }
+        )
+    out["entities"] = cleaned
+    return out
+
+
 def normalize_structure_patch_detailed(
     patch: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, list[str]]]:
@@ -1386,7 +1571,139 @@ def normalize_structure_patch_detailed(
             del p["economy"]
             _note(notes, "economy", "economy 根类型无效，已丢弃该键")
 
+    zh_fac_key = "\u6d3e\u7cfb"  # 派系
+    if zh_fac_key in p and isinstance(p[zh_fac_key], dict) and "factions" not in p:
+        p["factions"] = p.pop(zh_fac_key)
+        _note(notes, "factions", "已将顶层「派系」键映射为 factions")
+
+    if "faction" in p and "factions" not in p:
+        inner = p.pop("faction")
+        if isinstance(inner, list):
+            p["factions"] = {"entities": inner}
+            _note(notes, "factions", "已将顶层 faction 数组包装为 factions.entities")
+        elif isinstance(inner, dict):
+            p["factions"] = inner
+            _note(notes, "factions", "已将顶层 faction 对象映射为 factions")
+
+    if "organizations" in p and isinstance(p["organizations"], list) and "factions" not in p:
+        p["factions"] = {"entities": p.pop("organizations")}
+        _note(notes, "factions", "已将顶层 organizations 数组映射为 factions.entities")
+
+    if "factions" in p and isinstance(p["factions"], list):
+        p["factions"] = {"entities": p["factions"]}
+        _note(notes, "factions", "已将顶层 factions 数组包装为 entities")
+
+    if "factions" in p:
+        raw_fac = p["factions"]
+        if isinstance(raw_fac, str):
+            raw_s = raw_fac.strip()
+            try:
+                p["factions"] = json.loads(raw_s)
+                _note(notes, "factions", "已从 JSON 字符串解析 factions")
+            except (json.JSONDecodeError, TypeError, ValueError):
+                del p["factions"]
+                _note(notes, "factions", "factions 非法 JSON 字符串，已丢弃该键")
+        if "factions" in p and isinstance(p["factions"], dict):
+            p["factions"] = _normalize_factions_dict(p["factions"], notes=notes)
+        elif "factions" in p:
+            del p["factions"]
+            _note(notes, "factions", "factions 根类型无效，已丢弃该键")
+
+    if "story" in p and isinstance(p["story"], dict):
+        p["story"] = _normalize_story_dict(p["story"], notes=notes)
+
     return p, notes
+
+
+def _normalize_story_dict(raw: dict[str, Any], *, notes: dict[str, list[str]]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    for key in ("summary", "design_notes", "unit_label"):
+        if key in raw:
+            out[key] = _as_str(raw.get(key)).strip()
+    if "target_units" in raw and raw["target_units"] is not None:
+        try:
+            out["target_units"] = int(raw["target_units"])
+        except (TypeError, ValueError):
+            pass
+    narr = raw.get("narrator")
+    if isinstance(narr, dict):
+        out["narrator"] = {
+            "character_id": _as_str(narr.get("character_id")).strip(),
+            "person": _as_str(narr.get("person") or "third_person_limited").strip()
+            or "third_person_limited",
+            "voice_notes": _as_str(narr.get("voice_notes")).strip(),
+        }
+    wd = raw.get("writing_defaults")
+    if isinstance(wd, dict):
+        ap = wd.get("attach_prev_chapters")
+        try:
+            ap_i = int(ap) if ap is not None else 3
+        except (TypeError, ValueError):
+            ap_i = 3
+        out["writing_defaults"] = {
+            "attach_prev_chapters": max(0, min(5, ap_i)),
+            "include_world_md": bool(wd.get("include_world_md")),
+            "include_macro_outline": bool(wd.get("include_macro_outline", True)),
+            "include_chapter_beats": bool(wd.get("include_chapter_beats", True)),
+        }
+    chapters = raw.get("chapters")
+    if isinstance(chapters, list):
+        cleaned: list[dict[str, Any]] = []
+        for ch in chapters:
+            if not isinstance(ch, dict):
+                continue
+            cid = _as_str(ch.get("id")).strip()
+            if not cid:
+                cid = "ch_" + hashlib.sha256(json.dumps(ch, sort_keys=True).encode()).hexdigest()[:10]
+            try:
+                order = int(ch.get("order") or len(cleaned) + 1)
+            except (TypeError, ValueError):
+                order = len(cleaned) + 1
+            status = _as_str(ch.get("status") or "planned").strip() or "planned"
+            if status not in ("planned", "drafting", "locked"):
+                status = "planned"
+            cleaned.append(
+                {
+                    "id": cid,
+                    "order": order,
+                    "title": _as_str(ch.get("title")).strip() or cid,
+                    "status": status,
+                    "beat_file": _as_str(ch.get("beat_file")).strip() or f"story/beats/{cid}.md",
+                    "manuscript_file": _as_str(ch.get("manuscript_file")).strip()
+                    or f"story/manuscript/{cid}.md",
+                    "word_count": max(0, int(ch.get("word_count") or 0))
+                    if str(ch.get("word_count", "")).strip().lstrip("-").isdigit()
+                    else 0,
+                    "reader_synopsis": _as_str(ch.get("reader_synopsis")).strip(),
+                    "author_notes": _as_str(ch.get("author_notes")).strip(),
+                }
+            )
+        out["chapters"] = cleaned
+    fs_list = raw.get("foreshadowing")
+    if isinstance(fs_list, list):
+        fs_out: list[dict[str, Any]] = []
+        for fs in fs_list:
+            if not isinstance(fs, dict):
+                continue
+            fid = _as_str(fs.get("id")).strip() or "fs_" + hashlib.sha256(
+                json.dumps(fs, sort_keys=True).encode()
+            ).hexdigest()[:10]
+            st = _as_str(fs.get("status") or "open").strip() or "open"
+            if st not in ("open", "partial", "resolved"):
+                st = "open"
+            fs_out.append(
+                {
+                    "id": fid,
+                    "label": _as_str(fs.get("label")).strip(),
+                    "planted_chapter_id": _as_str(fs.get("planted_chapter_id")).strip(),
+                    "payoff_chapter_id": _as_str(fs.get("payoff_chapter_id")).strip(),
+                    "reader_known": bool(fs.get("reader_known")),
+                    "status": st,
+                    "notes": _as_str(fs.get("notes")).strip(),
+                }
+            )
+        out["foreshadowing"] = fs_out
+    return out
 
 
 def normalize_structure_patch(patch: dict[str, Any]) -> dict[str, Any]:

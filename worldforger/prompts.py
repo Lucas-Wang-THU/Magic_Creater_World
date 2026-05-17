@@ -52,6 +52,16 @@ ECONOMY_CHAT_SCHEMA_HINT = """【经济与 world.json 的 economy 对齐】
 - **economy.labor_notes**、**economy.taxation_notes**、**economy.volatility_notes**：劳动力/税收与再分配/危机波动等条款式说明。
 - 自然语言讨论时可按上述键用小节组织；「对话后同步」落盘时顶层键为 **economy**。"""
 
+FACTIONS_CHAT_SCHEMA_HINT = """【派系与 world.json 的 factions 对齐（组织、阵营、权力网络；民俗/教义主体仍在 cultures）】
+- **顶层键** 讨论与落盘时均为 **`factions`**（对象）；**不要**用 `faction_list`、`organizations` 等根键代替（第二路会归一，但第一路仍请按本节键名写）。
+- **factions.summary**：多派系格局、谁与谁博弈、读者/玩家如何快速区分各组织。
+- **factions.entities[]**：**必须是数组**；每条派系一项对象，**禁止**把整节写成「无 entities 键的一大段 Markdown」。
+- 每条实体至少：**id**（短英文 slug，全局唯一，如 `f_merchant_guild`）、**name**（显示名）。
+- **goals**、**territory**：各为**一段字符串**（宗旨/立场；控制区、据点、影响范围）。不要把长叙事拆成无键的列表漂浮在实体外。
+- **key_figures**：**字符串数组**；每项一行，如 `阿兰 · 外务执事` 或 `主教赫连（暗中清洗异见）`。**禁止**写成 `{name, role}` 对象数组（schema 不支持）；人物细节可写进字符串或 **goals** 旁白。
+- **relations[]**：派系之间的边；每项 **target_id** 必须指向**另一派系**的 **entities[].id**；**type** 只能是英文四选一：**ally** | **enemy** | **neutral** | **complex**（不要用 rival、联盟、中文词代替，以免第二路校验失败）；可选 **notes**。
+- 若用户将开启「对话后同步」：请用 Markdown **三级标题** 按派系分块，每块内用小标题 **id / name / goals / territory / key_figures / relations** 对齐上述键名；文末可选一个 **```json** 代码块，根对象 **`{ "factions": { ... } }`**，结构与 **world.json** 一致，便于抽取。"""
+
 
 def system_with_world_json(world_json_text: str) -> str:
     return (
@@ -68,6 +78,8 @@ def system_with_world_json(world_json_text: str) -> str:
         + ECOLOGY_CHAT_SCHEMA_HINT
         + "\n\n"
         + ECONOMY_CHAT_SCHEMA_HINT
+        + "\n\n"
+        + FACTIONS_CHAT_SCHEMA_HINT
     )
 
 

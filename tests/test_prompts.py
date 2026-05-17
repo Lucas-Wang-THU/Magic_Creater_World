@@ -40,6 +40,13 @@ def test_system_with_world_json_appends_economy_hint():
     assert "issuer_faction_id" in s
 
 
+def test_system_with_world_json_appends_factions_hint():
+    s = system_with_world_json("{}")
+    assert "【派系与 world.json 的 factions 对齐" in s
+    assert "key_figures" in s
+    assert "ally" in s and "enemy" in s
+
+
 def test_ecology_generate_user_payload_contains_region_ids():
     from worldforger.schemas import GeographySection, Meta, World
 

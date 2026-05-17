@@ -129,6 +129,9 @@ def create_world(display_name: str) -> World:
     root.mkdir(parents=True, exist_ok=True)
     outlines_dir(wid).mkdir(parents=True, exist_ok=True)
     sessions_dir(wid).mkdir(parents=True, exist_ok=True)
+    from worldforger.story_store import ensure_story_dirs
+
+    ensure_story_dirs(wid)
 
     from datetime import datetime, timezone
 

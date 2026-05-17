@@ -46,14 +46,17 @@ description: >-
 
 ## 结构化同步（第二路）
 
-- 规则与白名单：`worldforger/panel_sync.py` 中 `STRUCTURE_SYSTEM_BASE`（`factions` 小节）。
+- 规则与白名单：`worldforger/panel_sync.py` 中 `STRUCTURE_SYSTEM_BASE`（**factions** 小节已展开：entities 须为数组、**relations[].type** 仅 **ally|enemy|neutral|complex**、**key_figures** 仅字符串等）。
+- 仅同步派系页时：同文件 `structure_system_for_scope("factions")` 会追加 **factions 专规** 一句。
+- 归一化：`worldforger/structure_normalize.py` 中 **`_normalize_factions_dict`**（顶层「派系」、`faction` / `organizations` 别名、`entities` 对象映射、**rival→enemy**、**key_figures** 对象数组压平等）。
+- 第一路对话 system：`worldforger/prompts.py` 的 **`FACTIONS_CHAT_SCHEMA_HINT`**（经 `system_with_world_json` 注入），与架构师自然语言小节标题对齐。
 - 合并与校验：`apply_structure_patch` → `FactionsSection`；失败信息在 **`merge_warnings`**。
 
 ## 代码锚点
 
 - Schema：`worldforger/schemas.py`（`FactionEntity`、`FactionsSection`）。
 - 前端卡片与对话快照：`static/app.js`（`renderFactionCards`、`refreshFactionChatViz`）、`static/index.html`（`#factionChatViz`）。
-- 对话快捷词条：「派系要人」chip 文案与「写派系」并列。
+- 对话快捷词条：`static/app.js` 中 **「写派系」**、**「派系要人」**（`FACTIONS_CHAT_PROMPT` / `FACTION_KEY_PEOPLE_CHAT_PROMPT`），与 `renderFactionCards`、`refreshFactionChatViz` 一致。
 
 ## 与其它 skill
 

@@ -330,6 +330,68 @@ class EcologySection(BaseModel):
     )
 
 
+StoryPerson = Literal["first_person", "third_person_limited", "third_person_omniscient"]
+StoryChapterStatus = Literal["planned", "drafting", "locked"]
+StoryForeshadowStatus = Literal["open", "partial", "resolved"]
+
+
+class StoryNarrator(BaseModel):
+    character_id: str = Field(default="", description="对齐 characters.entities[].id，空表示不绑定 POV 角色。")
+    person: StoryPerson = "third_person_limited"
+    voice_notes: str = ""
+
+
+class StoryWritingDefaults(BaseModel):
+    attach_prev_chapters: int = Field(default=3, ge=0, le=5)
+    include_world_md: bool = False
+    include_macro_outline: bool = True
+    include_chapter_beats: bool = True
+
+
+class StoryOutlineMacro(BaseModel):
+    file: str = "story/macro_outline.md"
+    updated_at: str = ""
+
+
+class StoryChapter(BaseModel):
+    id: str
+    order: int = 1
+    title: str = ""
+    status: StoryChapterStatus = "planned"
+    beat_file: str = ""
+    manuscript_file: str = ""
+    word_count: int = 0
+    reader_synopsis: str = ""
+    author_notes: str = ""
+
+
+class StoryForeshadowing(BaseModel):
+    id: str
+    label: str = ""
+    planted_chapter_id: str = ""
+    payoff_chapter_id: str = ""
+    reader_known: bool = False
+    status: StoryForeshadowStatus = "open"
+    notes: str = ""
+
+
+class StorySection(BaseModel):
+    """情节：粗纲/细纲/文稿索引；正文存 worlds/<id>/story/ 下 Markdown 文件。"""
+
+    summary: str = ""
+    design_notes: str = ""
+    unit_label: str = Field(
+        default="",
+        description="章/章节/跑团会话等；空时由 meta.creative_mode 推导。",
+    )
+    target_units: int | None = None
+    narrator: StoryNarrator = Field(default_factory=StoryNarrator)
+    writing_defaults: StoryWritingDefaults = Field(default_factory=StoryWritingDefaults)
+    outline_macro: StoryOutlineMacro = Field(default_factory=StoryOutlineMacro)
+    chapters: list[StoryChapter] = Field(default_factory=list)
+    foreshadowing: list[StoryForeshadowing] = Field(default_factory=list)
+
+
 class World(BaseModel):
     meta: Meta
     geography: GeographySection = Field(default_factory=GeographySection)
@@ -342,6 +404,7 @@ class World(BaseModel):
     characters: CharactersSection = Field(default_factory=CharactersSection)
     history: HistorySection = Field(default_factory=HistorySection)
     economy: EconomySection = Field(default_factory=EconomySection)
+    story: StorySection = Field(default_factory=StorySection)
 
     def bump_version(self) -> None:
         self.meta.version = int(self.meta.version) + 1

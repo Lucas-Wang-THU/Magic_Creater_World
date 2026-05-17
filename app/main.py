@@ -29,7 +29,27 @@ from worldforger.prompts import (
     outline_system_prompt,
     system_with_world_json,
 )
-from worldforger.schemas import World
+from worldforger.schemas import StoryPerson, World
+from worldforger.story_prompts import story_chat_system_prompt
+from worldforger.story_service import (
+    add_chapter,
+    apply_unit_label_from_mode,
+    generate_chapter_beats,
+    generate_macro_outline,
+    generate_manuscript,
+    remove_chapter,
+    try_import_legacy,
+)
+from worldforger.story_store import (
+    beat_path,
+    macro_outline_path,
+    manuscript_path,
+    read_text,
+    resolve_unit_label,
+    sync_chapter_word_count,
+    utc_now_iso,
+    write_text,
+)
 from worldforger.snapshot_diff import line_diff_json
 from worldforger.reference_linter import fix_world_references, lint_world_references
 from worldforger.world_search import search_world_payload
@@ -108,6 +128,11 @@ class ChatBody(BaseModel):
         return normalize_chat_guides(v)
 
 
+class StoryChatBody(ChatBody):
+    active_chapter_id: str = ""
+    include_story_files: bool = False
+
+
 class OutlineBody(BaseModel):
     kind: Literal["characters", "plot"]
     prompt: str = Field(min_length=1, max_length=8000)
@@ -122,6 +147,41 @@ class EcologyGenerateBody(BaseModel):
     creative_mode: str | None = None
 
 
+class StoryTextBody(BaseModel):
+    content: str = ""
+
+
+class StoryChapterCreateBody(BaseModel):
+    title: str = Field(default="", max_length=500)
+    order: int | None = Field(default=None, ge=1, le=9999)
+
+
+class StoryGenerateMacroBody(BaseModel):
+    prompt: str = Field(min_length=1, max_length=8000)
+    include_markdown_context: bool = False
+    creative_mode: str | None = None
+    persist: bool = True
+
+
+class StoryGenerateBeatsBody(BaseModel):
+    chapter_ids: list[str] = Field(default_factory=list)
+    prompt: str = Field(min_length=1, max_length=8000)
+    include_markdown_context: bool = False
+    creative_mode: str | None = None
+    persist: bool = True
+
+
+class StoryGenerateManuscriptBody(BaseModel):
+    chapter_id: str = Field(min_length=1, max_length=120)
+    prompt: str = Field(default="", max_length=8000)
+    person: StoryPerson | None = None
+    character_id: str | None = None
+    attach_prev_chapters: int | None = Field(default=None, ge=0, le=5)
+    include_markdown_context: bool | None = None
+    creative_mode: str | None = None
+    persist: bool = True
+
+
 SyncScope = Literal[
     "all",
     "geography",
@@ -133,6 +193,8 @@ SyncScope = Literal[
     "cultures",
     "characters",
     "history",
+    "economy",
+    "story",
 ]
 
 
@@ -498,6 +560,43 @@ async def api_character_chat(world_id: str, body: ChatBody) -> dict[str, str]:
     return {"reply": reply}
 
 
+@app.post("/api/worlds/{world_id}/story-chat")
+async def api_story_chat(world_id: str, body: StoryChatBody) -> dict[str, str]:
+    """与「世界观构建」「人物生成」同级的情节/叙事对话。"""
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found")
+
+    system = story_chat_system_prompt(
+        w,
+        active_chapter_id=body.active_chapter_id,
+        include_story_files=body.include_story_files,
+    )
+    msgs: list[dict[str, Any]] = [{"role": "system", "content": system}]
+    mode_eff = (body.mode or "").strip() or w.meta.creative_mode
+    addon = chat_mode_system(mode_eff)
+    if addon:
+        msgs.append({"role": "system", "content": addon})
+    tag_addon = genre_tags_prompt_addon(w.meta.genre_tags)
+    if tag_addon:
+        msgs.append({"role": "system", "content": tag_addon})
+    guide_text = chat_guides_content(body.chat_guides)
+    if guide_text:
+        msgs.append({"role": "system", "content": guide_text})
+    for m in body.messages:
+        msgs.append({"role": m.role, "content": m.content})
+    try:
+        reply = await chat_completion(msgs)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
+
+    _append_session_log(world_id, body.messages, reply)
+    return {"reply": reply}
+
+
 @app.post("/api/worlds/{world_id}/sync-panels-from-chat")
 async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict[str, Any]:
     """
@@ -690,6 +789,186 @@ async def api_outline(world_id: str, body: OutlineBody) -> dict[str, str]:
     )
     out.write_text(header + reply, encoding="utf-8")
     return {"reply": reply, "saved": str(out)}
+
+
+def _story_world_or_404(world_id: str) -> World:
+    try:
+        return load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+
+def _maybe_persist_story(world_id: str, w: World, *, persist: bool) -> None:
+    if persist:
+        w.bump_version()
+        save_world(w, export_markdown=False)
+
+
+@app.get("/api/worlds/{world_id}/story")
+def api_get_story(world_id: str) -> dict[str, Any]:
+    w = _story_world_or_404(world_id)
+    imported = try_import_legacy(w)
+    if imported:
+        save_world(w, export_markdown=False)
+    apply_unit_label_from_mode(w, w.meta.creative_mode)
+    return {
+        "story": w.story.model_dump(mode="json"),
+        "unit_label": resolve_unit_label(w),
+        "legacy_imported": imported,
+    }
+
+
+@app.post("/api/worlds/{world_id}/story/import-legacy-outline")
+def api_story_import_legacy(world_id: str) -> dict[str, Any]:
+    w = _story_world_or_404(world_id)
+    ok = try_import_legacy(w)
+    if ok:
+        w.bump_version()
+        save_world(w, export_markdown=False)
+    return {"ok": ok, "content": read_text(macro_outline_path(world_id))}
+
+
+@app.get("/api/worlds/{world_id}/story/macro-outline")
+def api_get_macro_outline(world_id: str) -> dict[str, str]:
+    _story_world_or_404(world_id)
+    return {"content": read_text(macro_outline_path(world_id))}
+
+
+@app.put("/api/worlds/{world_id}/story/macro-outline")
+def api_put_macro_outline(world_id: str, body: StoryTextBody) -> dict[str, Any]:
+    w = _story_world_or_404(world_id)
+    write_text(macro_outline_path(world_id), body.content)
+    w.story.outline_macro.updated_at = utc_now_iso()
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {"ok": True, "updated_at": w.story.outline_macro.updated_at}
+
+
+@app.get("/api/worlds/{world_id}/story/chapters/{chapter_id}/beat")
+def api_get_chapter_beat(world_id: str, chapter_id: str) -> dict[str, str]:
+    _story_world_or_404(world_id)
+    return {"content": read_text(beat_path(world_id, chapter_id))}
+
+
+@app.put("/api/worlds/{world_id}/story/chapters/{chapter_id}/beat")
+def api_put_chapter_beat(world_id: str, chapter_id: str, body: StoryTextBody) -> dict[str, Any]:
+    w = _story_world_or_404(world_id)
+    if not any(c.id == chapter_id for c in w.story.chapters):
+        raise HTTPException(status_code=404, detail="chapter not found")
+    write_text(beat_path(world_id, chapter_id), body.content)
+    return {"ok": True}
+
+
+@app.get("/api/worlds/{world_id}/story/chapters/{chapter_id}/manuscript")
+def api_get_chapter_manuscript(world_id: str, chapter_id: str) -> dict[str, str]:
+    _story_world_or_404(world_id)
+    return {"content": read_text(manuscript_path(world_id, chapter_id))}
+
+
+@app.put("/api/worlds/{world_id}/story/chapters/{chapter_id}/manuscript")
+def api_put_chapter_manuscript(
+    world_id: str, chapter_id: str, body: StoryTextBody
+) -> dict[str, Any]:
+    w = _story_world_or_404(world_id)
+    if not any(c.id == chapter_id for c in w.story.chapters):
+        raise HTTPException(status_code=404, detail="chapter not found")
+    write_text(manuscript_path(world_id, chapter_id), body.content)
+    n = sync_chapter_word_count(w, chapter_id)
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {"ok": True, "word_count": n}
+
+
+@app.post("/api/worlds/{world_id}/story/chapters")
+def api_create_story_chapter(world_id: str, body: StoryChapterCreateBody) -> dict[str, Any]:
+    w = _story_world_or_404(world_id)
+    ch = add_chapter(w, title=body.title, order=body.order)
+    apply_unit_label_from_mode(w, w.meta.creative_mode)
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {"chapter": ch.model_dump(mode="json"), "world": w.model_dump(mode="json")}
+
+
+@app.delete("/api/worlds/{world_id}/story/chapters/{chapter_id}")
+def api_delete_story_chapter(world_id: str, chapter_id: str) -> dict[str, Any]:
+    w = _story_world_or_404(world_id)
+    if not remove_chapter(w, chapter_id):
+        raise HTTPException(status_code=404, detail="chapter not found")
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {"ok": True, "world": w.model_dump(mode="json")}
+
+
+@app.post("/api/worlds/{world_id}/story/generate/macro-outline")
+async def api_story_generate_macro(world_id: str, body: StoryGenerateMacroBody) -> dict[str, Any]:
+    w = _story_world_or_404(world_id)
+    try:
+        reply = await generate_macro_outline(
+            w,
+            prompt=body.prompt,
+            creative_mode=body.creative_mode,
+            include_world_md=body.include_markdown_context,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
+    _maybe_persist_story(world_id, w, persist=body.persist)
+    return {"reply": reply, "world": w.model_dump(mode="json")}
+
+
+@app.post("/api/worlds/{world_id}/story/generate/chapter-beats")
+async def api_story_generate_beats(world_id: str, body: StoryGenerateBeatsBody) -> dict[str, Any]:
+    w = _story_world_or_404(world_id)
+    ids = body.chapter_ids or [c.id for c in w.story.chapters]
+    if not ids:
+        raise HTTPException(status_code=400, detail="no chapters to generate beats for")
+    try:
+        beats = await generate_chapter_beats(
+            w,
+            chapter_ids=ids,
+            prompt=body.prompt,
+            creative_mode=body.creative_mode,
+            include_world_md=body.include_markdown_context,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
+    _maybe_persist_story(world_id, w, persist=body.persist)
+    return {"beats": beats, "world": w.model_dump(mode="json")}
+
+
+@app.post("/api/worlds/{world_id}/story/generate/manuscript")
+async def api_story_generate_manuscript(
+    world_id: str, body: StoryGenerateManuscriptBody
+) -> dict[str, Any]:
+    w = _story_world_or_404(world_id)
+    if not any(c.id == body.chapter_id for c in w.story.chapters):
+        raise HTTPException(status_code=404, detail="chapter not found")
+    if body.character_id is not None:
+        w.story.narrator.character_id = body.character_id.strip()
+    attach = (
+        body.attach_prev_chapters
+        if body.attach_prev_chapters is not None
+        else w.story.writing_defaults.attach_prev_chapters
+    )
+    try:
+        reply = await generate_manuscript(
+            w,
+            chapter_id=body.chapter_id,
+            prompt=body.prompt,
+            creative_mode=body.creative_mode,
+            person=body.person,
+            attach_prev_chapters=attach,
+            include_world_md=body.include_markdown_context,
+        )
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
+    _maybe_persist_story(world_id, w, persist=body.persist)
+    return {"reply": reply, "world": w.model_dump(mode="json")}
 
 
 @app.post("/api/worlds/{world_id}/ecology-generate")

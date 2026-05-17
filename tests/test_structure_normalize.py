@@ -263,3 +263,58 @@ def test_normalize_economy_trade_routes_alias():
     assert r["from_region_id"] == "a"
     assert r["to_region_id"] == "b"
 
+
+def test_normalize_factions_entities_object_map_and_key_figure_objects():
+    patch = {
+        "factions": {
+            "summary": "两强",
+            "entities": {
+                "fa": {
+                    "id": "fa",
+                    "name": "甲派",
+                    "goals": "扩张",
+                    "relations": [{"target_id": "fb", "type": "rival"}],
+                },
+                "fb": {
+                    "id": "fb",
+                    "name": "乙派",
+                    "key_figures": [{"name": "李四", "role": "长老", "hook": "暗中通敌"}],
+                },
+            },
+        }
+    }
+    out, notes = normalize_structure_patch_detailed(patch)
+    ents = {e["id"]: e for e in out["factions"]["entities"]}
+    assert len(ents) == 2
+    assert ents["fa"]["relations"][0]["type"] == "enemy"
+    assert "李四" in ents["fb"]["key_figures"][0]
+    assert "factions" in notes
+
+
+def test_normalize_zh_faction_top_level_key():
+    out, _ = normalize_structure_patch_detailed(
+        {"派系": {"entities": [{"name": "行会", "goals": "抽成"}]}}
+    )
+    e0 = out["factions"]["entities"][0]
+    assert e0["id"].startswith("f_")
+    assert e0["name"] == "行会"
+    assert e0["goals"] == "抽成"
+
+
+def test_apply_patch_accepts_normalized_factions_key_figures():
+    w = create_world("派系归一")
+    patch = {
+        "factions": {
+            "entities": {
+                "fx": {
+                    "id": "fx",
+                    "name": "秘社",
+                    "key_figures": [{"name": "王五", "role": "主持"}],
+                }
+            }
+        }
+    }
+    merged, keys, warns, _nn = apply_structure_patch(w, patch)
+    assert not warns
+    assert "factions" in keys
+    assert merged.factions.entities[0].key_figures[0].startswith("王五")

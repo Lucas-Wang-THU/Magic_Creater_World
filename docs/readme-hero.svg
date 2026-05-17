@@ -11,5 +11,5 @@
   <circle cx="160" cy="110" r="72" fill="#ffffff" opacity="0.05"/>
   <text x="440" y="56" text-anchor="middle" fill="#ffffff" font-family="system-ui, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="34" font-weight="700">Magic Creater World</text>
   <text x="440" y="88" text-anchor="middle" fill="#e2e8f0" font-family="system-ui, 'Segoe UI', 'Noto Sans SC', sans-serif" font-size="14" font-weight="500">本地世界观工作台 · 对话与结构化同步 · world.json 为单一事实源</text>
-  <text x="440" y="116" text-anchor="middle" fill="#94a3b8" font-family="ui-monospace, 'Cascadia Mono', monospace" font-size="11">FastAPI · 静态单页工作台 · Markdown / world.md 导出</text>
+  <text x="440" y="116" text-anchor="middle" fill="#94a3b8" font-family="ui-monospace, 'Cascadia Mono', monospace" font-size="11">FastAPI · 单页工作台 · 生态 / 经济 / 卡司 · world.md 导出</text>
 </svg>

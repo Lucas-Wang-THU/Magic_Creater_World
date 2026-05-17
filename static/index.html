@@ -81,6 +81,9 @@
         <button type="button" data-view="charChat" title="基于世界设定扩展主角团、配角与人物关系，写入 characters 节">
           <span class="ms nav-ic" aria-hidden="true">person</span>人物生成
         </button>
+        <button type="button" data-view="storyChat" title="规划粗纲、细纲、伏笔与章节文稿，写入 story 与 story/ 目录">
+          <span class="ms nav-ic" aria-hidden="true">edit_note</span>情节构建
+        </button>
         <div class="nav-label">世界观</div>
         <button type="button" data-view="geo" title="地貌、气候、资源">
           <span class="ms nav-ic" aria-hidden="true">travel_explore</span>地理
@@ -122,9 +125,21 @@
         <button type="button" data-view="charData" title="卡司 entities / relations JSON（保存时沿用 world 中已有 summary、design_notes）">
           <span class="ms nav-ic" aria-hidden="true">code</span>卡司数据
         </button>
-        <div class="nav-label">下游</div>
-        <button type="button" data-view="outlines" title="需先保存世界观">
-          <span class="ms nav-ic" aria-hidden="true">menu_book</span>大纲
+        <div class="nav-label">情节</div>
+        <button type="button" data-view="storyOverview" title="情节项目总览与章节索引">
+          <span class="ms nav-ic" aria-hidden="true">dashboard</span>总览
+        </button>
+        <button type="button" data-view="storyOutline" title="粗纲、细纲与辅助大纲">
+          <span class="ms nav-ic" aria-hidden="true">list_alt</span>大纲
+        </button>
+        <button type="button" data-view="storyChapter" title="章节文稿 Markdown 编辑与预览">
+          <span class="ms nav-ic" aria-hidden="true">article</span>章节
+        </button>
+        <button type="button" data-view="storyForeshadow" title="伏笔时间轴与回收编排">
+          <span class="ms nav-ic" aria-hidden="true">linear_scale</span>伏笔
+        </button>
+        <button type="button" data-view="storyWrite" title="人称、POV 与 AI 撰写本章">
+          <span class="ms nav-ic" aria-hidden="true">draw</span>写作
         </button>
         <div class="nav-label">数据</div>
         <button type="button" data-view="search" title="world.json 与 world.md 全文检索">
@@ -272,6 +287,52 @@
               >
               <div class="send-wrap">
                 <button type="button" class="primary btn-ic" id="btnCharSend">
+                  <span class="ms" aria-hidden="true">send</span>发送
+                </button>
+                <span class="kbd-hint" title="在输入框内按下以发送"
+                  ><kbd class="kbd">Ctrl</kbd><span class="kbd-plus">+</span><kbd class="kbd">Enter</kbd
+                  ><span class="kbd-hint-txt">快捷发送</span></span
+                >
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section id="view-storyChat" class="panel">
+          <div class="card card-elevated">
+            <div class="card-head">
+              <h2><span class="ms h2-ic" aria-hidden="true">edit_note</span>情节构建</h2>
+              <span class="card-tag"><span class="ms tag-ic" aria-hidden="true">star</span>情节</span>
+            </div>
+            <p class="muted compact-hint">
+              模型侧重 <code>story</code>（粗纲/细纲/章节/伏笔）与 <code>story/*.md</code> 文稿。创作模式沿用「世界观构建」页所选值。可勾选
+              <strong>附带 story 文件</strong>（粗纲与当前章细纲/文稿截断）与 <strong>对话后同步</strong>；同步范围为
+              <code>story</code>。回复中的 <code>story-macro</code> / <code>story-beat:id</code> / <code>story-manuscript:id</code> 代码块可一键写入磁盘。
+            </p>
+            <div class="row sync-opts">
+              <label class="muted lbl-ic"
+                ><span class="ms lbl-ic-glyph" aria-hidden="true">description</span
+                ><input type="checkbox" id="storyIncludeFiles" /> 附带 story 文件上下文</label
+              >
+              <label class="muted lbl-ic"
+                ><span class="ms lbl-ic-glyph" aria-hidden="true">sync</span
+                ><input type="checkbox" id="storyAutoSyncPanels" checked /> 对话后同步表单</label
+              >
+            </div>
+            <p class="muted tiny" id="storyChatContextLine">当前章节：—</p>
+            <div class="chips" id="storyPromptChips"></div>
+            <div class="messages" id="storyMessages" aria-live="polite"></div>
+            <div id="storyChatThinking" class="thinking-strip" hidden>
+              <span class="ms thinking-ic" aria-hidden="true">psychology</span>
+              <span class="thinking-label">模型正在思考…</span>
+              <span class="thinking-shimmer" aria-hidden="true"></span>
+            </div>
+            <div class="row">
+              <textarea id="storyChatInput" placeholder="描述你想写的大纲、某章细纲、伏笔或正文要求…"></textarea>
+            </div>
+            <div class="row row-send">
+              <div class="send-wrap">
+                <button type="button" class="primary btn-ic" id="btnStorySend">
                   <span class="ms" aria-hidden="true">send</span>发送
                 </button>
                 <span class="kbd-hint" title="在输入框内按下以发送"
@@ -1005,31 +1066,161 @@
           </div>
         </section>
 
-        <section id="view-outlines" class="panel">
-          <div class="card">
-            <h2><span class="ms h2-ic" aria-hidden="true">menu_book</span>人物与情节大纲</h2>
-            <p class="muted" id="outlineVersionLine"></p>
-            <div class="row">
-              <select id="outlineKind">
-                <option value="characters">人物</option>
-                <option value="plot">情节总纲</option>
-              </select>
-              <label class="muted lbl-ic"
-                ><span class="ms lbl-ic-glyph" aria-hidden="true">description</span
-                ><input type="checkbox" id="outlineIncludeMd" checked /> 附带 world.md</label
-              >
+        <section id="view-story" class="panel">
+          <div class="card story-workbench">
+            <header class="story-wb-header">
+            <h2 id="storyWbTitle"><span class="ms h2-ic" aria-hidden="true">auto_stories</span>情节 · 总览</h2>
+            <p class="muted tiny" id="storyUnitLine">情节单元：—</p>
+            </header>
+            <div class="story-wb-layout">
+              <aside class="story-wb-aside" aria-label="章节导航">
+                <div class="story-wb-aside-head">
+                  <span class="story-wb-aside-title"><span id="storyAsideUnitLabel">章</span>列表</span>
+                  <button type="button" class="ghost tiny btn-ic" id="btnStoryAddChapterSide" title="新建章节">+</button>
+                </div>
+                <nav id="storyChapterNav" class="story-chapter-nav"></nav>
+                <p id="storyWbStats" class="story-wb-stats muted tiny"></p>
+              </aside>
+              <div class="story-wb-main">
+<div id="storyPaneOverview" class="story-pane">
+              <label class="muted" for="storySummary">项目总览</label>
+              <textarea id="storySummary" rows="2"></textarea>
+              <label class="muted" for="storyDesignNotes">设计说明</label>
+              <textarea id="storyDesignNotes" rows="2"></textarea>
+              <div class="row" style="margin-top: 8px">
+                <button type="button" class="ghost btn-ic" id="btnStoryImportLegacy">导入旧 plot_outline</button>
+                <button type="button" class="ghost btn-ic" id="btnStoryAddChapter">新建章节</button>
+              </div>
+              <details class="story-advanced">
+                <summary class="muted tiny">高级：chapters JSON</summary>
+                <textarea id="storyChaptersJson" class="json-editor-compact" spellcheck="false"></textarea>
+              </details>
             </div>
-            <textarea id="outlinePrompt" placeholder="说明你想写的人物或情节需求…"></textarea>
-            <div class="row">
-              <button type="button" class="primary btn-ic" id="btnOutline">
-                <span class="ms" aria-hidden="true">auto_stories</span>生成并保存到 outlines/
-              </button>
+            
+            
+            <div id="storyPaneOutline" class="story-pane hidden">
+              <div class="panel-subtabs" id="storyOutlineSubtabs" role="tablist">
+                <button type="button" class="active" data-outline-sub="macro">粗纲</button>
+                <button type="button" data-outline-sub="beats">细纲</button>
+                <button type="button" data-outline-sub="auxiliary">辅助大纲</button>
+              </div>
+<div id="storyPaneMacro" class="story-outline-sub hidden">
+              <div class="story-wb-split">
+                <div class="story-wb-editor-col">
+                  <label class="muted tiny">粗纲 Markdown</label>
+                  <textarea id="storyMacroEdit" class="story-editor" rows="14"></textarea>
+                  <div class="row">
+                    <button type="button" class="primary btn-ic" id="btnStorySaveMacro">保存粗纲</button>
+                    <input type="text" id="storyGenMacroHint" class="story-gen-hint" placeholder="生成要求（可留空）" />
+                    <button type="button" class="ghost btn-ic" id="btnStoryGenMacro">AI 生成粗纲</button>
+                  </div>
+                </div>
+                <div class="story-wb-preview-col">
+                  <h3 class="story-preview-h3">预览</h3>
+                  <div id="storyMacroPreview" class="msg-body msg-body--md story-preview"></div>
+                </div>
+              </div>
             </div>
-            <div class="card" style="margin-top: 12px">
-              <h3 class="preview-h3" style="margin-top: 0">
-                <span class="ms preview-h3-ic" aria-hidden="true">visibility</span>预览
-              </h3>
-              <div id="outlinePreview" class="muted" style="white-space: pre-wrap"></div>
+<div id="storyPaneBeats" class="story-outline-sub hidden">
+              <div class="story-wb-split">
+                <div class="story-wb-editor-col">
+                  <label class="muted tiny">章节</label>
+                  <select id="storyBeatChapterSelect"></select>
+                  <label class="muted tiny">细纲 Markdown</label>
+                  <textarea id="storyBeatEdit" class="story-editor" rows="12"></textarea>
+                  <div class="row">
+                    <button type="button" class="primary btn-ic" id="btnStorySaveBeat">保存细纲</button>
+                    <input type="text" id="storyGenBeatsHint" class="story-gen-hint" placeholder="生成要求（可留空）" />
+                    <button type="button" class="ghost btn-ic" id="btnStoryGenBeats">AI 生成细纲</button>
+                  </div>
+                </div>
+                <div class="story-wb-preview-col">
+                  <h3 class="story-preview-h3">预览</h3>
+                  <div id="storyBeatPreview" class="msg-body msg-body--md story-preview"></div>
+                </div>
+              </div>
+            </div>
+<div id="storyPaneAuxiliary" class="story-outline-sub hidden">
+              <p class="muted tiny" id="storyOutlineVersionLine"></p>
+              <div class="row">
+                <select id="outlineKind">
+                  <option value="characters">人物</option>
+                  <option value="plot">情节总纲</option>
+                </select>
+                <label class="muted lbl-ic"
+                  ><span class="ms lbl-ic-glyph" aria-hidden="true">description</span
+                  ><input type="checkbox" id="outlineIncludeMd" checked /> 附带 world.md</label
+                >
+              </div>
+              <textarea id="outlinePrompt" placeholder="说明你想写的人物或情节需求…" rows="4"></textarea>
+              <div class="row">
+                <button type="button" class="primary btn-ic" id="btnOutline">
+                  <span class="ms" aria-hidden="true">auto_stories</span>生成并保存到 outlines/
+                </button>
+              </div>
+              <div class="story-wb-split story-wb-split--preview-only">
+                <div class="story-wb-preview-col story-wb-preview-col--full">
+                  <h3 class="story-preview-h3">Markdown 预览</h3>
+                  <div id="outlinePreview" class="msg-body msg-body--md story-preview"></div>
+                </div>
+              </div>
+            </div>
+            </div>
+
+            <div id="storyPaneChapter" class="story-pane hidden">
+              <div class="story-wb-split">
+                <div class="story-wb-editor-col">
+                  <div class="row">
+                    <label class="muted tiny">章节 <select id="storyMsChapterSelect"></select></label>
+                    <label class="muted tiny"><input type="checkbox" id="storyAuthorView" checked /> 作者视图</label>
+                  </div>
+                  <label class="muted tiny">文稿 Markdown</label>
+                  <textarea id="storyManuscriptEdit" class="story-editor" rows="14"></textarea>
+                  <button type="button" class="primary btn-ic" id="btnStorySaveManuscript">保存文稿</button>
+                </div>
+                <div class="story-wb-preview-col">
+                  <h3 class="story-preview-h3">预览</h3>
+                  <div id="storyManuscriptPreview" class="msg-body msg-body--md story-preview"></div>
+                </div>
+              </div>
+            </div>
+            <div id="storyPaneForeshadow" class="story-pane hidden">
+              <div class="story-fs-toolbar row">
+                <button type="button" class="ghost btn-ic" id="btnStoryAddForeshadow">+ 添加伏笔</button>
+                <span class="muted tiny">沿章节轴查看埋设与回收；保存世界时写入 story.foreshadowing</span>
+              </div>
+              <div id="storyForeshadowTimeline" class="story-fs-timeline" aria-label="伏笔时间轴"></div>
+              <div id="storyForeshadowList" class="story-fs-list"></div>
+              <details class="story-advanced">
+                <summary class="muted tiny">高级：foreshadowing JSON</summary>
+                <textarea id="storyForeshadowJson" class="json-editor-compact" spellcheck="false"></textarea>
+              </details>
+            </div>
+            <div id="storyPaneWrite" class="story-pane hidden">
+              <div class="row story-write-row">
+                <label class="muted">叙事人物 <select id="storyNarratorCharacter"></select></label>
+                <label class="muted"
+                  >人称
+                  <select id="storyNarratorPerson">
+                    <option value="first_person">第一人称</option>
+                    <option value="third_person_limited" selected>第三人称（有限）</option>
+                    <option value="third_person_omniscient">第三人称（全知）</option>
+                  </select></label
+                >
+                <label class="muted"
+                  >前 <input type="number" id="storyAttachPrev" min="0" max="5" value="3" style="width: 3rem" /> 章</label
+                >
+              </div>
+              <label class="muted tiny" for="storyNarratorVoice">文风 / 口吻说明</label>
+              <textarea id="storyNarratorVoice" rows="2"></textarea>
+              <label class="muted tiny">目标章节</label>
+              <select id="storyWriteChapterSelect"></select>
+              <label class="muted tiny" for="storyWritePrompt">写作要求</label>
+              <textarea id="storyWritePrompt" rows="3"></textarea>
+              <button type="button" class="primary btn-ic" id="btnStoryGenManuscript">AI 撰写本章文稿</button>
+            </div>
+            
+              </div>
             </div>
           </div>
         </section>
