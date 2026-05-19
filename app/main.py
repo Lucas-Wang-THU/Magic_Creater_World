@@ -30,6 +30,9 @@ from worldforger.prompts import (
     system_with_world_json,
 )
 from worldforger.schemas import StoryPerson, World
+from worldforger.foreshadow_apply import apply_foreshadow_operations
+from worldforger.story_agent import run_story_chat_agent
+from worldforger.story_chapter_sync import chapter_display_for_prompt, reconcile_story_chapters, title_from_beat_markdown
 from worldforger.story_prompts import story_chat_system_prompt
 from worldforger.story_service import (
     add_chapter,
@@ -131,6 +134,17 @@ class ChatBody(BaseModel):
 class StoryChatBody(ChatBody):
     active_chapter_id: str = ""
     include_story_files: bool = False
+    use_tools: bool = True
+    persist_tool_changes: bool = True
+    writing_prompt: str = Field(default="", max_length=8000)
+    attach_prev_chapters: int | None = Field(default=None, ge=0, le=5)
+    person: StoryPerson | None = None
+    character_id: str | None = None
+
+
+class StoryForeshadowApplyBody(BaseModel):
+    operations: list[dict[str, Any]] = Field(default_factory=list)
+    persist: bool = True
 
 
 class OutlineBody(BaseModel):
@@ -174,6 +188,7 @@ class StoryGenerateBeatsBody(BaseModel):
 class StoryGenerateManuscriptBody(BaseModel):
     chapter_id: str = Field(min_length=1, max_length=120)
     prompt: str = Field(default="", max_length=8000)
+    last_user_message: str = Field(default="", max_length=8000)
     person: StoryPerson | None = None
     character_id: str | None = None
     attach_prev_chapters: int | None = Field(default=None, ge=0, le=5)
@@ -561,12 +576,48 @@ async def api_character_chat(world_id: str, body: ChatBody) -> dict[str, str]:
 
 
 @app.post("/api/worlds/{world_id}/story-chat")
-async def api_story_chat(world_id: str, body: StoryChatBody) -> dict[str, str]:
-    """与「世界观构建」「人物生成」同级的情节/叙事对话。"""
+async def api_story_chat(world_id: str, body: StoryChatBody) -> dict[str, Any]:
+    """情节/叙事对话；默认启用工具调用与回复内伏笔/Markdown 自动落盘。"""
     try:
         w = load_world(world_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="world not found")
+
+    mode_eff = (body.mode or "").strip() or w.meta.creative_mode
+    extra_system: list[str] = []
+    addon = chat_mode_system(mode_eff)
+    if addon:
+        extra_system.append(addon)
+    tag_addon = genre_tags_prompt_addon(w.meta.genre_tags)
+    if tag_addon:
+        extra_system.append(tag_addon)
+    guide_text = chat_guides_content(body.chat_guides)
+    if guide_text:
+        extra_system.append(guide_text)
+
+    msg_dicts = [{"role": m.role, "content": m.content} for m in body.messages]
+
+    if body.use_tools:
+        try:
+            result = await run_story_chat_agent(
+                w,
+                msg_dicts,
+                active_chapter_id=body.active_chapter_id,
+                include_story_files=body.include_story_files,
+                creative_mode=mode_eff,
+                persist=body.persist_tool_changes,
+                writing_prompt=body.writing_prompt,
+                person=body.person,
+                character_id=body.character_id,
+                attach_prev_chapters=body.attach_prev_chapters,
+                extra_system=extra_system,
+            )
+        except RuntimeError as e:
+            raise HTTPException(status_code=503, detail=str(e)) from e
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
+        _append_session_log(world_id, body.messages, result["reply"])
+        return result
 
     system = story_chat_system_prompt(
         w,
@@ -574,16 +625,8 @@ async def api_story_chat(world_id: str, body: StoryChatBody) -> dict[str, str]:
         include_story_files=body.include_story_files,
     )
     msgs: list[dict[str, Any]] = [{"role": "system", "content": system}]
-    mode_eff = (body.mode or "").strip() or w.meta.creative_mode
-    addon = chat_mode_system(mode_eff)
-    if addon:
-        msgs.append({"role": "system", "content": addon})
-    tag_addon = genre_tags_prompt_addon(w.meta.genre_tags)
-    if tag_addon:
-        msgs.append({"role": "system", "content": tag_addon})
-    guide_text = chat_guides_content(body.chat_guides)
-    if guide_text:
-        msgs.append({"role": "system", "content": guide_text})
+    for s in extra_system:
+        msgs.append({"role": "system", "content": s})
     for m in body.messages:
         msgs.append({"role": m.role, "content": m.content})
     try:
@@ -594,7 +637,7 @@ async def api_story_chat(world_id: str, body: StoryChatBody) -> dict[str, str]:
         raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
 
     _append_session_log(world_id, body.messages, reply)
-    return {"reply": reply}
+    return {"reply": reply, "world": w.model_dump(mode="json"), "actions": [], "intent": None}
 
 
 @app.post("/api/worlds/{world_id}/sync-panels-from-chat")
@@ -810,11 +853,17 @@ def api_get_story(world_id: str) -> dict[str, Any]:
     imported = try_import_legacy(w)
     if imported:
         save_world(w, export_markdown=False)
+    w, sync_notes = reconcile_story_chapters(w)
+    if sync_notes:
+        w.bump_version()
+        save_world(w, export_markdown=False)
     apply_unit_label_from_mode(w, w.meta.creative_mode)
     return {
         "story": w.story.model_dump(mode="json"),
         "unit_label": resolve_unit_label(w),
         "legacy_imported": imported,
+        "chapter_sync_notes": sync_notes,
+        "chapters_display": chapter_display_for_prompt(w),
     }
 
 
@@ -856,7 +905,17 @@ def api_put_chapter_beat(world_id: str, chapter_id: str, body: StoryTextBody) ->
     if not any(c.id == chapter_id for c in w.story.chapters):
         raise HTTPException(status_code=404, detail="chapter not found")
     write_text(beat_path(world_id, chapter_id), body.content)
-    return {"ok": True}
+    ch = next((c for c in w.story.chapters if c.id == chapter_id), None)
+    title_synced = False
+    if ch:
+        beat_title = title_from_beat_markdown(body.content)
+        if beat_title and beat_title != (ch.title or "").strip():
+            ch.title = beat_title
+            title_synced = True
+    if title_synced:
+        w.bump_version()
+        save_world(w, export_markdown=False)
+    return {"ok": True, "title_synced": title_synced, "chapter": ch.model_dump(mode="json") if ch else None}
 
 
 @app.get("/api/worlds/{world_id}/story/chapters/{chapter_id}/manuscript")
@@ -953,11 +1012,13 @@ async def api_story_generate_manuscript(
         if body.attach_prev_chapters is not None
         else w.story.writing_defaults.attach_prev_chapters
     )
+    prompt_parts = [p for p in (body.last_user_message.strip(), body.prompt.strip()) if p]
+    prompt_eff = "\n\n".join(prompt_parts) or "请撰写本章正文。"
     try:
         reply = await generate_manuscript(
             w,
             chapter_id=body.chapter_id,
-            prompt=body.prompt,
+            prompt=prompt_eff,
             creative_mode=body.creative_mode,
             person=body.person,
             attach_prev_chapters=attach,
@@ -969,6 +1030,21 @@ async def api_story_generate_manuscript(
         raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
     _maybe_persist_story(world_id, w, persist=body.persist)
     return {"reply": reply, "world": w.model_dump(mode="json")}
+
+
+@app.post("/api/worlds/{world_id}/story/foreshadowing/apply")
+async def api_story_foreshadow_apply(
+    world_id: str, body: StoryForeshadowApplyBody
+) -> dict[str, Any]:
+    w = _story_world_or_404(world_id)
+    w, applied, warnings = apply_foreshadow_operations(w, body.operations)
+    if body.persist:
+        save_world(w)
+    return {
+        "world": w.model_dump(mode="json"),
+        "applied": applied,
+        "warnings": warnings,
+    }
 
 
 @app.post("/api/worlds/{world_id}/ecology-generate")

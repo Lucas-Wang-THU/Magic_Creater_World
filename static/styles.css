@@ -5153,6 +5153,94 @@ textarea.json-editor-tiny {
   margin-right: 4px;
 }
 
+.story-chapter-nav--busy {
+  pointer-events: none;
+}
+
+.story-ch-nav-btn--generating {
+  border-color: var(--accent);
+  background: #e8f0fe;
+  position: relative;
+}
+
+.story-ch-nav-btn--generating::after {
+  content: "";
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-top: -5px;
+  border: 2px solid var(--accent);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: story-ch-spin 0.75s linear infinite;
+}
+
+@keyframes story-ch-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* 默认隐藏；勿用 display:flex 覆盖 [hidden]，否则侧栏会一直显示「AI 正在生成」 */
+.story-wb-aside-gen-hint {
+  display: none;
+  align-items: center;
+  gap: 4px;
+  margin: 8px 0 0;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #e8f0fe;
+  color: var(--accent);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.story-wb-aside-gen-hint[hidden] {
+  display: none !important;
+}
+
+.story-wb-aside-gen-hint.story-wb-aside-gen-hint--visible {
+  display: flex;
+}
+
+.story-wb-aside-gen-hint--visible .ms {
+  font-size: 1rem;
+  animation: story-ch-spin 1.2s linear infinite;
+}
+
+.story-wb-thinking {
+  margin-bottom: 12px;
+}
+
+.story-wb-layout--generating .story-wb-editor-col textarea,
+.story-wb-layout--generating .story-gen-hint {
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.story-preview--generating {
+  position: relative;
+  min-height: 120px;
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.story-preview--generating::after {
+  content: "AI 正在生成…";
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--accent);
+  background: rgba(248, 249, 251, 0.82);
+  border-radius: var(--radius);
+}
+
 .story-wb-stats {
   margin: 10px 0 0;
   line-height: 1.45;
@@ -5333,6 +5421,53 @@ textarea.json-editor-tiny {
 .story-fs-card-actions {
   margin-top: 8px;
   text-align: right;
+}
+
+.story-workbench--chat {
+  margin-bottom: 0;
+}
+
+.story-workbench--chat .story-wb-header--chat {
+  margin-bottom: 0.5rem;
+}
+
+.story-workbench--chat .story-wb-layout {
+  min-height: min(72vh, 820px);
+}
+
+.story-workbench--chat .story-chat-main {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.story-workbench--chat .messages {
+  flex: 1 1 auto;
+  min-height: 160px;
+  max-height: min(42vh, 480px);
+}
+
+.story-chat-chapter-row {
+  margin: 0.5rem 0 0.25rem;
+  align-items: center;
+}
+
+.story-chat-chapter-label select {
+  min-width: min(100%, 280px);
+  margin-left: 0.35rem;
+}
+
+.story-chat-write-strip {
+  margin: 0.75rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border-subtle, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  background: var(--surface-elevated, rgba(0, 0, 0, 0.15));
+}
+
+.story-chat-write-strip textarea {
+  width: 100%;
+  margin-bottom: 0.5rem;
 }
 
 .story-write-row {

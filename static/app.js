@@ -14,6 +14,8 @@ const state = {
   activeStoryNav: "storyOverview",
   storyActiveChapterId: "",
   storyUnitLabel: "章",
+  /** 情节 AI 生成/对话进行中的 UI 状态；null 表示未在进行 */
+  storyGen: null,
   /** 境界页子页：system | trees | professions */
   powerSubView: "system",
   /** 生态页子页：overview | biomes | species */
@@ -3291,9 +3293,163 @@ function renderStatStrip(w) {
   ].join("");
 }
 
+const STORY_THINKING_LABELS = {
+  chat: "AI 正在思考回复…",
+  sync: "正在将对话整理为结构化设定…",
+  "generate-macro": "AI 正在生成全书粗纲…",
+  "generate-beats": "AI 正在生成章节细纲…",
+  "generate-manuscript": "AI 正在撰写本章文稿…",
+};
+
+const STORY_GEN_BUTTON_IDS = [
+  "btnStoryGenMacro",
+  "btnStoryGenBeats",
+  "btnStoryGenManuscript",
+  "btnStoryChatGenManuscript",
+  "btnStorySend",
+];
+
+function resolveStoryThinkingPanel() {
+  if (state.activeView === "storyChat") return "story";
+  if (isStoryPanelView(state.activeView)) return "storyWb";
+  return "story";
+}
+
+const STORY_GEN_ASIDE_ALL = [
+  ["storyChapterNav", "storyWbAsideGenHint", "storyWbAsideGenHintText"],
+  ["storyChatChapterNav", "storyChatAsideGenHint", "storyChatAsideGenHintText"],
+];
+
+function storyGenAsideForActiveView() {
+  if (state.activeView === "storyChat") return STORY_GEN_ASIDE_ALL[1];
+  if (isStoryPanelView(state.activeView)) return STORY_GEN_ASIDE_ALL[0];
+  return null;
+}
+
+function resetStoryGenerationUi() {
+  state.storyGen = null;
+  for (const id of ["storyChatThinking", "storyWbThinking"]) {
+    const strip = $(id);
+    if (!strip) continue;
+    strip.hidden = true;
+    strip.classList.remove("thinking-strip--visible");
+  }
+  for (const [navId, hintId] of STORY_GEN_ASIDE_ALL) {
+    const nav = $(navId);
+    const hint = $(hintId);
+    if (nav) {
+      nav.setAttribute("aria-busy", "false");
+      nav.classList.remove("story-chapter-nav--busy");
+      nav.querySelectorAll(".story-ch-nav-btn").forEach((btn) => {
+        btn.classList.remove("story-ch-nav-btn--generating");
+        btn.disabled = false;
+      });
+    }
+    if (hint) {
+      hint.hidden = true;
+      hint.classList.remove("story-wb-aside-gen-hint--visible");
+    }
+  }
+  for (const id of STORY_GEN_BUTTON_IDS) {
+    const btn = $(id);
+    if (btn) btn.disabled = false;
+  }
+  document.querySelectorAll(".story-wb-layout").forEach((layout) => {
+    layout.classList.remove("story-wb-layout--generating");
+  });
+  document.querySelectorAll(".story-preview--generating").forEach((el) => {
+    el.classList.remove("story-preview--generating");
+  });
+}
+
+function applyStoryGenerationUi(gen) {
+  if (!gen) {
+    resetStoryGenerationUi();
+    return;
+  }
+  const message = gen.message || STORY_THINKING_LABELS[gen.phase] || STORY_THINKING_LABELS.chat;
+  const chapterIds = new Set(gen.chapterIds || []);
+  const activeAside = storyGenAsideForActiveView();
+
+  const showChatStrip = gen.panel === "story" && state.activeView === "storyChat";
+  const showWbStrip = gen.panel === "storyWb" && isStoryPanelView(state.activeView);
+  for (const [stripId, show] of [
+    ["storyChatThinking", showChatStrip],
+    ["storyWbThinking", showWbStrip],
+  ]) {
+    const strip = $(stripId);
+    if (!strip) continue;
+    strip.hidden = !show;
+    strip.classList.toggle("thinking-strip--visible", show);
+    const lab = strip.querySelector(".thinking-label");
+    if (lab && show) lab.textContent = message;
+  }
+
+  for (const [navId, hintId, hintTextId] of STORY_GEN_ASIDE_ALL) {
+    const nav = $(navId);
+    const hint = $(hintId);
+    const hintTxt = $(hintTextId);
+    const isActiveAside = activeAside && activeAside[0] === navId;
+    if (nav) {
+      const busy = !!isActiveAside;
+      nav.setAttribute("aria-busy", busy ? "true" : "false");
+      nav.classList.toggle("story-chapter-nav--busy", busy);
+      nav.querySelectorAll(".story-ch-nav-btn").forEach((btn) => {
+        const cid = btn.dataset.storyChapterId || "";
+        const isChapterTarget = busy && chapterIds.size > 0 && chapterIds.has(cid);
+        btn.classList.toggle("story-ch-nav-btn--generating", isChapterTarget);
+        btn.disabled = busy;
+      });
+    }
+    if (hint) {
+      const showHint = !!isActiveAside;
+      hint.hidden = !showHint;
+      hint.classList.toggle("story-wb-aside-gen-hint--visible", showHint);
+    }
+    if (hintTxt && isActiveAside) hintTxt.textContent = message;
+  }
+
+  const previewOn = new Set(gen.previewIds || []);
+  for (const id of ["storyMacroPreview", "storyBeatPreview", "storyManuscriptPreview"]) {
+    const el = $(id);
+    if (el) el.classList.toggle("story-preview--generating", previewOn.has(id));
+  }
+
+  for (const id of STORY_GEN_BUTTON_IDS) {
+    const btn = $(id);
+    if (btn) btn.disabled = true;
+  }
+  document.querySelectorAll(".story-wb-layout").forEach((layout) => {
+    layout.classList.toggle("story-wb-layout--generating", true);
+  });
+}
+
+let _storyGenToken = 0;
+
+function beginStoryGeneration(phase, opts = {}) {
+  _storyGenToken += 1;
+  const panel = opts.panel || resolveStoryThinkingPanel();
+  state.storyGen = {
+    token: _storyGenToken,
+    phase,
+    panel,
+    message: opts.message || STORY_THINKING_LABELS[phase] || STORY_THINKING_LABELS.chat,
+    chapterIds: (opts.chapterIds || []).map((x) => String(x).trim()).filter(Boolean),
+    previewIds: opts.previewIds || [],
+  };
+  applyStoryGenerationUi(state.storyGen);
+  return _storyGenToken;
+}
+
+function endStoryGeneration(opts = {}) {
+  if (opts.token != null && state.storyGen && opts.token !== state.storyGen.token) return;
+  resetStoryGenerationUi();
+}
+
 function setThinking(phase, opts = {}) {
+  const WORLD_STRIPS = ["chatThinking", "charChatThinking"];
   if (!phase) {
-    for (const id of ["chatThinking", "charChatThinking", "storyChatThinking"]) {
+    for (const id of WORLD_STRIPS) {
       const strip = $(id);
       if (!strip) continue;
       strip.hidden = true;
@@ -3304,12 +3460,10 @@ function setThinking(phase, opts = {}) {
   let panel = opts.panel;
   if (!panel) {
     if (state.activeView === "charChat") panel = "char";
-    else if (state.activeView === "storyChat") panel = "story";
     else panel = "world";
   }
-  const el =
-    panel === "char" ? $("charChatThinking") : panel === "story" ? $("storyChatThinking") : $("chatThinking");
-  for (const id of ["chatThinking", "charChatThinking", "storyChatThinking"]) {
+  const el = panel === "char" ? $("charChatThinking") : $("chatThinking");
+  for (const id of WORLD_STRIPS) {
     const strip = $(id);
     if (!strip || strip === el) continue;
     strip.hidden = true;
@@ -3320,8 +3474,10 @@ function setThinking(phase, opts = {}) {
   el.hidden = false;
   el.classList.add("thinking-strip--visible");
   if (lab) {
-    lab.textContent =
-      phase === "sync" ? "正在将对话整理为结构化设定…" : "模型正在思考回复…";
+    const custom = opts.message;
+    if (custom) lab.textContent = custom;
+    else if (phase === "sync") lab.textContent = "正在将对话整理为结构化设定…";
+    else lab.textContent = "模型正在思考回复…";
   }
 }
 
@@ -3745,6 +3901,9 @@ function switchView(name) {
   });
   if (name === "files") refreshFilesView();
   if (name === "search") refreshSearchView();
+  if (name === "story" || name === "storyChat" || isStoryPanelView(name)) {
+    resetStoryGenerationUi();
+  }
   if (name === "story") {
     state.storyUnitLabel = storyUnitLabelForMode(state.world?.meta?.creative_mode || $("genreMode")?.value);
     storyMetaToForm();
@@ -3756,7 +3915,7 @@ function switchView(name) {
   if (name === "chat") refreshFactionChatViz();
   if (name === "charChat") renderCharMessages();
   if (name === "storyChat") {
-    refreshStoryChatContextLine();
+    void refreshStoryChaptersAligned();
     renderStoryMessages();
   }
   if (isCharacterPanelView(name)) scheduleCharactersVizFromForm();
@@ -3780,6 +3939,10 @@ function navigateToEconomyAfterSyncIfNeeded(updatedSections) {
 /** 情节构建同步后跳转到对应情节子栏 */
 function navigateToStoryAfterSyncIfNeeded(updatedSections) {
   if (!Array.isArray(updatedSections) || !updatedSections.includes("story")) return;
+  if (state.activeView === "storyChat") {
+    void refreshStoryChaptersAligned();
+    return;
+  }
   requestAnimationFrame(() => {
     const fs = state.world?.story?.foreshadowing;
     if (Array.isArray(fs) && fs.length) switchView("storyForeshadow");
@@ -3833,6 +3996,7 @@ function storyMetaToForm() {
   if ($("storyAttachPrev")) $("storyAttachPrev").value = String(wd.attach_prev_chapters ?? 3);
   refreshStoryNarratorSelect(n.character_id || "");
   refreshStoryChapterSelects();
+  syncStoryChatWritingControlsFromForm();
   renderStoryChapterNav();
   renderStoryForeshadowTimeline(s.foreshadowing ?? []);
   updateStoryWbStats();
@@ -3840,8 +4004,6 @@ function storyMetaToForm() {
 }
 
 function refreshStoryNarratorSelect(selectedId) {
-  const sel = $("storyNarratorCharacter");
-  if (!sel) return;
   const ents = state.world?.characters?.entities || [];
   let html = '<option value="">（不绑定 POV 角色）</option>';
   for (const e of ents) {
@@ -3852,30 +4014,152 @@ function refreshStoryNarratorSelect(selectedId) {
     const selAttr = id === selectedId ? " selected" : "";
     html += `<option value="${escapeAttr(id)}"${selAttr}>${escapeHtml(name)} · ${escapeHtml(id)}</option>`;
   }
-  sel.innerHTML = html;
+  for (const id of ["storyNarratorCharacter", "storyChatNarratorCharacter"]) {
+    const sel = $(id);
+    if (sel) sel.innerHTML = html;
+  }
 }
 
-function refreshStoryChapterSelects() {
+function syncStoryChatWritingControlsFromForm() {
+  const sn = state.world?.story?.narrator || {};
+  const wd = state.world?.story?.writing_defaults || {};
+  if ($("storyChatNarratorPerson")) $("storyChatNarratorPerson").value = sn.person || "third_person_limited";
+  if ($("storyChatAttachPrev")) $("storyChatAttachPrev").value = String(wd.attach_prev_chapters ?? 3);
+  const cid = (sn.character_id || "").trim();
+  if ($("storyChatNarratorCharacter")) $("storyChatNarratorCharacter").value = cid;
+}
+
+const STORY_CHAPTER_NAV_IDS = ["storyChapterNav", "storyChatChapterNav"];
+
+function storyChatActiveChapterId() {
+  return (
+    state.storyActiveChapterId ||
+    $("storyChatChapterSelect")?.value ||
+    $("storyBeatChapterSelect")?.value ||
+    $("storyMsChapterSelect")?.value ||
+    $("storyWriteChapterSelect")?.value ||
+    sortedStoryChapters()[0]?.id ||
+    ""
+  );
+}
+
+function lastStoryUserMessage() {
+  for (let i = state.storyMessages.length - 1; i >= 0; i--) {
+    if (state.storyMessages[i]?.role === "user") return (state.storyMessages[i].content || "").trim();
+  }
+  return "";
+}
+
+function storyWritingParamsFromUI(useChatStrip) {
+  const prefix = useChatStrip ? "storyChat" : "story";
+  return {
+    person: $(`${prefix}NarratorPerson`)?.value || $("storyNarratorPerson")?.value || null,
+    character_id:
+      $(`${prefix}NarratorCharacter`)?.value || $("storyNarratorCharacter")?.value || null,
+    attach_prev_chapters: parseInt(
+      $(`${prefix}AttachPrev`)?.value ?? $("storyAttachPrev")?.value ?? "3",
+      10
+    ),
+    writing_prompt: (
+      (useChatStrip ? $("storyChatWritingPrompt")?.value : $("storyWritePrompt")?.value) ?? ""
+    ).trim(),
+  };
+}
+
+function storyChapterOptionLabel(c, displayRow) {
+  const title = (
+    displayRow?.title ||
+    (c.title || "").trim() ||
+    displayRow?.beat_title ||
+    c.id
+  ).trim();
+  const status = (c.status || "planned").trim();
+  const beatMark = displayRow?.has_beat === false ? "" : " · 有细纲";
+  return `${c.order}. ${title}（${status}${beatMark}）`;
+}
+
+function refreshStoryChapterSelects(chaptersDisplay) {
   const chapters = sortedStoryChapters();
+  const displayMap = new Map();
+  if (Array.isArray(chaptersDisplay)) {
+    for (const row of chaptersDisplay) {
+      if (row?.id) displayMap.set(String(row.id), row);
+    }
+  }
   const opts = chapters
-    .map(
-      (c) =>
-        `<option value="${escapeAttr(c.id)}">${escapeHtml(String(c.order))}. ${escapeHtml(c.title || c.id)}</option>`
-    )
+    .map((c) => {
+      const row = displayMap.get(c.id);
+      return `<option value="${escapeAttr(c.id)}">${escapeHtml(storyChapterOptionLabel(c, row))}</option>`;
+    })
     .join("");
   const empty = '<option value="">（请先新建章节）</option>';
-  for (const id of ["storyBeatChapterSelect", "storyMsChapterSelect", "storyWriteChapterSelect"]) {
+  for (const id of [
+    "storyBeatChapterSelect",
+    "storyMsChapterSelect",
+    "storyWriteChapterSelect",
+    "storyChatChapterSelect",
+  ]) {
     const el = $(id);
     if (!el) continue;
     el.innerHTML = chapters.length ? opts : empty;
   }
-  const active = state.storyActiveChapterId || chapters[0]?.id || "";
+  const active =
+    $("storyChatChapterSelect")?.value ||
+    state.storyActiveChapterId ||
+    chapters[0]?.id ||
+    "";
   if (active) {
-    for (const id of ["storyBeatChapterSelect", "storyMsChapterSelect", "storyWriteChapterSelect"]) {
+    for (const id of [
+      "storyBeatChapterSelect",
+      "storyMsChapterSelect",
+      "storyWriteChapterSelect",
+      "storyChatChapterSelect",
+    ]) {
       const el = $(id);
       if (el && [...el.options].some((o) => o.value === active)) el.value = active;
     }
+    state.storyActiveChapterId = active;
   }
+  syncStoryChatWritingControlsFromForm();
+  refreshStoryChatContextLine();
+  refreshStoryChatBeatTitleHint(active);
+}
+
+async function refreshStoryChaptersAligned() {
+  if (!state.world?.meta?.id) return;
+  const preserved = storyChatActiveChapterId();
+  try {
+    const res = await api(`/api/worlds/${state.world.meta.id}/story`);
+    if (res.story) state.world.story = res.story;
+    if (res.unit_label) state.storyUnitLabel = res.unit_label;
+    if ($("storyChaptersJson"))
+      $("storyChaptersJson").value = JSON.stringify(state.world.story?.chapters ?? [], null, 2);
+    refreshStoryChapterSelects(res.chapters_display);
+    renderStoryChapterNav(preserved || state.storyActiveChapterId);
+    if (preserved) selectStoryChapter(preserved);
+    if (Array.isArray(res.chapter_sync_notes) && res.chapter_sync_notes.length) {
+      toast("章节已与细纲对齐：" + res.chapter_sync_notes.join("；"));
+    }
+  } catch (e) {
+    refreshStoryChapterSelects();
+    refreshStoryChatContextLine();
+    toast("加载章节列表失败：" + (e?.message || e));
+  }
+}
+
+function refreshStoryChatBeatTitleHint(chapterId) {
+  const hint = $("storyChatBeatTitleHint");
+  if (!hint) return;
+  const cid = (chapterId || storyChatActiveChapterId() || "").trim();
+  if (!cid) {
+    hint.textContent = "请先在左侧「情节」总览新建章节，或保存 world.json 中的 chapters。";
+    return;
+  }
+  const ch = sortedStoryChapters().find((c) => c.id === cid);
+  const title = (ch?.title || "").trim();
+  hint.textContent = title
+    ? `细纲/索引标题：${title}（id=${cid}）`
+    : `章节 id=${cid}（细纲文件若有 # 标题将自动同步为章节名）`;
 }
 
 function updateStoryWbTitle() {
@@ -3935,6 +4219,10 @@ async function refreshStoryPanel() {
     state.storyUnitLabel = res.unit_label || storyUnitLabelForMode(state.world.meta.creative_mode);
     if (res.legacy_imported) toast("已从 outlines/plot_outline.md 导入粗纲");
     storyMetaToForm();
+    refreshStoryChapterSelects(res.chapters_display);
+    if (Array.isArray(res.chapter_sync_notes) && res.chapter_sync_notes.length) {
+      toast("章节已与细纲对齐：" + res.chapter_sync_notes.join("；"));
+    }
   } catch (e) {
     toast("加载情节失败：" + (e?.message || e));
   }
@@ -4025,10 +4313,18 @@ function initStoryPanelBindings() {
   });
 
   $("btnStoryAddChapterSide")?.addEventListener("click", () => $("btnStoryAddChapter")?.click());
-  $("storyChapterNav")?.addEventListener("click", (e) => {
-    const btn = e.target.closest("[data-story-chapter-id]");
-    if (!btn?.dataset.storyChapterId) return;
-    selectStoryChapter(btn.dataset.storyChapterId);
+  $("btnStoryAddChapterChat")?.addEventListener("click", () => $("btnStoryAddChapter")?.click());
+  for (const navId of STORY_CHAPTER_NAV_IDS) {
+    $(navId)?.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-story-chapter-id]");
+      if (!btn?.dataset.storyChapterId) return;
+      selectStoryChapter(btn.dataset.storyChapterId);
+    });
+  }
+  $("btnStoryChatOpenChapter")?.addEventListener("click", () => {
+    const cid = storyChatActiveChapterId();
+    if (!cid) return toast("请先在左侧选择章节");
+    selectStoryChapter(cid, "chapter");
   });
   $("storyForeshadowList")?.addEventListener("input", scheduleStoryForeshadowSync);
   $("storyForeshadowList")?.addEventListener("change", scheduleStoryForeshadowSync);
@@ -4133,6 +4429,8 @@ function initStoryPanelBindings() {
       });
       state.world = res.world;
       storyMetaToForm();
+      const newId = res.chapter?.id;
+      if (newId) selectStoryChapter(newId);
       setDirty(true);
       toast("已新建章节");
     } catch (e) {
@@ -4162,7 +4460,10 @@ function initStoryPanelBindings() {
     if (!state.world) return;
     const promptText =
       ($("storyGenMacroHint")?.value ?? "").trim() || "请根据当前世界设定撰写全书粗纲。";
-    setThinking("chat", { panel: "story" });
+    const genToken = beginStoryGeneration("generate-macro", {
+      panel: "storyWb",
+      previewIds: ["storyMacroPreview"],
+    });
     try {
       const res = await api(`/api/worlds/${state.world.meta.id}/story/generate/macro-outline`, {
         method: "POST",
@@ -4182,7 +4483,7 @@ function initStoryPanelBindings() {
     } catch (e) {
       toast("生成失败：" + e.message);
     } finally {
-      setThinking(false);
+      endStoryGeneration({ token: genToken });
     }
   });
 
@@ -4192,7 +4493,11 @@ function initStoryPanelBindings() {
     const ids = cid ? [cid] : sortedStoryChapters().map((c) => c.id);
     if (!ids.length) return toast("请先新建章节");
     const promptText = ($("storyGenBeatsHint")?.value ?? "").trim() || "请撰写本章细纲。";
-    setThinking("chat", { panel: "story" });
+    const genToken = beginStoryGeneration("generate-beats", {
+      panel: "storyWb",
+      chapterIds: ids,
+      previewIds: ["storyBeatPreview"],
+    });
     try {
       const res = await api(`/api/worlds/${state.world.meta.id}/story/generate/chapter-beats`, {
         method: "POST",
@@ -4214,46 +4519,18 @@ function initStoryPanelBindings() {
     } catch (e) {
       toast("生成失败：" + e.message);
     } finally {
-      setThinking(false);
+      endStoryGeneration({ token: genToken });
     }
   });
 
-  $("btnStoryGenManuscript")?.addEventListener("click", async () => {
-    if (!state.world) return;
-    const cid = $("storyWriteChapterSelect")?.value;
-    if (!cid) return toast("请选择章节");
-    setThinking("chat", { panel: "story" });
-    try {
-      const res = await api(`/api/worlds/${state.world.meta.id}/story/generate/manuscript`, {
-        method: "POST",
-        body: JSON.stringify({
-          chapter_id: cid,
-          prompt: ($("storyWritePrompt")?.value ?? "").trim() || "请撰写本章正文。",
-          person: $("storyNarratorPerson")?.value || null,
-          character_id: $("storyNarratorCharacter")?.value || null,
-          attach_prev_chapters: parseInt($("storyAttachPrev")?.value ?? "3", 10),
-          creative_mode: $("genreMode")?.value || null,
-          persist: true,
-        }),
-      });
-      state.world = res.world;
-      storyMetaToForm();
-      if ($("storyMsChapterSelect")) $("storyMsChapterSelect").value = cid;
-      if ($("storyManuscriptEdit")) $("storyManuscriptEdit").value = res.reply || "";
-      updateStoryMarkdownPreview(
-        "storyManuscriptPreview",
-        res.reply || "",
-        $("storyAuthorView")?.checked ?? true
-      );
-      setDirty(false);
-      toast("本章文稿已生成");
-      switchView("storyChapter");
-    } catch (e) {
-      toast("生成失败：" + e.message);
-    } finally {
-      setThinking(false);
-    }
+  $("btnStoryGenManuscript")?.addEventListener("click", () => {
+    void generateStoryManuscriptFromUI({ useChatStrip: false, navigate: true });
   });
+
+  $("btnStoryChatGenManuscript")?.addEventListener("click", () => {
+    void generateStoryManuscriptFromUI({ useChatStrip: true, navigate: false });
+  });
+
 }
 
 /** 将 profession_system.by_tier 按当前 tiers 顺序与 tier_name 对齐，避免模型输出顺序与境界表不一致导致卡片错位 */
@@ -4471,6 +4748,7 @@ function worldToForm(w) {
   if ($("storyAttachPrev")) $("storyAttachPrev").value = String(swd.attach_prev_chapters ?? 3);
   refreshStoryNarratorSelect(sn.character_id || "");
   refreshStoryChapterSelects();
+  syncStoryChatWritingControlsFromForm();
   renderStoryChapterNav();
   renderStoryForeshadowTimeline(st.foreshadowing ?? []);
   updateStoryWbStats();
@@ -4624,13 +4902,17 @@ function updateOutlineMarkdownPreview(text) {
 function refreshStoryChatContextLine() {
   const line = $("storyChatContextLine");
   if (!line) return;
-  const cid = state.storyActiveChapterId || "";
+  const cid = storyChatActiveChapterId();
   if (!cid) {
-    line.textContent = "当前章节：（未选，将使用第一章或空）";
+    line.textContent = "当前章节：（未选；对话与撰写将默认使用列表中第一章）";
     return;
   }
   const ch = sortedStoryChapters().find((c) => c.id === cid);
-  line.textContent = `当前章节：${ch ? `${ch.order}. ${ch.title || ch.id}` : cid}（id=${cid}）`;
+  const unit = state.storyUnitLabel || "章";
+  line.textContent = ch
+    ? `当前${unit}：${ch.order}. ${(ch.title || "").trim() || ch.id} · ${ch.status || "planned"}（id=${cid}）`
+    : `当前章节 id=${cid}（未在 chapters 索引中，请保存或同步）`;
+  refreshStoryChatBeatTitleHint(cid);
 }
 
 function parseStoryMdBlocks(text) {
@@ -4651,8 +4933,129 @@ function parseStoryMdBlocks(text) {
         chapterId: tag.slice("story-manuscript:".length).trim(),
         content,
       });
+    else if (tag === "story-foreshadow")
+      blocks.push({ kind: "foreshadow", chapterId: "", content });
   }
   return blocks;
+}
+
+function parseStoryForeshadowOperations(text) {
+  const ops = [];
+  const re = /```story-foreshadow\s*\n([\s\S]*?)```/gi;
+  let m;
+  const raw = (text ?? "").toString();
+  while ((m = re.exec(raw))) {
+    const body = (m[1] || "").trim();
+    if (!body) continue;
+    try {
+      const data = JSON.parse(body);
+      if (Array.isArray(data)) ops.push(...data.filter((x) => x && typeof x === "object"));
+      else if (data && typeof data === "object" && Array.isArray(data.operations))
+        ops.push(...data.operations.filter((x) => x && typeof x === "object"));
+    } catch {
+      /* ignore */
+    }
+  }
+  return ops;
+}
+
+async function applyStoryForeshadowOperations(operations) {
+  if (!state.world?.meta?.id || !operations?.length) return null;
+  const res = await api(`/api/worlds/${state.world.meta.id}/story/foreshadowing/apply`, {
+    method: "POST",
+    body: JSON.stringify({ operations, persist: true }),
+  });
+  state.world = res.world;
+  syncStoryForeshadowJson(res.world?.story?.foreshadowing ?? []);
+  renderStoryForeshadowTimeline(res.world?.story?.foreshadowing ?? []);
+  setDirty(false);
+  return res;
+}
+
+async function autoApplyStoryArtifactsFromReply(text, serverAutoApplied) {
+  const applied = [];
+  const serverDid = Array.isArray(serverAutoApplied) && serverAutoApplied.length > 0;
+  if (!serverDid) {
+    const blocks = parseStoryMdBlocks(text).filter((b) => b.kind !== "foreshadow");
+    for (const block of blocks) {
+      await applyStoryMdBlock(block);
+      applied.push(block.kind);
+    }
+    const fsOps = parseStoryForeshadowOperations(text);
+    if (fsOps.length) {
+      const res = await applyStoryForeshadowOperations(fsOps);
+      if (res?.applied?.length) applied.push(...res.applied);
+    }
+  } else if (state.world?.story?.foreshadowing) {
+    renderStoryForeshadowTimeline(state.world.story.foreshadowing);
+    syncStoryForeshadowJson(state.world.story.foreshadowing);
+  }
+  return applied;
+}
+
+function storyChatActionsIncludeManuscript(actions) {
+  if (!Array.isArray(actions)) return false;
+  return actions.some((a) => a?.tool === "generate_manuscript");
+}
+
+async function generateStoryManuscriptFromUI(opts = {}) {
+  if (!state.world) return toast("请先选择世界");
+  const useChat = opts.useChatStrip === true;
+  const cid =
+    opts.chapterId ||
+    (useChat ? $("storyChatChapterSelect")?.value : $("storyWriteChapterSelect")?.value) ||
+    storyChatActiveChapterId();
+  if (!cid) return toast("请选择章节");
+  const wp = storyWritingParamsFromUI(useChat);
+  const lastUser = opts.lastUserMessage ?? lastStoryUserMessage();
+  const prompt = wp.writing_prompt || "请撰写本章正文。";
+  const panel = useChat ? "story" : "storyWb";
+  const genToken = beginStoryGeneration("generate-manuscript", {
+    panel,
+    chapterIds: [cid],
+    previewIds: ["storyManuscriptPreview"],
+  });
+  try {
+    const res = await api(`/api/worlds/${state.world.meta.id}/story/generate/manuscript`, {
+      method: "POST",
+      body: JSON.stringify({
+        chapter_id: cid,
+        prompt,
+        last_user_message: lastUser,
+        person: wp.person,
+        character_id: wp.character_id,
+        attach_prev_chapters: wp.attach_prev_chapters,
+        creative_mode: $("genreMode")?.value || null,
+        persist: true,
+      }),
+    });
+    state.world = res.world;
+    storyMetaToForm();
+    state.storyActiveChapterId = cid;
+    for (const selId of [
+      "storyBeatChapterSelect",
+      "storyMsChapterSelect",
+      "storyWriteChapterSelect",
+      "storyChatChapterSelect",
+    ]) {
+      const el = $(selId);
+      if (el) el.value = cid;
+    }
+    if ($("storyMsChapterSelect")) $("storyMsChapterSelect").value = cid;
+    if ($("storyManuscriptEdit")) $("storyManuscriptEdit").value = res.reply || "";
+    updateStoryMarkdownPreview(
+      "storyManuscriptPreview",
+      res.reply || "",
+      $("storyAuthorView")?.checked ?? true
+    );
+    setDirty(false);
+    toast(`文稿已生成（约 ${res.reply?.length ?? 0} 字）`);
+    if (opts.navigate !== false) switchView("storyChapter");
+  } catch (e) {
+    toast("生成失败：" + e.message);
+  } finally {
+    endStoryGeneration({ token: genToken });
+  }
 }
 
 async function applyStoryMdBlock(block) {
@@ -4673,10 +5076,15 @@ async function applyStoryMdBlock(block) {
   const cid = block.chapterId;
   if (!cid) return toast("代码块缺少章节 id");
   if (block.kind === "beat") {
-    await api(`/api/worlds/${wid}/story/chapters/${encodeURIComponent(cid)}/beat`, {
+    const beatRes = await api(`/api/worlds/${wid}/story/chapters/${encodeURIComponent(cid)}/beat`, {
       method: "PUT",
       body: JSON.stringify({ content: block.content }),
     });
+    if (beatRes.chapter && state.world?.story?.chapters) {
+      const idx = state.world.story.chapters.findIndex((c) => c.id === cid);
+      if (idx >= 0) state.world.story.chapters[idx] = beatRes.chapter;
+      refreshStoryChapterSelects();
+    }
     state.storyActiveChapterId = cid;
     if ($("storyBeatChapterSelect")) $("storyBeatChapterSelect").value = cid;
     if ($("storyBeatEdit")) $("storyBeatEdit").value = block.content;
@@ -4952,49 +5360,73 @@ function scheduleStoryForeshadowFromJson() {
 }
 
 function updateStoryWbStats() {
-  const el = $("storyWbStats");
-  if (!el) return;
   const chapters = sortedStoryChapters();
   const fs = parseStoryForeshadowingFromForm() ?? state.world?.story?.foreshadowing ?? [];
   const open = (Array.isArray(fs) ? fs : []).filter((x) => (x.status || "open") !== "resolved").length;
   const unit = state.storyUnitLabel || "章";
-  el.textContent = `${chapters.length} 个${unit} · ${Array.isArray(fs) ? fs.length : 0} 条伏笔（${open} 条未回收）`;
+  const text = `${chapters.length} 个${unit} · ${Array.isArray(fs) ? fs.length : 0} 条伏笔（${open} 条未回收）`;
+  for (const id of ["storyWbStats", "storyChatWbStats"]) {
+    const el = $(id);
+    if (el) el.textContent = text;
+  }
 }
 
 function renderStoryChapterNav(activeId) {
-  const nav = $("storyChapterNav");
-  if (!nav) return;
   const chapters = sortedStoryChapters();
   const unit = state.storyUnitLabel || "章";
-  if ($("storyAsideUnitLabel")) $("storyAsideUnitLabel").textContent = unit;
-  if (!chapters.length) {
-    nav.innerHTML = `<p class="muted tiny">尚无${unit}</p>`;
-    return;
+  for (const labelId of ["storyAsideUnitLabel", "storyChatAsideUnitLabel"]) {
+    const el = $(labelId);
+    if (el) el.textContent = unit;
   }
+  if ($("storyChatUnitLine")) $("storyChatUnitLine").textContent = `情节单元：${unit}`;
   const aid = activeId || state.storyActiveChapterId || chapters[0]?.id || "";
-  state.storyActiveChapterId = aid;
-  nav.innerHTML = chapters
-    .map((c) => {
-      const id = String(c.id);
-      const active = id === aid ? " active" : "";
-      return `<button type="button" class="story-ch-nav-btn${active}" data-story-chapter-id="${escapeAttr(
-        id
-      )}" title="${escapeAttr(c.title || id)}">
-        <span class="story-ch-order">${escapeHtml(String(c.order))}</span>${escapeHtml(c.title || id)}
+  if (aid) state.storyActiveChapterId = aid;
+  const emptyHtml = `<p class="muted tiny">尚无${unit}，点 + 新建</p>`;
+  const listHtml = chapters.length
+    ? chapters
+        .map((c) => {
+          const id = String(c.id);
+          const active = id === aid ? " active" : "";
+          const title = (c.title || "").trim() || id;
+          const st = c.status && c.status !== "planned" ? ` · ${c.status}` : "";
+          return `<button type="button" class="story-ch-nav-btn${active}" data-story-chapter-id="${escapeAttr(
+            id
+          )}" title="${escapeAttr(title)}${escapeAttr(st)}">
+        <span class="story-ch-order">${escapeHtml(String(c.order))}</span>${escapeHtml(title)}
       </button>`;
-    })
-    .join("");
+        })
+        .join("")
+    : emptyHtml;
+  let anyNav = false;
+  for (const navId of STORY_CHAPTER_NAV_IDS) {
+    const nav = $(navId);
+    if (!nav) continue;
+    anyNav = true;
+    nav.innerHTML = listHtml;
+  }
+  if (!anyNav) return;
+  const sel = $("storyChatChapterSelect");
+  if (sel && aid && [...sel.options].some((o) => o.value === aid)) sel.value = aid;
+  refreshStoryChatContextLine();
+  if (state.storyGen) applyStoryGenerationUi(state.storyGen);
 }
 
 function selectStoryChapter(chapterId, subView) {
   if (!chapterId) return;
   state.storyActiveChapterId = chapterId;
   renderStoryChapterNav(chapterId);
-  for (const selId of ["storyBeatChapterSelect", "storyMsChapterSelect", "storyWriteChapterSelect"]) {
+  for (const selId of [
+    "storyBeatChapterSelect",
+    "storyMsChapterSelect",
+    "storyWriteChapterSelect",
+    "storyChatChapterSelect",
+  ]) {
     const el = $(selId);
     if (el) el.value = chapterId;
   }
   refreshStoryChatContextLine();
+  refreshStoryChatBeatTitleHint(chapterId);
+  if (state.activeView === "storyChat" && !subView) return;
   if (subView === "beats") {
     switchView("storyOutline");
     setStoryOutlineSub("beats");
@@ -5292,6 +5724,7 @@ async function loadWorld(id) {
     charInc.checked = data.has_nonempty_world_md;
   }
   worldToForm(w);
+  resetStoryGenerationUi();
   setDirty(false);
   refreshContextPanel();
   refreshOutlineHeader();
@@ -5401,6 +5834,7 @@ async function init() {
     }
   }
 
+  resetStoryGenerationUi();
   ensureWorldviewEditModeToolbars();
   setupCharRosterInlineEditors();
 
@@ -6052,46 +6486,71 @@ async function init() {
     if (!text) return;
     const mode = $("genreMode")?.value || null;
     const includeFiles = $("storyIncludeFiles")?.checked ?? false;
-    const cid =
-      state.storyActiveChapterId ||
-      $("storyBeatChapterSelect")?.value ||
-      $("storyMsChapterSelect")?.value ||
-      sortedStoryChapters()[0]?.id ||
-      "";
+    const cid = storyChatActiveChapterId();
+    const wp = storyWritingParamsFromUI(true);
     const userMsg = text;
     state.storyMessages.push({ role: "user", content: text });
     if ($("storyChatInput")) $("storyChatInput").value = "";
     renderStoryMessages();
-    setThinking("chat", { panel: "story" });
-    let res;
-    try {
-      res = await api(`/api/worlds/${state.world.meta.id}/story-chat`, {
-        method: "POST",
-        body: JSON.stringify({
-          messages: state.storyMessages,
-          mode,
-          include_markdown_context: false,
-          include_story_files: includeFiles,
-          active_chapter_id: cid,
-        }),
-      });
-    } catch (e) {
-      state.storyMessages.pop();
-      renderStoryMessages();
-      toast("情节对话失败：" + e.message);
-      setThinking(false);
-      return;
-    }
-    state.storyMessages.push({ role: "assistant", content: res.reply });
-    renderStoryMessages();
-    setThinking(false);
 
+    let genToken = beginStoryGeneration("chat", { panel: "story", chapterIds: cid ? [cid] : [] });
     let shouldPersist = false;
     let syncUpdatedSections = null;
-    if (!$("storyAutoSyncPanels")?.checked) return;
-
-    setThinking("sync", { panel: "story" });
     try {
+      let res;
+      try {
+        res = await api(`/api/worlds/${state.world.meta.id}/story-chat`, {
+          method: "POST",
+          body: JSON.stringify({
+            messages: state.storyMessages,
+            mode,
+            include_markdown_context: false,
+            include_story_files: includeFiles,
+            active_chapter_id: cid,
+            use_tools: true,
+            persist_tool_changes: true,
+            writing_prompt: wp.writing_prompt,
+            person: wp.person,
+            character_id: wp.character_id,
+            attach_prev_chapters: wp.attach_prev_chapters,
+          }),
+        });
+      } catch (e) {
+        state.storyMessages.pop();
+        renderStoryMessages();
+        toast("情节对话失败：" + e.message);
+        return;
+      }
+      state.storyMessages.push({ role: "assistant", content: res.reply });
+      if (res.world) {
+        state.world = res.world;
+        worldToForm(res.world);
+        setDirty(true);
+      }
+      await refreshStoryChaptersAligned();
+      // 章节列表已刷新（可能新增了 Agent 创建的章节），同步更新伏笔视图的下拉选项
+      if (state.world?.story?.foreshadowing) {
+        renderStoryForeshadowTimeline(state.world.story.foreshadowing);
+      }
+      renderStoryMessages();
+
+      try {
+        const auto = await autoApplyStoryArtifactsFromReply(res.reply, res.auto_applied);
+        if (auto.length) toast("已自动落盘：" + auto.slice(0, 4).join("；") + (auto.length > 4 ? "…" : ""));
+        if (res.auto_warnings?.length) toast("伏笔提示：" + res.auto_warnings.join("；"));
+      } catch (ae) {
+        toast("自动落盘失败：" + (ae?.message || ae));
+      }
+
+      if (storyChatActionsIncludeManuscript(res.actions) || res.intent === "write_manuscript") {
+        await refreshStoryChaptersAligned();
+        toast("本章文稿已生成，可点「打开章节文稿」查看");
+      }
+
+      if (!$("storyAutoSyncPanels")?.checked) return;
+
+      endStoryGeneration({ token: genToken });
+      genToken = beginStoryGeneration("sync", { panel: "story", chapterIds: cid ? [cid] : [] });
       const syncScope =
         state.activeView === "storyChat" || isStoryPanelView(state.activeView)
           ? "story"
@@ -6135,9 +6594,9 @@ async function init() {
         toast("同步解析失败：" + (syncRes.error || ""));
       }
     } catch (se) {
-      toast("同步未执行：" + se.message);
+      toast("同步未执行：" + (se?.message || se));
     } finally {
-      setThinking(false);
+      endStoryGeneration({ token: genToken });
     }
 
     if (shouldPersist) {

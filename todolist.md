@@ -9,142 +9,110 @@
 
 ## 当前状态（最近一次核对）
 
-- **pytest**：`44 passed`（使用 `E:/ananconda/envs/Agent/python.exe`）。
-- **地理结构化同步**：`structure_normalize` 对 `geography` 归一化；**仍不能保证模型输出 100% 合法**。失败时 `apply_structure_patch` 跳过该节并写入 `merge_warnings`（前端 toast「校验提示」）。**归一化改写**（如压平 landmarks、补区域 id）通过接口字段 **`normalize_notes`** 返回，前端 toast「结构归一化：…」。
+- **pytest**：**`113 passed`**（使用 `E:/ananconda/envs/Agent/python.exe`）。
+- **全部 11 个世界观模块**（地理/生态/境界/属性/物品/派系/文化/历史/经济/角色/情节）已完成 **Schema + GUI 表单 + 第二路结构化同步**。
+- **情节 Agent**：工具调用（伏笔管理 + 文稿生成）+ 意图检测 + 代码块自动落盘粗纲/细纲/文稿/伏笔，全部可用。
+- **角色卡司**：主角团 / 重要配角 / 人物关系网络 Mermaid 图，全部可用。
+- **工具链**：全文搜索、引用一致性校验、版本快照 diff 与回滚，全部可用。
 
 ---
 
-## 地理结构化：已实现与边界
+## 当前架构总览
 
-### 已实现（归一化 + 提示词）
-
-- `landmarks` / `resources`：对象数组、多行/逗号字符串 → `list[str]`。
-- `regions`：单对象 → 单元素数组；`relations` 单对象 → 单元素数组；常见字段别名（`title`、`desc`、`target` 等）。
-- 整节 `geography` 为 JSON 字符串 → 解析后再归一化。
-- 误把 **区域数组** 放在 `geography` 顶层（值为 `list[dict]`）→ 包成 `{ "regions": … }`。
-- **无 `id` 或整段为纯地名字符串** 的区域 → 写入稳定占位 **`rg_` + 12 位十六进制**（便于 `relations.target_id` 不断边）。
-- `panel_sync.STRUCTURE_SYSTEM_BASE` 中已强调字段形态，并在规则 9 末附 **短 JSON 形态示例**（虚构名）。
-
-### 仍可能失败或需人工的情形（属预期）
-
-- 模型输出 **非 JSON**、截断、或 `geography` 为 **数字/布尔** 等无法挽救的类型 → 整键丢弃或整节校验失败。
-- `regions` 内元素 **全非对象**（如全是字符串且又不符合「整段当名称」规则）→ 可能被过滤为空，与预期不符。
-- **空数组 `[]`**：与 `merge_section_conservative` 策略一致，对已有非空列表可能 **不覆盖**（防误删）；与「模型想清空」冲突时需用户手动改表单。
-- **关系 `target_id`** 指向不存在区域：结构合法，但关系图语义需用户自行对齐 id。
-
-### 建议观测方式
-
-- 对话后同步：若地理未更新，看 **校验提示**（`merge_warnings`）是否含 `geography:`；若已合并但形态被改过，看 **`normalize_notes`** 或前端「结构归一化」toast。
-- 开发时可在 `apply_structure_patch` 对 `geography` 失败分支打日志（按需，勿提交敏感数据）。
+```
+用户 (GUI)
+  │
+  ├─ 世界观构建 ──→ POST /chat
+  │                   └─ (可选) POST /sync-panels-from-chat → 第二路合并
+  │
+  ├─ 人物生成 ────→ POST /character-chat
+  │                   └─ (可选) POST /sync-panels-from-chat → characters 节
+  │
+  ├─ 情节构建 ────→ POST /story-chat
+  │                   ├─ run_story_chat_agent()
+  │                   │   ├─ Tool: list_foreshadowing
+  │                   │   ├─ Tool: apply_foreshadowing
+  │                   │   ├─ Tool: generate_manuscript
+  │                   │   └─ auto_apply_story_artifacts_from_reply()
+  │                   │         ├─ ```story-macro         → 写粗纲
+  │                   │         ├─ ```story-beat:<id>     → 写细纲 + 自动注册章节
+  │                   │         ├─ ```story-manuscript:<id> → 写文稿 + 自动注册章节
+  │                   │         └─ ```story-foreshadow    → 合并伏笔
+  │                   └─ (可选) POST /sync-panels-from-chat → story 节
+  │
+  ├─ 各模块表单 ──→ 本地编辑 → 点保存
+  │
+  └─ (独立) POST /story/foreshadowing/apply — 伏笔操作直接持久化
+```
 
 ---
 
-## 下一步计划（按优先级）
+## P0 — 情节链路测试覆盖
+
+当前情节模块的三条路径（Agent 工具、代码块落盘、第二路同步）**缺少集成测试**。这是平台最薄弱的环节——API 层面的 mock 测试保证了端点不崩，但数据流正确性未经自动化验证。
+
+| 任务 | 说明 | 状态 |
+|:--|:--|:--|
+| story scope 第二路同步测试 | 构造含 story 数据的对话回复，断言 `/sync-panels-from-chat` scope=story 成功合并 summary/chapters/foreshadowing | ▢ |
+| 伏笔 Apply API 集成测试 | 调用 `POST /story/foreshadowing/apply`，验证 upsert/resolve/delete 各操作后 world.json 正确 | ▢ |
+| Agent 工具调用全流程测试 | mock `chat_completion_with_tools` 返回指定工具调用，验证 `run_story_chat_agent` 的正确落盘 | ▢ |
+| 代码块自动注册章节测试 | 模拟 `` ```story-beat:new_id `` 回复，验证章节自动注册 + 标题从 beat Markdown 提取 | ✅ 已补 |
+| 前端伏笔视图刷新测试 | 手动验证：Agent 对话建新章后，伏笔页下拉框是否立即包含该章 | ✅ 已补 |
+
+---
+
+## P1 — 同步鲁棒性补齐
+
+各模块的 normalize 成熟度不同，部分模块缺少回归测试。
+
+| 任务 | 说明 | 状态 |
+|:--|:--|:--|
+| 文化/宗教同步回归测试 | `_normalize_cultures_dict` 路径测试（实体数组/单对象/别名、relations 归一） | ▢ |
+| 经济同步回归测试 | `_normalize_economy_dict` 路径测试（currencies/markets/trade_routes/trade_goods 各数组） | ▢ |
+| 角色 normalize 完整覆盖 | `_normalize_characters_dict` 边界用例（entities 单对象、cast_role 非法值、relations target_id 缺失） | ▢ |
+| 情节 save/load 状态保持 | 保存世界后再加载，story.chapters / foreshadowing 字段无损 | ▢ |
+| 第二路「仅同步当前页」各 scope 回归 | 每个 scope 值（geography/ecology/.../story）至少一条简单测试 | ▢ |
+
+---
+
+## P2 — 体验增强
+
+对用户有直接可见价值的改进。
 
 | 优先级 | 项 | 说明 |
 |:--:|:--|:--|
-| P1 | **结构化同步可观测性** | ~~接口返回 `normalize_notes`；前端 toast「结构归一化」~~ **已完成**。 |
-| P1 | **地理专项回归用例** | ~~`test_apply_geography_patch_after_normalize_no_warnings` 断言 `rg_` id 与 notes；`test_normalize_structure_patch_detailed_notes_geography_json_string`~~ **已补**。 |
-| P2 | **第二路 Prompt 小样本** | ~~`STRUCTURE_SYSTEM_BASE` 规则 9 末合法 `geography` 短 JSON 示例~~ **已完成**。 |
-| P2 | **regions 与 id 稳定性** | ~~无 id 区域生成 `rg_` + 哈希~~ **已完成**。 |
-| P3 | **faction / history 归一化** | 对标 geography，对常见别名/单对象数组做防御性 normalize（按需迭代）。 |
-| P3 | **README / html.md** | ~~README：产品地图 Mermaid、职业晋升说明、下游角色路线~~ **已更新**；`html.md` 若存在则补充「同步失败时看 merge_warnings」说明。 |
-| P3 | **世界 CRUD** | ~~`PATCH` 重命名显示名、`DELETE` 删目录；前端重命名/删除按钮~~ **已完成**（若需「改目录 id」另立项，牵涉引用迁移）。 |
+| P2 | **world.md 导出包含情节** | 目前 `markdown_export` 不含 story 节的章节列表与伏笔台账；导出追加 `## 情节` 小节 | ▢ |
+| P2 | **章节批量操作** | 拖拽排序、多选删除、批量重编号 | ▢ |
+| P2 | **伏笔时间轴交互优化** | 拖拽分配章节、状态切换动画、筛选视图 | ▢ |
+| P2 | **写作看板统计** | 各章字数趋势、伏笔 open/resolved 比例、完成度进度条 | ▢ |
+| P2 | **章节细分状态** | 当前 `planned | drafting | locked` 三级，可考虑扩展 `revising`、`done` 等 | ▢ |
 
 ---
 
-## 下游任务：角色、主角团与关系网络
+## P3 — 远期设想
 
-> 与 [`README.md`](README.md)「后续路线：角色与关系网络」对应；拆 issue 时可按阶段标 `character-*` 前缀。  
-> **说明**：独立「人物生成」对话与 `character-chat` 已放在工作台，**不再**作为本节的下游里程碑条目。
+按产品定位（小说策划 / 跑团工具 / 游戏文案）取舍。
 
-### 目标概览
+### 情节与写作
+- **文稿版本对比**：保存时备份上一版，支持 diff（复用 snapshot_diff.py 模式）
+- **批量生成**：一次选 N 章，统一风格批量生成细纲或文稿
+- **多 POV 管理**：同一章不同 POV 片段分别存储与切换
 
-| 能力 | 用户价值 | 依赖 |
-|:--|:--|:--|
-| **主角团** | 固定 3～7 人核心名单，导出与对话引用一致 | roster 内角色标签 + UI 筛选 |
-| **关键配角** | 与派系要人、历史事件对齐，减少设定漂移 | `factions.entities[].key_figures`、`history.events` 参与者字段约定 |
-| **人物关系网络** | 一眼看清「谁欠谁、谁背叛谁」 | 结构化 `relations[]` + Mermaid（复用派系图交互） |
+### 结构化同步深化
+- 新板块一律走：**STRUCTURE_SYSTEM 白名单** → **normalize_structure_patch_detailed notes** → **保守合并** → **normalize_notes 可观测**
+- 文化/经济的 few-shot 示例补入 STRUCTURE_SYSTEM_BASE
 
-### 阶段 A — 数据模型（Pydantic + `world.json`）
-
-- [ ] 在 `World`（或等价根模型）增加 **`characters`**（或命名 `character_roster`）：元素至少含 `id`、`name`、`aliases[]?`、`cast_role`（枚举：`protagonist_core` / `supporting_major` / `supporting_minor` / `antagonist` / `background` 等）、`faction_ids[]?`、`home_region_id?`、`one_line_hook`、`notes`。
-- [ ] 增加 **`character_relations`**（或与 `characters[].relations` 内嵌二选一）：`source_id`、`target_id`、`relation_type`（如 `ally` / `rival` / `family` / `debt` / `secret`）、`visibility`（读者已知 / 仅作者）、`notes`。
-- [ ] Schema 版本与 **`meta.version`** 或迁移说明对齐；旧世界无该节时前端视为 `[]`。
-
-### 阶段 B — API 与第二路同步
-
-- [ ] `PUT/PATCH` 保存路径已支持新节；**`panel_sync` 白名单**加入 `characters`（及关系节若独立）。
-- [ ] `normalize_structure_patch_detailed` 对人物节做别名归一（单对象 → 数组、空串过滤等），并返回 **`normalize_notes`**。
-- [ ] 对话后同步：系统提示中附 **短 JSON 示例**（虚构名），避免模型发明未定义字段。
-
-### 阶段 C — 前端工作台
-
-- [x] 左侧 **「角色」** 分区：主角团 / 重要配角 / 人物关系网络 + `characters` 数据子页；关系图宿主（`drawMermaidHost`，`data-mermaid-zoom`）。
-- [ ] **主角团**：按 `cast_role` 过滤 chips + 导出 Markdown 小节（与 `markdown_export` 对齐迭代）。
-- [ ] **关键配角**：侧栏或卡片展示「关联派系要人 / 历史事件」链接（先做只读解析，再做双向 id 选择器）。
-
-### 阶段 D — 大纲与卡司联动（可选）
-
-- [ ] 大纲 YAML 头扩展：`based_on_characters_version` 可选，便于 diff（与现有「大纲」页生成流程衔接即可）。
-
-### 阶段 E — 质量与测试
-
-- [ ] `pytest`：最小 `characters` patch 合并、非法 `target_id` 进入 **`merge_warnings`**（与地理 linter 同类体验）。
-- [ ] 性能：单世界 200+ 角色时关系图分组或分页（远期）。
-
----
-
-## 世界观功能扩充设想（ backlog，按需取舍）
-
-以下按**与当前代码形态的契合度**分组，便于后续拆 issue；未写优先级的不代表不重要，而是依赖产品定位（偏小说策划 / 偏跑团工具 / 偏游戏文案）。
-
-### A. 数据模型（`World` 新节或扩展现有节）
-
-| 方向 | 价值 | 实现要点 |
-|:--|:--|:--|
-| **人物 / 角色 roster** | 与派系、历史、地理挂钩，叙事核心 | 详见上文 **「下游任务：角色、主角团与关系网络」**；新顶层如 `characters[]` + 关系边；第二路同步与 `normalize_*` 需同步扩展 |
-| **文化 / 族群 / 宗教** | 补充「谁在何种价值观下行动」 | 可先做 `cultures` 或并入 `factions` 的 tags；独立节更易结构化同步 |
-| **科技 / 经济 / 交通层** | 与资源、区域关系互补 | 轻量可用 `geography.map_notes` + 长文本；重度再拆 `economy`、`tech` 节 |
-| **历法 / 纪年体系** | 历史事件 `when` 字段语义统一 | `meta` 或新 `calendar` 节存「纪元名 ↔ 排序规则」；前端时间轴可选排序 |
-| **神话 / 宇宙观 / 源头事件** | 与力量体系、历史勾连 | `cosmology` 或 `history` 子类型（tag：`myth`） |
-| **生态 / 危险物种** | 冒险向、游戏向 | `bestiary` 或 `geography` 下扩展字段；注意与现有 `regions` 图可视化一致 |
-
-### B. 关联与一致性（在不大改 schema 前可做）
-
-| 方向 | 价值 | 实现要点 |
-|:--|:--|:--|
-| **引用校验（linter）** | 地理 `target_id`、历史 `linked_faction_ids`、派系 `relations.target_id` 是否存在 | ~~`GET /api/worlds/{id}/lint-references`；侧栏「数据 → 引用一致性」+ 保存后静默再跑；含文化关系、职业 `exclusive_faction_id`、技能 `prereq_ids` / `profession_id`~~ **已做** |
-| **全局实体注册表** | 减少 id 漂移、便于搜索 | 轻量：`world.json` 外挂 `registry.json`；重量：迁移到小节内统一 `entities` |
-| **标签 / 题材标签驱动提示** | `meta.genre_tags` 已有，可强化对话与同步 prompt | ~~`genre_tags_prompt_addon()` 注入对话、结构化同步、大纲 system~~ **已做** |
-
-### C. 体验与工具链
-
-| 方向 | 价值 | 实现要点 |
-|:--|:--|:--|
-| **全文搜索** | 跨板块找关键词 | ~~`GET /api/worlds/{id}/search?q=` 检索 world.json + world.md；侧栏「数据 → 搜索」~~ **已完成** |
-| **导出增强** | 对外协作、打印 | 除 `world.md` 外：关系表 CSV、年表 Markdown 分册、glossary |
-| **世界模板 / 复制世界** | 快速开坑 | 复制目录 + 新 `meta.id`；或「仅结构骨架」模板 |
-| **对话摘要写入历史** | 长会话后手动/自动把结论落成 `history.events` | 第三路小模型或规则片段；注意与现有「板块同步」边界 |
-| **版本快照 /  diff** | 误操作回滚 | `world.json.bak` 或按 `meta.version` 存只读快照（存储成本需策略） |
-
-### D. 结构化同步（第二路）深化
-
-- 新板块一律走：**`STRUCTURE_SYSTEM` 白名单** → **`normalize_structure_patch_detailed` notes** → **保守合并** → **`normalize_notes` 可观测**。
-- 对 **factions / history** 先做归一化与 few-shot，再考虑人物表等高频结构，避免 prompt 与校验规则爆炸。
-
-### E. 刻意不急着做的（成本高或易 scope creep）
-
-- 多用户协作与权限、实时共编。
-- 内嵌地图编辑器（画布级）；当前 Mermaid 可视化已覆盖「关系可读」。
-- 完全自动「从对话生成整本设定书」——与「人类策展 + 表单落盘」定位易冲突。
+### 导出与协作
+- 关系表 CSV、年表 Markdown 分册、glossary
+- 世界模板 / 复制世界（复制目录 + 新 meta.id）
 
 ---
 
 ## 架构速记（便于联调）
 
-- **第一路**：自然语言对话（`chat_completion`）。
+- **第一路**：自然语言对话（`chat_completion` / `chat_completion_with_tools`）。
 - **第二路**：`sync_panels_from_dialogue` → `parse_structure_json` → **`normalize_structure_patch_detailed`**（`normalize_structure_patch` 为其首元组）→ `merge_section_conservative` → **各节 `model_validate`**；成功响应含 **`normalize_notes`**。
+- **情节 Agent**：`run_story_chat_agent` → 工具循环（`list_foreshadowing` / `apply_foreshadowing` / `generate_manuscript`）→ `auto_apply_story_artifacts_from_reply`。
 - **静态前端**：`/static/*`；API：`/api/*`；根路径不整站挂载静态，避免盖住 API。
 
 ---
@@ -152,6 +120,16 @@
 ## 已完成（归档）
 
 - [x] 地理 `geography` 归一化、`normalize_structure_patch_detailed` 与 **`normalize_notes`** 全链路（`panel_sync` → API → `app.js` toast）。
-- [x] `apply_structure_patch` 四元组返回；区域稳定 id `rg_*`。
-- [x] **全文搜索**：`worldforger/world_search.py` + `GET /api/worlds/{id}/search`；侧栏「数据 → 搜索」页 UI。验证：`pytest tests/test_world_search.py tests/test_api.py::test_search_world_endpoint_hits_json_and_md -q`。
-- [x] **引用一致性**：`worldforger/reference_linter.py` + `GET /api/worlds/{id}/lint-references`；侧栏「数据 → 引用一致性」与保存后静默校验；`meta.genre_tags` → `genre_tags_prompt_addon` 注入对话 / 同步 / 大纲。
+- [x] 全部 11 个世界观模块：Schema、GUI 表单、第二路同步白名单与 scope 路由。
+- [x] **情节 Agent**：工具调用（伏笔管理 + 文稿生成）+ 意图检测。
+- [x] **伏笔系统**：台账注入 Agent prompt、代码块解析自动落盘、GUI 时间轴 + 卡片编辑 + JSON 编辑。
+- [x] **章节同步**：`reconcile_story_chapters` 从磁盘 beats/ 自动注册章节；`title_from_beat_markdown` 标题对齐。
+- [x] **Agent 代码块自动注册章节**：`` ```story-beat:new_id `` 时立即创建 StoryChapter 条目，无需等待 reconcile。
+- [x] **前端伏笔视图自动刷新**：情节对话返回后伏笔下拉框立即包含最新章节。
+- [x] **角色卡司**：主角团 / 重要配角 / 人物关系网络 Mermaid 图；cast_role 筛选看板。
+- [x] **全文搜索**：`worldforger/world_search.py` + `GET /api/worlds/{id}/search`；侧栏「数据 → 搜索」页 UI。
+- [x] **引用一致性**：`worldforger/reference_linter.py` + `GET /api/worlds/{id}/lint-references`；侧栏「数据 → 引用一致性」。
+- [x] **版本快照 / diff / 回滚**：保存时自动快照、`line_diff_json` 行级 diff、回滚到指定版本。
+- [x] **世界 CRUD**：`PATCH` 重命名显示名、`DELETE` 删目录、前端重命名/删除按钮。
+- [x] **创作模式**：novel / game / CoC / DnD 四模式驱动情节单元标签、prompt 调性。
+- [x] **标签驱动提示**：`meta.genre_tags` → `genre_tags_prompt_addon` 注入对话 / 同步 / 大纲。

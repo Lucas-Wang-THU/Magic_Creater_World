@@ -8,8 +8,19 @@ from worldforger.world_store import create_world
 client = TestClient(app)
 
 
-@patch("app.main.chat_completion", new_callable=AsyncMock, return_value="情节回复")
-def test_story_chat_endpoint(mock_chat):
+@patch(
+    "app.main.run_story_chat_agent",
+    new_callable=AsyncMock,
+    return_value={
+        "reply": "情节回复",
+        "world": None,
+        "actions": [],
+        "intent": None,
+        "auto_applied": [],
+        "auto_warnings": [],
+    },
+)
+def test_story_chat_endpoint(mock_agent):
     w = create_world("情节对话")
     wid = w.meta.id
     r = client.post(
@@ -18,6 +29,22 @@ def test_story_chat_endpoint(mock_chat):
     )
     assert r.status_code == 200
     assert r.json()["reply"] == "情节回复"
+    mock_agent.assert_awaited_once()
+
+
+@patch("app.main.chat_completion", new_callable=AsyncMock, return_value="纯文本")
+def test_story_chat_without_tools(mock_chat):
+    w = create_world("情节对话无工具")
+    wid = w.meta.id
+    r = client.post(
+        f"/api/worlds/{wid}/story-chat",
+        json={
+            "messages": [{"role": "user", "content": "闲聊"}],
+            "use_tools": False,
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["reply"] == "纯文本"
     mock_chat.assert_awaited_once()
 
 

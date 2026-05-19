@@ -138,7 +138,7 @@
         <button type="button" data-view="storyForeshadow" title="伏笔时间轴与回收编排">
           <span class="ms nav-ic" aria-hidden="true">linear_scale</span>伏笔
         </button>
-        <button type="button" data-view="storyWrite" title="人称、POV 与 AI 撰写本章">
+        <button type="button" data-view="storyWrite" title="人称、POV 与文稿精修（撰写本章在情节构建）">
           <span class="ms nav-ic" aria-hidden="true">draw</span>写作
         </button>
         <div class="nav-label">数据</div>
@@ -299,46 +299,98 @@
         </section>
 
         <section id="view-storyChat" class="panel">
-          <div class="card card-elevated">
-            <div class="card-head">
+          <div class="card story-workbench story-workbench--chat">
+            <header class="story-wb-header story-wb-header--chat">
               <h2><span class="ms h2-ic" aria-hidden="true">edit_note</span>情节构建</h2>
-              <span class="card-tag"><span class="ms tag-ic" aria-hidden="true">star</span>情节</span>
-            </div>
-            <p class="muted compact-hint">
-              模型侧重 <code>story</code>（粗纲/细纲/章节/伏笔）与 <code>story/*.md</code> 文稿。创作模式沿用「世界观构建」页所选值。可勾选
-              <strong>附带 story 文件</strong>（粗纲与当前章细纲/文稿截断）与 <strong>对话后同步</strong>；同步范围为
-              <code>story</code>。回复中的 <code>story-macro</code> / <code>story-beat:id</code> / <code>story-manuscript:id</code> 代码块可一键写入磁盘。
-            </p>
-            <div class="row sync-opts">
-              <label class="muted lbl-ic"
-                ><span class="ms lbl-ic-glyph" aria-hidden="true">description</span
-                ><input type="checkbox" id="storyIncludeFiles" /> 附带 story 文件上下文</label
-              >
-              <label class="muted lbl-ic"
-                ><span class="ms lbl-ic-glyph" aria-hidden="true">sync</span
-                ><input type="checkbox" id="storyAutoSyncPanels" checked /> 对话后同步表单</label
-              >
-            </div>
-            <p class="muted tiny" id="storyChatContextLine">当前章节：—</p>
-            <div class="chips" id="storyPromptChips"></div>
-            <div class="messages" id="storyMessages" aria-live="polite"></div>
-            <div id="storyChatThinking" class="thinking-strip" hidden>
-              <span class="ms thinking-ic" aria-hidden="true">psychology</span>
-              <span class="thinking-label">模型正在思考…</span>
-              <span class="thinking-shimmer" aria-hidden="true"></span>
-            </div>
-            <div class="row">
-              <textarea id="storyChatInput" placeholder="描述你想写的大纲、某章细纲、伏笔或正文要求…"></textarea>
-            </div>
-            <div class="row row-send">
-              <div class="send-wrap">
-                <button type="button" class="primary btn-ic" id="btnStorySend">
-                  <span class="ms" aria-hidden="true">send</span>发送
-                </button>
-                <span class="kbd-hint" title="在输入框内按下以发送"
-                  ><kbd class="kbd">Ctrl</kbd><span class="kbd-plus">+</span><kbd class="kbd">Enter</kbd
-                  ><span class="kbd-hint-txt">快捷发送</span></span
+              <p class="muted tiny" id="storyChatUnitLine">情节单元：—</p>
+              <p class="muted compact-hint">
+                左侧点击选择与下方「情节」工作台<strong>同一套章节</strong>；对话、撰写与同步均针对高亮章节。细纲
+                <code># 标题</code> 会自动对齐章节名。
+              </p>
+              <p class="muted tiny" id="storyChatBeatTitleHint">—</p>
+              <p class="muted tiny" id="storyChatContextLine">当前章节：—</p>
+            </header>
+            <div class="story-wb-layout">
+              <aside class="story-wb-aside" aria-label="选择要写的章节">
+                
+                <div class="story-wb-aside-head">
+                  <span class="story-wb-aside-title"><span id="storyChatAsideUnitLabel">章</span>列表</span>
+                  <button type="button" class="ghost tiny btn-ic" id="btnStoryAddChapterChat" title="新建章节">+</button>
+                </div>
+                <nav id="storyChatChapterNav" class="story-chapter-nav" aria-label="章节列表" aria-busy="false"></nav>
+                <p id="storyChatAsideGenHint" class="story-wb-aside-gen-hint muted tiny" hidden role="status">
+                  <span class="ms" aria-hidden="true">hourglass_top</span>
+                  <span id="storyChatAsideGenHintText">AI 正在生成…</span>
+                </p>
+                <p id="storyChatWbStats" class="story-wb-stats muted tiny"></p>
+              </aside>
+              <div class="story-wb-main story-chat-main">
+                <div class="row sync-opts">
+                  <label class="muted lbl-ic"
+                    ><span class="ms lbl-ic-glyph" aria-hidden="true">description</span
+                    ><input type="checkbox" id="storyIncludeFiles" /> 附带 story 文件上下文</label
+                  >
+                  <label class="muted lbl-ic"
+                    ><span class="ms lbl-ic-glyph" aria-hidden="true">sync</span
+                    ><input type="checkbox" id="storyAutoSyncPanels" checked /> 对话后同步表单</label
+                  >
+                </div>
+                <div class="story-chat-write-strip card-inset">
+                  <div class="row story-write-row">
+                    <label class="muted">叙事人物 <select id="storyChatNarratorCharacter"></select></label>
+                    <label class="muted"
+                      >人称
+                      <select id="storyChatNarratorPerson">
+                        <option value="first_person">第一人称</option>
+                        <option value="third_person_limited" selected>第三人称（有限）</option>
+                        <option value="third_person_omniscient">第三人称（全知）</option>
+                      </select></label
+                    >
+                    <label class="muted"
+                      >前 <input type="number" id="storyChatAttachPrev" min="0" max="5" value="3" style="width: 3rem" /> 章</label
+                    >
+                  </div>
+                  <label class="muted tiny" for="storyChatWritingPrompt">写作要求（撰写本章时与最近一条用户消息合并）</label>
+                  <textarea id="storyChatWritingPrompt" rows="2" placeholder="例如：本章重点回收某伏笔，结尾留悬念…"></textarea>
+                  
+                  <div class="row">
+                    <button type="button" class="ghost btn-ic" id="btnStoryChatGenManuscript">
+                      <span class="ms" aria-hidden="true">draw</span>撰写当前章节
+                    </button>
+                    <button type="button" class="ghost btn-ic" id="btnStoryChatOpenChapter" title="在情节·章节页打开文稿">
+                      <span class="ms" aria-hidden="true">article</span>打开章节文稿
+                    </button>
+                  </div>
+                </div>
+                <select id="storyChatChapterSelect" hidden aria-hidden="true" tabindex="-1"></select>
+                <div class="chips" id="storyPromptChips"></div>
+                <div class="messages" id="storyMessages" aria-live="polite"></div>
+                <div
+                  id="storyChatThinking"
+                  class="thinking-strip story-wb-thinking"
+                  hidden
+                  role="status"
+                  aria-live="polite"
                 >
+                  <span class="ms thinking-ic" aria-hidden="true">psychology</span>
+                  <span class="thinking-label">AI 正在思考…</span>
+                  <span class="thinking-shimmer" aria-hidden="true"></span>
+                </div>
+                <div class="row">
+                  <textarea id="storyChatInput" placeholder="描述你想写的大纲、某章细纲、伏笔或正文要求…"></textarea>
+                </div>
+                
+                <div class="row row-send">
+                  <div class="send-wrap">
+                    <button type="button" class="primary btn-ic" id="btnStorySend">
+                      <span class="ms" aria-hidden="true">send</span>发送
+                    </button>
+                    <span class="kbd-hint" title="在输入框内按下以发送"
+                      ><kbd class="kbd">Ctrl</kbd><span class="kbd-plus">+</span><kbd class="kbd">Enter</kbd
+                      ><span class="kbd-hint-txt">快捷发送</span></span
+                    >
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -1078,10 +1130,25 @@
                   <span class="story-wb-aside-title"><span id="storyAsideUnitLabel">章</span>列表</span>
                   <button type="button" class="ghost tiny btn-ic" id="btnStoryAddChapterSide" title="新建章节">+</button>
                 </div>
-                <nav id="storyChapterNav" class="story-chapter-nav"></nav>
+                <nav id="storyChapterNav" class="story-chapter-nav" aria-busy="false"></nav>
+                <p id="storyWbAsideGenHint" class="story-wb-aside-gen-hint muted tiny" hidden role="status">
+                  <span class="ms" aria-hidden="true">hourglass_top</span>
+                  <span id="storyWbAsideGenHintText">AI 正在生成…</span>
+                </p>
                 <p id="storyWbStats" class="story-wb-stats muted tiny"></p>
               </aside>
               <div class="story-wb-main">
+                <div
+                  id="storyWbThinking"
+                  class="thinking-strip story-wb-thinking"
+                  hidden
+                  role="status"
+                  aria-live="polite"
+                >
+                  <span class="ms thinking-ic" aria-hidden="true">psychology</span>
+                  <span class="thinking-label">AI 正在生成…</span>
+                  <span class="thinking-shimmer" aria-hidden="true"></span>
+                </div>
 <div id="storyPaneOverview" class="story-pane">
               <label class="muted" for="storySummary">项目总览</label>
               <textarea id="storySummary" rows="2"></textarea>
@@ -1217,6 +1284,7 @@
               <select id="storyWriteChapterSelect"></select>
               <label class="muted tiny" for="storyWritePrompt">写作要求</label>
               <textarea id="storyWritePrompt" rows="3"></textarea>
+              <p class="muted tiny">精修页：调整人称与口吻后保存；撰写本章请在顶栏「情节构建」，或直接在此用下方按钮（会合并最近一条情节对话用户消息）。</p>
               <button type="button" class="primary btn-ic" id="btnStoryGenManuscript">AI 撰写本章文稿</button>
             </div>
             
