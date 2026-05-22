@@ -1235,6 +1235,17 @@
             </div>
 
             <div id="storyPaneChapter" class="story-pane hidden">
+              <div id="storyChapterSummaryCard" class="story-summary-card hidden">
+                <div class="story-summary-card-header">
+                  <span class="ms" aria-hidden="true">summarize</span>
+                  <span class="story-summary-card-title">章节摘要</span>
+                </div>
+                <p class="story-summary-card-events" id="storySummaryCardEvents"></p>
+                <div class="story-summary-card-states" id="storySummaryCardStates"></div>
+                <div class="story-summary-card-footer row">
+                  <span class="muted tiny" id="storySummaryCardHook"></span>
+                </div>
+              </div>
               <div class="story-wb-split">
                 <div class="story-wb-editor-col">
                   <div class="row">
@@ -1284,6 +1295,14 @@
               <select id="storyWriteChapterSelect"></select>
               <label class="muted tiny" for="storyWritePrompt">写作要求</label>
               <textarea id="storyWritePrompt" rows="3"></textarea>
+              <div id="storyRuntimeStates" class="story-runtime-states hidden">
+                <div class="story-runtime-states-header">
+                  <span class="ms" aria-hidden="true">directions_run</span>
+                  <span class="story-summary-card-title">角色运行时状态</span>
+                  <span class="muted tiny">（最近一次文稿生成时自动提取）</span>
+                </div>
+                <div class="story-runtime-list" id="storyRuntimeList"></div>
+              </div>
               <p class="muted tiny">精修页：调整人称与口吻后保存；撰写本章请在顶栏「情节构建」，或直接在此用下方按钮（会合并最近一条情节对话用户消息）。</p>
               <button type="button" class="primary btn-ic" id="btnStoryGenManuscript">AI 撰写本章文稿</button>
             </div>
@@ -1357,6 +1376,7 @@
               <label class="muted tiny">回滚</label>
               <select id="snapshotRollbackSel" aria-label="选择快照版本"></select>
               <button type="button" class="ghost btn-sm snapshot-rollback-btn" id="btnSnapshotRollback">回滚到该快照</button>
+              <button type="button" class="ghost btn-sm snapshot-rollback-btn" id="btnSnapshotClear" style="background:var(--c-red);color:#fff">清空历史</button>
             </div>
           </div>
         </section>

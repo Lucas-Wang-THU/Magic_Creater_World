@@ -117,6 +117,21 @@ def rollback_to_snapshot(world_id: str, snapshot_version: int) -> World:
     return restored
 
 
+def clear_snapshots(world_id: str) -> int:
+    """删除所有快照文件（保留最新一份），返回删除数量。"""
+    d = snapshots_dir(world_id)
+    if not d.is_dir():
+        return 0
+    files = sorted(d.glob("v*.json"))
+    if len(files) <= 1:
+        return 0
+    # 保留最新的一份（版本号最大的）
+    to_delete = files[:-1]
+    for f in to_delete:
+        f.unlink()
+    return len(to_delete)
+
+
 def new_world_id(display_name: str) -> str:
     return f"{_slug(display_name)}-{uuid.uuid4().hex[:8]}"
 

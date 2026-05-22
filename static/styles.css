@@ -5490,3 +5490,270 @@ textarea.json-editor-tiny {
   gap: 6px;
   margin-top: 8px;
 }
+
+/* ── 章节摘要卡片 ─────────────────────────────────────────── */
+
+.story-summary-card {
+  margin-bottom: 14px;
+  padding: 14px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f0fdf6 0%, #f8fafc 100%);
+  border-left: 4px solid #0d9488;
+}
+
+.story-summary-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: #0d9488;
+}
+
+.story-summary-card-header .ms {
+  font-size: 1.2rem;
+}
+
+.story-summary-card-title {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.story-summary-card-events {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.story-summary-card-states {
+  margin-bottom: 8px;
+}
+
+.story-summary-state-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.7);
+  border: 1px solid #e2e8f0;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.story-summary-state-item .ms {
+  font-size: 1rem;
+  color: var(--accent);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.story-summary-card-footer {
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 6px;
+  border-top: 1px dashed #cbd5e1;
+}
+
+.story-summary-card-footer .muted {
+  flex: 1;
+}
+
+.story-summary-card-footer .story-summary-fs-tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.story-summary-fs-tag {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  font-family: var(--mono);
+}
+
+.story-summary-fs-tag--planted {
+  background: #e8f0fe;
+  color: #1e40af;
+}
+
+.story-summary-fs-tag--resolved {
+  background: #dcfce7;
+  color: #166534;
+}
+
+/* ── 运行时状态 ───────────────────────────────────────────── */
+
+.story-runtime-states {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fafbfc;
+}
+
+.story-runtime-states-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+  color: var(--accent);
+}
+
+.story-runtime-states-header .ms {
+  font-size: 1.2rem;
+}
+
+.story-runtime-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.story-runtime-item {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 6px 10px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: #fff;
+  border: 1px solid #e8ecf2;
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.story-runtime-item-name {
+  font-weight: 600;
+  color: var(--text);
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  align-self: center;
+  word-break: break-all;
+}
+
+.story-runtime-item-loc,
+.story-runtime-item-emotion,
+.story-runtime-item-goal {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.story-runtime-item-loc .ms,
+.story-runtime-item-emotion .ms,
+.story-runtime-item-goal .ms {
+  font-size: 0.9rem;
+  vertical-align: -2px;
+  margin-right: 2px;
+}
+
+/* ── 章节导航状态点 ───────────────────────────────────────── */
+
+.story-ch-nav-btn .story-ch-status-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 2px;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.story-ch-status-dot--planned {
+  background: #94a3b8;
+}
+
+.story-ch-status-dot--drafting {
+  background: #f59e0b;
+}
+
+.story-ch-status-dot--locked {
+  background: #10b981;
+}
+
+/* ── 章节导航微标题 ─────────────────────────────────────── */
+
+.story-ch-nav-btn .story-ch-status-label {
+  display: block;
+  font-size: 0.68rem;
+  opacity: 0.55;
+  margin-top: 1px;
+}
+
+/* ── 过渡动画 ─────────────────────────────────────────────── */
+
+.story-pane {
+  animation: story-pane-in 0.18s ease-out;
+}
+
+@keyframes story-pane-in {
+  from { opacity: 0.6; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 编辑器与预览微调 ─────────────────────────────────────── */
+
+.story-editor:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(61, 90, 128, 0.12);
+  outline: none;
+}
+
+.story-preview {
+  line-height: 1.7;
+  font-size: 0.9rem;
+}
+
+.story-preview h1,
+.story-preview h2,
+.story-preview h3 {
+  margin-top: 1em;
+  margin-bottom: 0.4em;
+}
+
+.story-preview p {
+  margin: 0.5em 0;
+}
+
+/* ── 伏笔卡片微调 ─────────────────────────────────────────── */
+
+.story-fs-card {
+  transition: box-shadow 0.15s;
+}
+
+.story-fs-card:hover {
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+}
+
+.story-fs-card-head input[type="text"]:focus {
+  border-color: var(--accent);
+}
+
+/* ── 写作控制行 ───────────────────────────────────────────── */
+
+.story-write-row select,
+.story-write-row input[type="number"] {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font-size: 0.82rem;
+  background: #fff;
+}
+
+.story-write-row select:focus,
+.story-write-row input[type="number"]:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+/* ── 故事聊天写作条 ─────────────────────────────────────── */
+
+.story-chat-write-strip {
+  transition: border-color 0.15s;
+}
+
+.story-chat-write-strip:focus-within {
+  border-color: var(--accent);
+}

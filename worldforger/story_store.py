@@ -24,6 +24,14 @@ def story_manuscript_dir(world_id: str) -> Path:
     return story_dir(world_id) / "manuscript"
 
 
+def story_summaries_dir(world_id: str) -> Path:
+    return story_dir(world_id) / "summaries"
+
+
+def summary_path(world_id: str, chapter_id: str) -> Path:
+    return story_summaries_dir(world_id) / f"{chapter_id}.json"
+
+
 def macro_outline_path(world_id: str) -> Path:
     return story_dir(world_id) / "macro_outline.md"
 
@@ -64,6 +72,7 @@ def ensure_story_dirs(world_id: str) -> None:
     story_dir(world_id).mkdir(parents=True, exist_ok=True)
     story_beats_dir(world_id).mkdir(parents=True, exist_ok=True)
     story_manuscript_dir(world_id).mkdir(parents=True, exist_ok=True)
+    story_summaries_dir(world_id).mkdir(parents=True, exist_ok=True)
 
 
 def new_chapter_id() -> str:
@@ -148,3 +157,77 @@ def import_legacy_plot_outline(world: World) -> bool:
     world.story.outline_macro.file = "story/macro_outline.md"
     world.story.outline_macro.updated_at = utc_now_iso()
     return True
+
+
+# ── 章节摘要卡片 ──────────────────────────────────────────────
+
+
+def read_summary_card(world_id: str, chapter_id: str) -> dict | None:
+    """读取章节摘要卡片 JSON，不存在则返回 None。"""
+    import json as _json
+
+    p = summary_path(world_id, chapter_id)
+    if not p.is_file():
+        return None
+    try:
+        return _json.loads(read_text(p))
+    except _json.JSONDecodeError:
+        return None
+
+
+def write_summary_card(world_id: str, chapter_id: str, data: dict) -> None:
+    """写入章节摘要卡片 JSON。"""
+    import json as _json
+
+    write_text(summary_path(world_id, chapter_id), _json.dumps(data, ensure_ascii=False, indent=2))
+
+
+def summaries_before(world_id: str, chapter_id: str, limit: int, world: World) -> list[dict]:
+    """获取目标章节之前最近 N 章的摘要卡片（已有摘要的章节）。"""
+    from worldforger.schemas import ChapterSummaryCard
+
+    ordered = sorted_chapters(world)
+    idx = next((i for i, c in enumerate(ordered) if c.id == chapter_id), -1)
+    if idx <= 0 or limit <= 0:
+        return []
+    results: list[dict] = []
+    for c in reversed(ordered[:idx]):
+        if len(results) >= limit:
+            break
+        card = read_summary_card(world_id, c.id)
+        if card:
+            results.append(card)
+        elif c.summary_card:
+            results.append(c.summary_card.model_dump(mode="json"))
+    results.reverse()
+    return results
+
+
+# ── 角色运行时状态 ───────────────────────────────────────────
+
+
+def get_character_runtime_states(world: World) -> list[dict]:
+    """提取所有角色的 runtime_state。"""
+    states: list[dict] = []
+    for ent in world.characters.entities:
+        if not isinstance(ent, dict):
+            continue
+        rs = ent.get("runtime_state")
+        if isinstance(rs, dict):
+            states.append({"id": ent.get("id", ""), "name": ent.get("name", ""), "runtime_state": rs})
+    return states
+
+
+def update_character_runtime_state(world: World, char_id: str, updates: dict, chapter_id: str) -> None:
+    """更新指定角色的 runtime_state。"""
+    for ent in world.characters.entities:
+        if not isinstance(ent, dict):
+            continue
+        if str(ent.get("id", "")).strip() == char_id.strip():
+            rs = ent.get("runtime_state")
+            if not isinstance(rs, dict):
+                rs = {}
+            rs.update(updates)
+            rs["last_updated_chapter"] = chapter_id
+            ent["runtime_state"] = rs
+            return

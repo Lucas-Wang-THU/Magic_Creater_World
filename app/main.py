@@ -508,6 +508,17 @@ def api_snapshot_rollback(world_id: str, body: RollbackSnapshotBody) -> dict[str
     return {"world": w.model_dump(mode="json")}
 
 
+@app.delete("/api/worlds/{world_id}/snapshots")
+def api_snapshot_clear(world_id: str) -> dict[str, object]:
+    from worldforger.world_store import clear_snapshots
+
+    try:
+        n = clear_snapshots(world_id)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    return {"ok": True, "deleted": n}
+
+
 @app.post("/api/worlds/{world_id}/chat")
 async def api_chat(world_id: str, body: ChatBody) -> dict[str, str]:
     try:

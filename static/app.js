@@ -3888,6 +3888,19 @@ async function runSnapshotRollback() {
   }
 }
 
+async function clearSnapshots() {
+  if (!state.world) return toast("请先选择世界");
+  const id = state.world.meta.id;
+  if (!confirm("确定清空版本快照历史？将保留最新一份，其余全部删除。此操作不可撤销。")) return;
+  try {
+    const res = await api(`/api/worlds/${id}/snapshots`, { method: "DELETE" });
+    toast(`已清空 ${res.deleted ?? 0} 个快照`);
+    void refreshSnapshotPanel();
+  } catch (e) {
+    toast("清空失败：" + (e?.message || e));
+  }
+}
+
 function switchView(name) {
   const route = resolveStoryPanelRoute(name);
   name = route.panel;
@@ -3999,6 +4012,7 @@ function storyMetaToForm() {
   syncStoryChatWritingControlsFromForm();
   renderStoryChapterNav();
   renderStoryForeshadowTimeline(s.foreshadowing ?? []);
+  renderRuntimeStates();
   updateStoryWbStats();
   updateStoryWbTitle();
 }
@@ -4204,6 +4218,7 @@ function setStorySubView(name) {
   }
   if (name === "outline") setStoryOutlineSub(state.storyOutlineSub || "macro");
   if (name === "chapter") void loadStoryManuscript();
+  if (name === "write") renderRuntimeStates();
   if (name === "foreshadow") {
     const items = parseStoryForeshadowingFromForm();
     if (items) renderStoryForeshadowTimeline(items);
@@ -4252,6 +4267,92 @@ async function loadStoryManuscript() {
   if ($("storyManuscriptEdit")) $("storyManuscriptEdit").value = res.content || "";
   const author = $("storyAuthorView")?.checked ?? true;
   updateStoryMarkdownPreview("storyManuscriptPreview", res.content || "", author);
+  renderChapterSummaryCard(cid);
+}
+
+
+// ── 章节摘要卡片渲染 ──────────────────────────────────────
+
+function renderChapterSummaryCard(chapterId) {
+  const card = $("storyChapterSummaryCard");
+  if (!card) return;
+  const ch = (state.world?.story?.chapters || []).find(c => c.id === chapterId);
+  if (!ch || !ch.summary_card) {
+    card.classList.add("hidden");
+    return;
+  }
+  const sc = ch.summary_card;
+  card.classList.remove("hidden");
+  if ($("storySummaryCardEvents")) $("storySummaryCardEvents").textContent = sc.main_events || "";
+  if ($("storySummaryCardHook")) {
+    const hook = sc.ending_hook || "";
+    $("storySummaryCardHook").innerHTML = hook ? `<span class="ms" aria-hidden="true">push_pin</span> 结尾钩子：${escapeHtml(hook)}` : "";
+  }
+  const statesEl = $("storySummaryCardStates");
+  if (statesEl) {
+    if (sc.character_state_changes && sc.character_state_changes.length) {
+      statesEl.innerHTML = sc.character_state_changes.map(s =>
+        `<div class="story-summary-state-item">
+          <span class="ms" aria-hidden="true">person</span>
+          <span><strong>${escapeHtml(s.name || s.char_id || '?')}</strong>
+          ${s.location_before && s.location_after ? `：${escapeHtml(s.location_before)} → ${escapeHtml(s.location_after)}` : ''}
+          ${s.emotion_before && s.emotion_after ? ` · 情绪 ${escapeHtml(s.emotion_before)} → ${escapeHtml(s.emotion_after)}` : ''}
+          ${s.goal_change && s.goal_change !== '无变化' ? ` · 目标：${escapeHtml(s.goal_change)}` : ''}
+          </span>
+        </div>`
+      ).join("");
+    } else {
+      statesEl.innerHTML = '<p class="muted tiny">无角色状态变化</p>';
+    }
+  }
+  // 伏笔标签
+  const footer = card.querySelector(".story-summary-card-footer");
+  if (footer) {
+    let tagsHtml = "";
+    if (sc.foreshadowing_planted && sc.foreshadowing_planted.length) {
+      tagsHtml += sc.foreshadowing_planted.map(id =>
+        `<span class="story-summary-fs-tag story-summary-fs-tag--planted">埋设:${escapeHtml(id)}</span>`
+      ).join("");
+    }
+    if (sc.foreshadowing_resolved && sc.foreshadowing_resolved.length) {
+      tagsHtml += sc.foreshadowing_resolved.map(id =>
+        `<span class="story-summary-fs-tag story-summary-fs-tag--resolved">回收:${escapeHtml(id)}</span>`
+      ).join("");
+    }
+    let tagsEl = footer.querySelector(".story-summary-fs-tags");
+    if (!tagsEl) {
+      tagsEl = document.createElement("span");
+      tagsEl.className = "story-summary-fs-tags";
+      footer.appendChild(tagsEl);
+    }
+    tagsEl.innerHTML = tagsHtml;
+  }
+}
+
+
+// ── 角色运行时状态渲染 ──────────────────────────────────────
+
+function renderRuntimeStates() {
+  const container = $("storyRuntimeStates");
+  const list = $("storyRuntimeList");
+  if (!container || !list) return;
+  const entities = state.world?.characters?.entities || [];
+  const states = entities.filter(e => e && e.runtime_state && Object.keys(e.runtime_state).length > 1);
+  if (!states.length) {
+    container.classList.add("hidden");
+    return;
+  }
+  container.classList.remove("hidden");
+  list.innerHTML = states.map(e => {
+    const rs = e.runtime_state || {};
+    return `<div class="story-runtime-item">
+      <span class="story-runtime-item-name">${escapeHtml(e.name || e.id || '?')}</span>
+      <span class="story-runtime-item-loc"><span class="ms" aria-hidden="true">location_on</span> ${escapeHtml(rs.current_location || '—')}</span>
+      <span class="story-runtime-item-emotion"><span class="ms" aria-hidden="true">mood</span> ${escapeHtml(rs.emotional_state || '—')}</span>
+      <span class="story-runtime-item-goal"><span class="ms" aria-hidden="true">flag</span> ${escapeHtml(rs.current_goal || '—')}</span>
+      ${rs.last_updated_chapter ? `<span class="muted tiny" style="grid-column:2">更新于 ${escapeHtml(rs.last_updated_chapter)}</span>` : ""}
+    </div>`;
+  }).join("");
 }
 
 function collectStoryMetaForWorld(w) {
@@ -5389,10 +5490,13 @@ function renderStoryChapterNav(activeId) {
           const active = id === aid ? " active" : "";
           const title = (c.title || "").trim() || id;
           const st = c.status && c.status !== "planned" ? ` · ${c.status}` : "";
+          const dotClass = c.status === "drafting" ? " story-ch-status-dot--drafting" : c.status === "locked" ? " story-ch-status-dot--locked" : " story-ch-status-dot--planned";
+          const wc = c.word_count ? ` <span class="story-ch-status-label">${c.word_count} 字</span>` : "";
+          const summaryDot = c.summary_card ? ' <span class="story-ch-status-dot" style="background:#0d9488" title="有摘要卡片"></span>' : "";
           return `<button type="button" class="story-ch-nav-btn${active}" data-story-chapter-id="${escapeAttr(
             id
           )}" title="${escapeAttr(title)}${escapeAttr(st)}">
-        <span class="story-ch-order">${escapeHtml(String(c.order))}</span>${escapeHtml(title)}
+        <span class="story-ch-order">${escapeHtml(String(c.order))}</span><span class="story-ch-status-dot${dotClass}" title="${c.status || 'planned'}"></span>${summaryDot}${escapeHtml(title)}${wc}
       </button>`;
         })
         .join("")
@@ -5962,6 +6066,7 @@ async function init() {
 
   $("btnSnapshotDiff")?.addEventListener("click", () => void runSnapshotDiff());
   $("btnSnapshotRollback")?.addEventListener("click", () => void runSnapshotRollback());
+  $("btnSnapshotClear")?.addEventListener("click", () => void clearSnapshots());
   $("btnReferenceLint")?.addEventListener("click", () => void runReferenceLintFlow({ quietToast: false }));
   $("btnReferenceLintFixPreview")?.addEventListener("click", () => void runReferenceFixPreview());
   $("btnReferenceLintFixApply")?.addEventListener("click", () => void runReferenceFixApply());

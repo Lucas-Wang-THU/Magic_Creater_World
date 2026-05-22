@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests -q)"
+    ]
+  }
+}

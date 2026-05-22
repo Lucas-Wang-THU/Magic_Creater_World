@@ -335,6 +335,35 @@ StoryChapterStatus = Literal["planned", "drafting", "locked"]
 StoryForeshadowStatus = Literal["open", "partial", "resolved"]
 
 
+class ChapterSummaryCard(BaseModel):
+    """章节收尾自动摘要——用于下一章上下文注入，替代原文截断。"""
+
+    chapter_id: str = ""
+    title: str = ""
+    main_events: str = Field(default="", description="本章主要事件概述（200 字以内）")
+    character_state_changes: list[dict[str, str]] = Field(
+        default_factory=list,
+        description="各角色状态变化：{char_id, name, location_before, location_after, "
+        "emotion_before, emotion_after, new_items, goal_change}",
+    )
+    foreshadowing_planted: list[str] = Field(default_factory=list, description="本章新埋设的伏笔 id 列表")
+    foreshadowing_resolved: list[str] = Field(default_factory=list, description="本章回收的伏笔 id 列表")
+    ending_hook: str = Field(default="", description="结尾钩子（本章结束时未解决的悬念，下一章需承接）")
+
+
+class CharacterRuntimeState(BaseModel):
+    """角色运行时状态——追踪角色在叙事中的当前位置、情绪、目标等动态信息。"""
+
+    current_location: str = Field(default="", description="角色当前所在地点")
+    current_goal: str = Field(default="", description="角色当前目标")
+    emotional_state: str = Field(default="", description="角色当前情绪状态")
+    inventory_changes: list[str] = Field(default_factory=list, description="最近获得的物品/能力")
+    relationship_updates: dict[str, str] = Field(
+        default_factory=dict, description="与其他角色的关系变化：char_id → 变化描述"
+    )
+    last_updated_chapter: str = Field(default="", description="最后更新此状态的章节 id")
+
+
 class StoryNarrator(BaseModel):
     character_id: str = Field(default="", description="对齐 characters.entities[].id，空表示不绑定 POV 角色。")
     person: StoryPerson = "third_person_limited"
@@ -363,6 +392,7 @@ class StoryChapter(BaseModel):
     word_count: int = 0
     reader_synopsis: str = ""
     author_notes: str = ""
+    summary_card: ChapterSummaryCard | None = Field(default=None, description="本章收尾摘要卡片")
 
 
 class StoryForeshadowing(BaseModel):

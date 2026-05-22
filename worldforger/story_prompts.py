@@ -73,7 +73,12 @@ def chapter_beats_system(world: World, *, creative_mode: str | None) -> str:
         "你是叙事策划，负责撰写**细纲**（单章/单会话要写什么）。\n"
         f"每个单元为一「{unit}」。\n"
         "输出 Markdown：场景目标、冲突、出场人物（对齐已有 id）、需种植/推进的伏笔、与粗纲的衔接。\n"
-        "不要写完整正文。\n"
+        "不要写完整正文。\n\n"
+        "【叙事连贯性检查（在细纲开头用 3-5 行简要回答，再写细纲正文）】\n"
+        "1. 上一章结尾各主要角色的位置与状态？本章开头如何承接？\n"
+        "2. 上一章结尾未解决的悬念/钩子是什么？本章如何处理？\n"
+        "3. 叙事人称是否与设定一致？若切换 POV，过渡是否明确？\n"
+        "4. 本章与【粗纲】中对应段落的衔接点在哪里？\n"
         + (f"\n{story_mode_addon(mode_eff, unit_label=unit)}\n" if story_mode_addon(mode_eff, unit_label=unit) else "")
     )
 
@@ -93,12 +98,20 @@ def manuscript_system(world: World, *, creative_mode: str | None, person: StoryP
 
 def compact_world_snippet(world: World, *, include_markdown: bool) -> str:
     """写作上下文用压缩世界块（避免塞入全文）。"""
+    from worldforger.story_store import get_character_runtime_states
+
     data = world.model_dump(mode="json")
     for key in ("geography", "history", "factions", "characters", "cultures", "story"):
         pass
+    char_data = data.get("characters") or {}
+    # 注入运行时状态摘要
+    runtime_states = get_character_runtime_states(world)
+    if runtime_states:
+        char_data = dict(char_data)
+        char_data["_runtime_states"] = runtime_states
     slim = {
         "meta": data.get("meta"),
-        "characters": data.get("characters"),
+        "characters": char_data,
         "history": data.get("history"),
         "factions": {
             "summary": (data.get("factions") or {}).get("summary"),
@@ -132,6 +145,106 @@ def compact_world_snippet(world: World, *, include_markdown: bool) -> str:
     return base
 
 
+# ── 章节摘要卡片 prompt ──────────────────────────────────────
+
+
+def chapter_summary_system(world: World) -> str:
+    unit = resolve_unit_label(world)
+    return (
+        f"你是叙事分析助手，负责为已完成的{unit}撰写**摘要卡片**。\n"
+        "你只需要输出 JSON，不要输出任何其他文字。\n"
+        "JSON 格式：\n"
+        "{\n"
+        '  "main_events": "本章主要事件概述（150-250 字）",\n'
+        '  "character_state_changes": [\n'
+        '    {"char_id": "角色id", "name": "角色名",\n'
+        '     "location_before": "之前在哪", "location_after": "现在在哪",\n'
+        '     "emotion_before": "之前情绪", "emotion_after": "现在情绪",\n'
+        '     "new_items": "新获得的物品/能力（空则写无）",\n'
+        '     "goal_change": "目标变化描述（空则写无变化）"}\n'
+        "  ],\n"
+        '  "foreshadowing_planted": ["本章新埋设的伏笔 id 列表"],\n'
+        '  "foreshadowing_resolved": ["本章回收的伏笔 id 列表"],\n'
+        '  "ending_hook": "结尾钩子（本章结束时未解决的悬念，30-80 字）"\n'
+        "}\n"
+        "注意：\n"
+        "- character_state_changes 仅列出本章中状态发生变化的角色，未出场或状态无变化的角色不列出。\n"
+        "- foreshadowing_planted/resolved 中填伏笔的 id（如 fs_xxx），无则写空数组。\n"
+    )
+
+
+def build_chapter_summary_user_payload(
+    world: World,
+    *,
+    chapter_id: str,
+    manuscript_text: str,
+) -> str:
+    ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+    unit = resolve_unit_label(world)
+    parts = [
+        f"为以下{unit}正文撰写摘要卡片：",
+        f"\n【{unit}信息】id={chapter_id}，标题={ch.title if ch else ''}",
+        f"\n【出场人物参考】",
+    ]
+    for ent in world.characters.entities[:20]:
+        if isinstance(ent, dict):
+            parts.append(
+                f"- id={ent.get('id','')} name={ent.get('name','')} "
+                f"cast_role={ent.get('cast_role','')}"
+                f"{' runtime_state=' + str(ent.get('runtime_state','')) if ent.get('runtime_state') else ''}"
+            )
+    from worldforger.foreshadow_apply import foreshadow_ledger_text
+
+    parts.append(f"\n【伏笔台账】\n{foreshadow_ledger_text(world, chapter_id=chapter_id)}")
+    body = manuscript_text.strip()
+    if len(body) > 16000:
+        body = body[:16000] + "\n…(文稿已截断)"
+    parts.append(f"\n【{unit}正文（截断）】\n{body}")
+    return "\n".join(parts)
+
+
+# ── 角色运行时状态提取 prompt ─────────────────────────────────
+
+
+def character_state_extract_system() -> str:
+    return (
+        "你是叙事分析助手，负责从章节目录正文中提取各角色的**运行时状态变化**。\n"
+        "你只需要输出 JSON，不要输出任何其他文字。\n"
+        'JSON 格式：{"char_id": {"current_location": "...", "current_goal": "...", '
+        '"emotional_state": "...", "inventory_changes": ["..."], '
+        '"relationship_updates": {"other_char_id": "变化描述"}}}\n'
+        "注意：\n"
+        "- 仅列出本章中状态发生了变化的角色。未出场或状态无变化的角色不要列出。\n"
+        "- current_location：角色本章结尾时的所在地点。\n"
+        "- current_goal：角色当前的主要目标。\n"
+        "- emotional_state：角色本章结尾时的情绪状态。\n"
+        "- inventory_changes：本章中新获得/失去的重要物品或能力。\n"
+        "- relationship_updates：与其他角色的关系变化，key 为对方 char_id。\n"
+    )
+
+
+def build_character_state_user_payload(
+    world: World,
+    *,
+    manuscript_text: str,
+) -> str:
+    parts = ["从以下正文中提取各角色的运行时状态变化：\n"]
+    for ent in world.characters.entities[:30]:
+        if isinstance(ent, dict):
+            parts.append(
+                f"- id={ent.get('id','')} name={ent.get('name','')} "
+                f"cast_role={ent.get('cast_role','')}"
+            )
+    body = manuscript_text.strip()
+    if len(body) > 16000:
+        body = body[:16000] + "\n…(文稿已截断)"
+    parts.append(f"\n【正文（截断）】\n{body}")
+    return "\n".join(parts)
+
+
+# ────────────────────────────────────────────────────────────
+
+
 def build_manuscript_user_payload(
     world: World,
     *,
@@ -157,14 +270,41 @@ def build_manuscript_user_payload(
     if beat_text.strip():
         parts.append(f"\n【本章细纲】\n{beat_text.strip()}")
     if prev_manuscripts:
-        parts.append("\n【前文参考（保持衔接）】")
-        for cid, text in prev_manuscripts:
-            cht = next((c for c in world.story.chapters if c.id == cid), None)
-            lab = cht.title if cht else cid
-            body = text.strip()
-            if len(body) > 6000:
-                body = body[:6000] + "\n…(该章文稿已截断)"
-            parts.append(f"\n### {lab} ({cid})\n{body}")
+        parts.append("\n【前文摘要（保持衔接）】")
+        # 优先使用摘要卡片，摘要缺失时退回原文截断
+        from worldforger.story_store import summaries_before
+
+        prev_cids = [cid for cid, _ in prev_manuscripts]
+        summary_cards = summaries_before(world.meta.id, chapter_id, len(prev_manuscripts), world)
+        has_summaries = len(summary_cards) >= len(prev_manuscripts) * 0.5
+
+        if has_summaries and summary_cards:
+            for card in summary_cards:
+                cid = card.get("chapter_id", "")
+                title = card.get("title", "")
+                main = card.get("main_events", "")
+                hook = card.get("ending_hook", "")
+                changes = card.get("character_state_changes", [])
+                parts.append(f"\n### {title} ({cid})\n**事件**：{main}")
+                if changes:
+                    chg_lines = []
+                    for sc in changes:
+                        chg_lines.append(
+                            f"- {sc.get('name','?')}：{sc.get('location_before','?')}→{sc.get('location_after','?')}，"
+                            f"情绪 {sc.get('emotion_before','?')}→{sc.get('emotion_after','?')}"
+                        )
+                    parts.append(f"**状态变化**：\n" + "\n".join(chg_lines))
+                if hook:
+                    parts.append(f"**结尾钩子**：{hook}")
+        else:
+            # 退回到原文截断
+            for cid, text in prev_manuscripts:
+                cht = next((c for c in world.story.chapters if c.id == cid), None)
+                lab = cht.title if cht else cid
+                body = text.strip()
+                if len(body) > 6000:
+                    body = body[:6000] + "\n…(该章文稿已截断)"
+                parts.append(f"\n### {lab} ({cid})\n{body}")
     if user_hint.strip():
         parts.append(f"\n【用户补充要求】\n{user_hint.strip()}")
     from worldforger.foreshadow_apply import foreshadow_ledger_text

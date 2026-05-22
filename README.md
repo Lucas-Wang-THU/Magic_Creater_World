@@ -8,6 +8,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![Pydantic v2](https://img.shields.io/badge/Pydantic-v2-E92063?style=flat-square&logo=pydantic&logoColor=white)](https://docs.pydantic.dev/)
 [![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?style=flat-square&logo=pytest&logoColor=white)](https://pytest.org/)
+[![OpenAI Compatible](https://img.shields.io/badge/LLM-OpenAI%20Compatible-412991?style=flat-square&logo=openai&logoColor=white)](https://platform.openai.com/)
 
 </div>
 
@@ -15,37 +16,89 @@
 
 ## 目录
 
+- [快速开始](#快速开始)
 - [它能做什么](#它能做什么)
+- [界面导览](#界面导览)
 - [整体流程](#整体流程)
-- [界面导览（图解）](#界面导览图解)
-- [产品地图（工作台 ↔ world.json）](#产品地图工作台--worldjson)
 - [功能一览](#功能一览)
-- [后续路线](#后续路线)
-- [环境要求](#环境要求)
-- [安装依赖](#安装依赖)
+- [产品地图](#产品地图工作台--worldjson)
+- [环境要求与安装](#环境要求与安装)
 - [配置](#配置)
 - [启动服务](#启动服务)
-- [调试（可选）](#调试可选)
-- [数据目录](#数据目录结构)
+- [数据目录结构](#数据目录结构)
 - [API 摘要](#api-摘要)
 - [测试](#测试)
+- [后续路线](#后续路线)
 - [更多文档](#更多文档)
+
+---
+
+## 快速开始
+
+```bash
+# 1. 安装依赖
+pip install -r requirements.txt
+
+# 2. 配置 API Key
+cp .env.example .env          # Linux / macOS
+copy .env.example .env        # Windows
+# 编辑 .env，填入 PARATERA_API_KEY
+
+# 3. 启动
+python run.py
+```
+
+浏览器自动打开 `http://127.0.0.1:8765`，即可开始构建你的世界观。
 
 ---
 
 ## 它能做什么
 
-世界观辅助工具：在本地持久化 **地理、生态、超凡力量、通用人物属性、物品品质、文化与宗教、派系与关系、世界历史、经济与流通、人物卡司**，并通过兼容 OpenAI 的 API（默认 `https://llmapi.paratera.com/v1`）进行对话补全。**人物与情节大纲**在生成前会强制读取当前世界的 `world.json`，结果写入 `worlds/<world_id>/outlines/`。
+**Magic Creater World (MCW)** 是一个本地优先、AI 辅助的虚构世界观构建工作台。它将 LLM 对话的灵感转化为可持久化、可导出的结构化数据。
 
-| | |
+<div align="center">
+
+| ✨ 核心特性 | 说明 |
 |:--|:--|
-| 📌 **单一事实源** | 磁盘上的 `world.json` 为权威结构；`world.md` 为可读导出。 |
-| 💬 **第一路** | 自然语言对话（世界观构建 / 人物生成），可选「附带 world.md」与多种 **创作模式**。 |
-| 🧩 **第二路** | 勾选「对话后同步」时，再调模型把可落盘内容解析为 JSON，**合并进表单**；响应含 `merge_warnings`、`normalize_notes`、`updated_sections`。 |
-| 💾 **保存** | 表单更新后需 **「保存世界」**（或 **Ctrl+S / ⌘S**）写入磁盘；部分对话流程会在同步后自动触发保存。 |
-| 🚪 **退出** | 顶栏 **「退出」** 调用 `POST /api/shutdown`，结束本机 Uvicorn 进程并尝试关闭浏览器页（仅回环地址可调）。 |
+| 📌 **单一事实源** | 磁盘上的 `world.json` 为权威结构；`world.md` 为可读导出 |
+| 💬 **对话构建** | 与"世界观架构师"自然语言交流，12 种创作模式（小说 / 游戏 / CoC / DnD） |
+| 🧩 **结构化同步** | 勾选「对话后同步」，LLM 自动抽取 JSON 补丁合并进表单 |
+| 🗺️ **11 个世界观模块** | 地理 · 生态 · 境界 · 属性 · 物品 · 文化 · 派系 · 历史 · 经济 · 角色 · 故事 |
+| 📊 **关系可视化** | Mermaid 图表：关系网络、技能树、职业晋升图、时间线、因果链 |
+| 🔍 **数据工具** | 全文搜索、引用一致性检查与修复、版本快照与 diff 回滚 |
+| 📤 **导出** | 自动生成 `world.md` 人类可读手册；大纲写入 `outlines/` |
+| 💾 **本地优先** | 所有数据在本地磁盘，无需云端服务 |
+
+</div>
+
+### 两条对话路径
+
+| 路径 | 说明 |
+|:--|:--|
+| **第一路 · 对话** | 自然语言与"世界观架构师"交流；可选附带 `world.md` 上下文 |
+| **第二路 · 结构同步** | 勾选后，再调模型把可落盘内容解析为 JSON，合并进表单 |
 
 第二路模型默认同主对话，可用 `STRUCTURE_SYNC_MODEL` 单独指定。
+
+---
+
+## 界面导览
+
+工作台采用**三栏布局**：顶栏 + 左侧导航 + 中间主区 + 右侧看板。
+
+<div align="center">
+
+![工作台布局示意](docs/readme-workbench.svg)
+
+*顶栏：世界选择、保存、退出；左侧：对话与世界观各模块导航；中间：对话或表单编辑区；右侧：统计看板与 JSON 查看器*
+
+</div>
+
+### 对话视图
+
+![对话视图](docs/gui-chat-and-sync.svg)
+
+*同步选项、创作模式选择、快捷词条、消息列表、输入框（Ctrl+Enter 发送）*
 
 ---
 
@@ -53,16 +106,16 @@
 
 ```mermaid
 flowchart LR
-  subgraph 用户["你"]
+  subgraph 用户["👤 你"]
     A[输入设定 / 对话]
   end
-  subgraph 第一路["第一路 · 对话"]
+  subgraph 第一路["💬 第一路 · 对话"]
     B[世界观架构师]
   end
-  subgraph 第二路["第二路 · 可选"]
+  subgraph 第二路["🧩 第二路 · 可选"]
     C[结构化同步器]
   end
-  subgraph 本地["本地数据"]
+  subgraph 本地["💾 本地数据"]
     D[(world.json)]
     E[world.md 导出]
   end
@@ -72,15 +125,15 @@ flowchart LR
   D --> E
 ```
 
-**对话后同步与保存（概念时序）**
+**对话后同步与保存（时序）**
 
 ```mermaid
 sequenceDiagram
-  participant U as 用户
-  participant W as 工作台
-  participant API as FastAPI
-  participant LLM as 模型网关
-  U->>W: 发送消息（可选勾选同步 / 引导）
+  participant U as 👤 用户
+  participant W as 🖥️ 工作台
+  participant API as ⚡ FastAPI
+  participant LLM as 🤖 模型网关
+  U->>W: 发送消息（可选勾选同步）
   W->>API: POST …/chat
   API->>LLM: 补全
   LLM-->>API: 助手回复
@@ -90,54 +143,86 @@ sequenceDiagram
     API->>LLM: 抽取 JSON 补丁
     LLM-->>API: 结构化结果
     API-->>W: world + updated_sections
-    W->>API: PUT …/world（自动落盘时）
+    W->>API: PUT …/world（自动落盘）
   end
 ```
 
 ---
 
-## 界面导览（图解）
+## 功能一览
 
-以下为 **布局示意**（非真实截图，便于快速理解顶栏 / 侧栏 / 主区关系）。仓库内为矢量 SVG，缩放清晰。
+### 🌍 世界观模块（11 个）
 
-<div align="center">
+| 模块 | 核心功能 | 可视化 |
+|:--|:--|:--|
+| **地理** | 大陆 / 区域卡片；区域关系 | 关系网络图（Mermaid） |
+| **生态** | 生境群落、代表物种、遭遇话术 | 一键 AI 生态生成 |
+| **境界** | 分境卡片、技能树、职业体系 | 职业晋升图谱（Mermaid） |
+| **属性** | 通用人物属性维度定义 | 雷达参照图 |
+| **物品** | 品质档位卡片化预览 | 稀有度叙事 |
+| **文化·宗教** | 文化 / 宗教 / 融合实体卡片 | 实体关系图（Mermaid） |
+| **派系** | 组织总览、单卡简介 | 全局关系图（缩放+拖拽） |
+| **历史** | 重大事件管理 | 时间轴 + 因果链导图 |
+| **经济** | 货币、市场、商路、贸易品 | 与地理/派系 id 对齐 |
+| **角色** | 主角团、重要配角、卡司 JSON | 人物关系网络 |
+| **故事** | 章节、宏大纲、节拍大纲、手稿 | 伏笔时间线 |
 
-![工作台布局示意](docs/readme-workbench.svg)
+### 🤖 AI 对话能力
 
-*顶栏：世界、保存、退出；左侧：工作台与世界观各模块；中间：对话或表单；右侧：看板与 JSON（随视图变化）*
+| 功能 | 说明 |
+|:--|:--|
+| **世界观构建对话** | 与架构师自由交流；快捷词条引导；Ctrl+Enter 发送 |
+| **人物生成对话** | 独立对话线程；可配合引导与结构化同步 |
+| **故事 Agent** | 工具调用：伏笔查询/埋设/回收、手稿生成、自动识别 markdown 代码块 |
+| **创作模式** | 小说 / 游戏 / CoC / DnD，注入不同 system prompt 与词汇表 |
+| **一键生态生成** | 基于当前世界观上下文自动生成生态设定 |
 
-</div>
+### 🔧 数据工具
+
+| 工具 | 说明 |
+|:--|:--|
+| **全文搜索** | 同时搜索 `world.json` 与 `world.md` |
+| **引用一致性检查** | 跨模块 id 引用校验（区域、派系等） |
+| **自动修复** | 保守修复引用问题，支持 `dry_run` 预览 |
+| **版本快照** | 每次保存自动快照；diff 查看；一键回滚 |
+| **world.md 导出** | 从 JSON 自动生成人类可读手册 |
+
+### 🌐 世界管理
+
+顶栏提供 **新建 / 重命名 / 删除** 世界；下拉列表展示 **显示名 · id**；**保存**（Ctrl+S / ⌘S）写入磁盘；**退出** 关闭服务进程。
 
 ---
 
 ## 产品地图（工作台 ↔ world.json）
 
-下图概括 **单页应用** 中主要板块与本地 `world.json` 的对应关系（箭头表示「读写字段」而非运行时依赖顺序）。
+下图概括单页应用中主要板块与本地 `world.json` 的对应关系。
 
 ```mermaid
 flowchart TB
-  subgraph UI["Web 工作台"]
+  subgraph UI["🖥️ Web 工作台"]
     CHAT[世界观构建]
     CHARCHAT[人物生成]
+    STORYCHAT[故事 Agent]
     GEO[地理]
     ECO[生态]
-    POW[境界]
-    ATTR[属性]
-    ITEM[物品]
+    POW[境界·技能树·职业]
+    ATTR[属性系统]
+    ITEM[物品品质]
     CUL[文化·宗教]
     FAC[派系]
     HIS[历史]
     ECON[经济]
-    CH1[主角团 / 配角 / 关系 / 卡司 JSON]
-    OUT[大纲]
-    DATA[数据 · 快照 · 搜索 · 引用]
+    CHAR[角色·卡司]
+    STORY[故事·章节]
+    TOOLS[搜索·引用·快照]
   end
-  JSON[(world.json)]
-  MD[world.md 导出]
-  OL[outlines/]
+  JSON[(📄 world.json)]
+  MD[📝 world.md 导出]
+  OL[📁 outlines/]
 
   CHAT --> JSON
   CHARCHAT --> JSON
+  STORYCHAT --> JSON
   GEO --> JSON
   ECO --> JSON
   POW --> JSON
@@ -147,90 +232,41 @@ flowchart TB
   FAC --> JSON
   HIS --> JSON
   ECON --> JSON
-  CH1 --> JSON
+  CHAR --> JSON
+  STORY --> JSON
   JSON --> MD
-  OUT --> OL
-  OUT --> JSON
-  DATA --> JSON
-```
-
-**读图提示**
-
-- 对话与「对话后同步」可能一次改多个小节；未保存前变更在内存表单中。
-- 顶栏 **品牌横幅** 另见 [`docs/readme-hero.svg`](docs/readme-hero.svg)；**布局示意** 见 [`docs/readme-workbench.svg`](docs/readme-workbench.svg)。
-- 文中 **Mermaid** 图在 GitHub、VS Code / Cursor 预览、或支持 Mermaid 的文档站中均可渲染。
-
----
-
-## 功能一览
-
-| 模块 | 说明 |
-|:--|:--|
-| **世界观构建** | 与架构师自然语言交流；**Ctrl+Enter** 发送；快捷词条（规划、写地理、境界、职业、技能树、人物属性、生态、**经济**、文化、派系等）；可选 **引导**（境界技能树、职业体系、人物属性、生态、**经济系统** 等，`chat_guides` 注入 system）；**派系要人** 与快照预览；可选「对话后同步」；若磁盘 **world.md 非空**，加载世界时常自动勾选「附带 world.md」 |
-| **人物生成** | 独立对话线程 `character-chat`；可勾选「引导：人物卡司」与「对话后同步」；与左侧 **角色** 分区数据一致 |
-| **地理** | 大陆 / 区域卡片、区域关系网络图；同步含地理归一化与稳定区域 id |
-| **生态** | 生境群落、代表物种与遭遇话术；`ecology` 与地理、属性维度对齐；可选一键 **ecology-generate** |
-| **境界** | 分境卡片、技能树、**职业体系**子页与 **职业晋升图谱**（Mermaid） |
-| **属性** | 通用人物属性维度与雷达参照；`attribute_system` |
-| **物品** | 品质档位卡片化预览 |
-| **文化·宗教** | `cultures` 实体卡片与关系图（Mermaid） |
-| **派系** | 总览、全局关系图（缩放 + 拖拽）、单卡简介 |
-| **历史** | 时间轴与因果链导图 |
-| **经济** | 货币、市场、商路、贸易品；对齐 `geography.regions` / `factions` id；同步写入 `economy` 后可自动切换到本页 |
-| **角色** | 主角团、重要配角、人物关系网络、卡司 JSON；与 `characters` 节一致 |
-| **大纲 / 数据** | 人物与情节大纲；**全文搜索**；**导出与快照**、diff、回滚；**引用一致性** 检查与保守修复 |
-
-**世界管理**：顶栏 **新建 / 重命名 / 删除**；下拉列表展示 **显示名 · id**。
-
-**看板（右侧）**：计数条、可折叠 **原始 JSON**、上下文等（随当前视图变化）。
-
-**其它**：`meta.genre_tags` 会注入对话、结构化同步与大纲的 system 片段；工作台为 **单页静态前端 + FastAPI**（`/` 界面，`/api/*` 接口，`/static/*` 资源）。
-
----
-
-## 后续路线
-
-`characters` 与 **角色** 分区看板、**人物生成** 已在当前版本落地；后续可侧重 **可视化深化、大纲与卡司联动、导出模板** 等（详见 [`todolist.md`](todolist.md)）。
-
-```mermaid
-flowchart LR
-  subgraph 近期["近期"]
-    A1[关系图筛选与布局]
-    A2[引用校验覆盖扩展]
-  end
-  subgraph 中期["中期"]
-    B1[大纲与卡司版本联动]
-    B2[批量导出 / 模板]
-  end
-  subgraph 远期["远期"]
-    C1[叙事时间线与事件锚点]
-    C2[协作与多世界工具链]
-  end
-  A1 --> A2
-  A2 --> B1
-  B1 --> B2
-  B2 --> C1
-  C1 --> C2
+  TOOLS --> JSON
+  OL --> JSON
 ```
 
 ---
 
-## 环境要求
+## 环境要求与安装
 
-- Python 3.10+（推荐与 `requirements.txt` 一致）
-- 可选：使用 Paratera 或其它兼容网关时，需可用的 API Key 与模型名
+### 环境要求
 
----
+- **Python 3.10+**
+- 兼容 OpenAI API 的网关（默认 `https://llmapi.paratera.com/v1`）及可用 API Key
 
-## 安装依赖
-
-在项目根目录执行：
+### 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-若使用指定的 Conda 环境，可将 `python` 换为你的解释器路径，例如：
+依赖清单：
+
+| 包 | 用途 |
+|:--|:--|
+| `fastapi` | Web API 框架 |
+| `uvicorn` | ASGI 服务器 |
+| `openai` | LLM 客户端（OpenAI 兼容） |
+| `pydantic` + `pydantic-settings` | 数据验证与配置管理 |
+| `python-dotenv` | 环境变量加载 |
+| `httpx` | 异步 HTTP 客户端 |
+| `pytest` | 测试框架 |
+
+若使用 Conda 环境，可指定解释器路径：
 
 ```powershell
 & "E:\ananconda\envs\Agent\python.exe" -m pip install -r requirements.txt
@@ -243,93 +279,74 @@ pip install -r requirements.txt
 复制环境变量模板并编辑：
 
 ```bash
-# Windows（PowerShell / CMD）
-copy .env.example .env
-
-# macOS / Linux
+# Linux / macOS
 cp .env.example .env
+
+# Windows (PowerShell / CMD)
+copy .env.example .env
 ```
 
-常用变量（详见 `.env.example`）：
+常用变量：
 
-| 变量 | 说明 |
-|:--|:--|
-| `PARATERA_API_KEY` | 兼容 OpenAI 的 API 密钥；未设置时对话、大纲与板块同步会返回 **503**，其余读写世界仍可用 |
-| `OPENAI_API_BASE` | 默认 `https://llmapi.paratera.com/v1` |
-| `OPENAI_CHAT_MODEL` | 默认 `DeepSeek-V4-Flash`，请按网关实际可用模型修改 |
-| `STRUCTURE_SYNC_MODEL` | 可选；对话后「板块结构化同步」所用模型，留空则与 `OPENAI_CHAT_MODEL` 相同 |
-| `WORLDS_DIR` | 可选，自定义世界数据根目录（默认项目下 `worlds/`） |
+| 变量 | 说明 | 默认值 |
+|:--|:--|:--|
+| `PARATERA_API_KEY` | 兼容 OpenAI 的 API 密钥 | *(必填)* |
+| `OPENAI_API_BASE` | API 网关地址 | `https://llmapi.paratera.com/v1` |
+| `OPENAI_CHAT_MODEL` | 对话模型 | `DeepSeek-V4-Flash` |
+| `STRUCTURE_SYNC_MODEL` | 可选：结构化同步专用模型 | 同 `OPENAI_CHAT_MODEL` |
+| `WORLDS_DIR` | 可选：自定义世界数据根目录 | `worlds/` |
 
-### 临时设置 API Key（不写 `.env`）
-
-适合一次性试用：只在**当前终端窗口**生效，关闭窗口后即失效，也不会把密钥写进仓库里的文件。
-
-**Windows PowerShell**（先设变量，再在同一窗口里启动）：
-
-```powershell
-$env:PARATERA_API_KEY = "你的密钥"
-python run.py
-```
-
-**Windows CMD**：
-
-```bat
-set PARATERA_API_KEY=你的密钥
-python run.py
-```
-
-**macOS / Linux（bash/zsh）**：
-
-```bash
-export PARATERA_API_KEY="你的密钥"
-python run.py
-```
-
-或单行（仅作用于这一条命令）：
-
-```bash
-PARATERA_API_KEY="你的密钥" python run.py
-```
-
-说明：应用通过 `python-dotenv` 读取 `.env`；若同时存在 `.env` 与上面的临时变量，**以当前进程环境变量为准**。临时密钥请勿提交到 Git。
+> 💡 **临时设置密钥**（不写 `.env`，关闭终端即失效）：
+>
+> ```bash
+> # Windows PowerShell
+> $env:PARATERA_API_KEY = "你的密钥"
+> python run.py
+>
+> # macOS / Linux
+> PARATERA_API_KEY="你的密钥" python run.py
+> ```
 
 ---
 
 ## 启动服务
 
-**推荐**：在项目根目录运行：
+### 基本启动
 
 ```bash
 python run.py
 ```
 
-启动约 1 秒后会在**系统默认浏览器**中自动打开工作台。若不需要自动打开，请加 **`--no-browser`**。
+启动约 1 秒后在默认浏览器中自动打开 `http://127.0.0.1:8765`。
 
-默认监听 **`http://127.0.0.1:8765`**。可勾选「对话后同步表单」以调用 `POST /api/worlds/{id}/sync-panels-from-chat`；勾选「仅同步当前页对应模块」时，仅当前导航对应模块写入，其它模块的结构化输出会被丢弃。
+### 常用参数
 
-**顶栏「退出」**：停止本机服务进程（`POST /api/shutdown`，仅 `127.0.0.1` / `::1` 等回环可调）；成功后页面显示「服务已停止」并尝试关闭标签页。
-
-常用参数：
+| 参数 | 说明 |
+|:--|:--|
+| `--host 0.0.0.0` | 监听所有网络接口 |
+| `--port 8765` | 自定义端口 |
+| `--reload` | 代码变更自动重载（开发模式） |
+| `--no-browser` | 不自动打开浏览器 |
 
 ```bash
+# 局域网访问
 python run.py --host 0.0.0.0 --port 8765
+
+# 开发调试
 python run.py --reload
-python run.py --no-browser
 ```
 
-使用 **`--reload`** 时，会自动设置 **`MCW_NO_STATIC_CACHE=1`**：对 `/static/*` 禁止强缓存，避免 `app.js` 长期 **304** 仍用旧脚本。
+> 使用 `--reload` 时自动设置 `MCW_NO_STATIC_CACHE=1`，禁用前端缓存避免 app.js 长期 304。
 
-等价方式：
+### 等价启动方式
 
 ```bash
 python -m uvicorn app.main:app --host 127.0.0.1 --port 8765
 ```
 
----
+### 退出
 
-## 调试（可选）
-
-仓库含 **`.vscode/settings.json`**（示例解释器路径）与 **`.vscode/launch.json`**（调试 `run.py`）。在 Cursor / VS Code 中选配置后 **F5** 即可断点调试；若缺少调试器包，可在对应环境中执行 `pip install debugpy`。
+顶栏**「退出」**调用 `POST /api/shutdown`，停止 Uvicorn 进程并尝试关闭浏览器标签页（仅回环地址可调用）。
 
 ---
 
@@ -337,43 +354,53 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765
 
 每个世界位于 `worlds/<world_id>/`：
 
-| 文件 / 目录 | 说明 |
-|:--|:--|
-| `world.json` | 权威结构化设定 |
-| `world.md` | 由程序从 JSON 导出的可读手册（保存或导出时更新） |
-| `outlines/` | 人物 / 情节大纲（含 YAML 头：`based_on_world_id`、`based_on_world_version`） |
-| `sessions/` | 对话片段日志（可选） |
-| `manifest.json` | 创建时间与网关元信息（不含密钥） |
+```
+worlds/
+└── 诸神黄昏-58bddae5/
+    ├── world.json          ← 权威结构化设定
+    ├── world.md            ← 人类可读手册（自动导出）
+    ├── manifest.json       ← 创建时间与网关元信息
+    ├── outlines/           ← 人物 / 情节大纲
+    ├── sessions/           ← 对话片段日志（可选）
+    └── snapshots/          ← 版本快照
+        ├── v001.json
+        ├── v002.json
+        └── ...
+```
 
 ---
 
 ## API 摘要
 
+> 完整路由定义见 `app/main.py`。
+
 | 方法 | 路径 | 说明 |
 |:--|:--|:--|
 | `GET` | `/api/health` | 健康检查 |
-| `GET` | `/api/config` | 前端展示用配置（模型名、是否已配置 Key 等） |
-| `POST` | `/api/shutdown` | 结束本机服务（仅回环）；用于顶栏「退出」 |
+| `GET` | `/api/config` | 公开配置（模型名、Key 状态等） |
+| `POST` | `/api/shutdown` | 停止服务（仅回环） |
 | `GET` | `/api/worlds` | 世界列表 |
 | `POST` | `/api/worlds` | 创建世界 |
-| `GET` | `/api/worlds/{id}` | 加载世界；含 `has_nonempty_world_md` |
-| `PUT` | `/api/worlds/{id}` | 保存完整 `world` |
+| `GET` | `/api/worlds/{id}` | 加载世界 |
+| `PUT` | `/api/worlds/{id}` | 保存完整 world |
 | `PATCH` | `/api/worlds/{id}` | 重命名显示名 |
-| `DELETE` | `/api/worlds/{id}` | 删除整个世界目录 |
-| `POST` | `/api/worlds/{id}/chat` | 世界观构建对话 |
+| `DELETE` | `/api/worlds/{id}` | 删除世界 |
+| `POST` | `/api/worlds/{id}/chat` | 世界观对话 |
 | `POST` | `/api/worlds/{id}/character-chat` | 人物生成对话 |
-| `POST` | `/api/worlds/{id}/sync-panels-from-chat` | 第二路结构化同步 |
-| `POST` | `/api/worlds/{id}/ecology-generate` | 一键生成生态叙事 + 文末 JSON 块 |
+| `POST` | `/api/worlds/{id}/story-chat` | 故事 Agent 对话 |
+| `POST` | `/api/worlds/{id}/sync-panels-from-chat` | 结构化同步 |
+| `POST` | `/api/worlds/{id}/ecology-generate` | 一键生态生成 |
 | `POST` | `/api/worlds/{id}/outline` | 大纲生成 |
-| `GET` | `/api/worlds/{id}/search` | 全文搜索 `world.json` + `world.md` |
+| `GET` | `/api/worlds/{id}/search` | 全文搜索 |
 | `GET` | `/api/worlds/{id}/lint-references` | 引用一致性检查 |
-| `POST` | `/api/worlds/{id}/fix-references` | 保守自动修复（支持 `dry_run`） |
-| `POST` | `/api/worlds/{id}/export-md` | 导出 `world.md` |
-| `GET` | `/api/worlds/{id}/snapshots` | 内存快照列表 |
-| `GET` | `/api/worlds/{id}/snapshots/diff` | 快照与当前 JSON 行 diff |
-| `POST` | `/api/worlds/{id}/snapshots/rollback` | 回滚到指定快照版本 |
-| `POST` | `/api/worlds/{id}/refresh/faction-relations` | 重算派系关系图数据 |
-| `POST` | `/api/worlds/{id}/refresh/culture-relations` | 重算文化实体关系 |
+| `POST` | `/api/worlds/{id}/fix-references` | 自动修复引用 |
+| `POST` | `/api/worlds/{id}/export-md` | 导出 world.md |
+| `GET` | `/api/worlds/{id}/snapshots` | 快照列表 |
+| `GET` | `/api/worlds/{id}/snapshots/diff` | 快照行级 diff |
+| `POST` | `/api/worlds/{id}/snapshots/rollback` | 回滚到快照 |
+| `POST` | `/api/worlds/{id}/refresh/faction-relations` | 重算派系关系 |
+| `POST` | `/api/worlds/{id}/refresh/culture-relations` | 重算文化关系 |
+| `*` | `/api/worlds/{id}/story/*` | 故事 CRUD（章节/大纲/节拍/手稿/伏笔） |
 
 ---
 
@@ -383,13 +410,48 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765
 python -m pytest tests -q
 ```
 
+VS Code / Cursor 中可使用 `.vscode/launch.json` 配置 F5 调试；需安装 `debugpy`。
+
+---
+
+## 后续路线
+
+```mermaid
+flowchart LR
+  subgraph 近期["🟢 近期"]
+    A1[关系图筛选与布局]
+    A2[引用校验覆盖扩展]
+  end
+  subgraph 中期["🟡 中期"]
+    B1[大纲与卡司版本联动]
+    B2[批量导出 / 模板]
+  end
+  subgraph 远期["🔵 远期"]
+    C1[叙事时间线与事件锚点]
+    C2[协作与多世界工具链]
+  end
+  A1 --> A2 --> B1 --> B2 --> C1 --> C2
+```
+
+详见 [`todolist.md`](todolist.md)。
+
 ---
 
 ## 更多文档
 
 | 文档 | 内容 |
 |:--|:--|
-| [`docs/readme-hero.svg`](docs/readme-hero.svg) | 仓库首页用横幅图（矢量） |
+| [`docs/readme-hero.svg`](docs/readme-hero.svg) | 仓库首页横幅图（矢量） |
 | [`docs/readme-workbench.svg`](docs/readme-workbench.svg) | 工作台布局示意（矢量） |
+| [`docs/gui-chat-and-sync.svg`](docs/gui-chat-and-sync.svg) | 对话与同步流程示意 |
+| [`docs/gui-workbench-layout.svg`](docs/gui-workbench-layout.svg) | 三栏布局详解示意 |
 | [`todolist.md`](todolist.md) | 路线图、架构速记与 backlog |
-| [`.cursor/skills/`](.cursor/skills/) | Cursor Agent Skills（如 `worldforger-factions`、`worldforger-economy`、各创作载体 skill） |
+| [`.cursor/skills/`](.cursor/skills/) | Cursor Agent Skills（9 个模块专属 skill） |
+
+---
+
+<div align="center">
+
+**❤️ 为世界创造者，游戏工作者，和每一个具有奇思妙想的Idea而创建。**
+
+</div>
