@@ -66,10 +66,11 @@ python run.py
 | ✨ 核心特性 | 说明 |
 |:--|:--|
 | 📌 **单一事实源** | 磁盘上的 `world.json` 为权威结构；`world.md` 为可读导出 |
-| 💬 **对话构建** | 与"世界观架构师"自然语言交流，12 种创作模式（小说 / 游戏 / CoC / DnD） |
+| 💬 **对话构建** | 与"世界观架构师"自然语言交流，4 种创作模式（小说 / 游戏 / CoC / DnD） |
 | 🧩 **结构化同步** | 勾选「对话后同步」，LLM 自动抽取 JSON 补丁合并进表单 |
 | 🗺️ **11 个世界观模块** | 地理 · 生态 · 境界 · 属性 · 物品 · 文化 · 派系 · 历史 · 经济 · 角色 · 故事 |
 | 📊 **关系可视化** | Mermaid 图表：关系网络、技能树、职业晋升图、时间线、因果链 |
+| 🧠 **语义记忆 (RAG)** | 本地向量索引（ChromaDB），智能检索前文片段保持叙事连贯性 |
 | 🔍 **数据工具** | 全文搜索、引用一致性检查与修复、版本快照与 diff 回滚 |
 | 📤 **导出** | 自动生成 `world.md` 人类可读手册；大纲写入 `outlines/` |
 | 💾 **本地优先** | 所有数据在本地磁盘，无需云端服务 |
@@ -170,7 +171,7 @@ sequenceDiagram
 | **历史** | 重大事件管理 | 时间轴 + 因果链导图 |
 | **经济** | 货币、市场、商路、贸易品 | 与地理/派系 id 对齐 |
 | **角色** | 主角团、重要配角、卡司 JSON | 人物关系网络 |
-| **故事** | 章节、宏大纲、节拍大纲、手稿 | 伏笔时间线 |
+| **故事** | 章节、宏大纲、节拍大纲、手稿 | 伏笔时间线 · RAG 语义检索 |
 
 ### 🤖 AI 对话能力
 
@@ -179,6 +180,7 @@ sequenceDiagram
 | **世界观构建对话** | 与架构师自由交流；快捷词条引导；Ctrl+Enter 发送 |
 | **人物生成对话** | 独立对话线程；可配合引导与结构化同步 |
 | **故事 Agent** | 工具调用：伏笔查询/埋设/回收、手稿生成、自动识别 markdown 代码块 |
+| **RAG 语义检索** | 本地向量索引（ChromaDB + BGE embedding），智能检索相关前文片段注入写作上下文 |
 | **创作模式** | 小说 / 游戏 / CoC / DnD，注入不同 system prompt 与词汇表 |
 | **一键生态生成** | 基于当前世界观上下文自动生成生态设定 |
 
@@ -189,7 +191,8 @@ sequenceDiagram
 | **全文搜索** | 同时搜索 `world.json` 与 `world.md` |
 | **引用一致性检查** | 跨模块 id 引用校验（区域、派系等） |
 | **自动修复** | 保守修复引用问题，支持 `dry_run` 预览 |
-| **版本快照** | 每次保存自动快照；diff 查看；一键回滚 |
+| **版本快照** | 每次保存自动快照；diff 查看；一键回滚；单个快照删除 |
+| **RAG 索引就绪指示** | 情节工作台顶栏状态点 + 侧边上下文面板（前章摘要 / 角色状态 / 索引统计） |
 | **world.md 导出** | 从 JSON 自动生成人类可读手册 |
 
 ### 🌐 世界管理
@@ -269,6 +272,8 @@ pip install -r requirements.txt
 | `pydantic` + `pydantic-settings` | 数据验证与配置管理 |
 | `python-dotenv` | 环境变量加载 |
 | `httpx` | 异步 HTTP 客户端 |
+| `chromadb` | 本地向量数据库（RAG 语义检索） |
+| `sentence-transformers` | 本地文本 embedding（BAAI/bge-small-zh-v1.5） |
 | `pytest` | 测试框架 |
 
 若使用 Conda 环境，可指定解释器路径：
@@ -299,6 +304,9 @@ copy .env.example .env
 | `OPENAI_API_BASE` | API 网关地址 | `https://llmapi.paratera.com/v1` |
 | `OPENAI_CHAT_MODEL` | 对话模型 | `DeepSeek-V4-Flash` |
 | `STRUCTURE_SYNC_MODEL` | 可选：结构化同步专用模型 | 同 `OPENAI_CHAT_MODEL` |
+| `MCW_EMBEDDING_MODEL` | 可选：本地 embedding 模型名 | `BAAI/bge-small-zh-v1.5` |
+| `MCW_EMBEDDING_BACKEND` | `auto` / `api` / `local`：无本地缓存时 `auto` 不走 HuggingFace，直接 API | `auto` |
+| `MCW_HF_ENDPOINT` | 可选：Hugging Face 镜像（如 `https://hf-mirror.com`） | *(空)* |
 | `WORLDS_DIR` | 可选：自定义世界数据根目录 | `worlds/` |
 
 > 💡 **临时设置密钥**（不写 `.env`，关闭终端即失效）：
@@ -365,7 +373,12 @@ worlds/
     ├── world.json          ← 权威结构化设定
     ├── world.md            ← 人类可读手册（自动导出）
     ├── manifest.json       ← 创建时间与网关元信息
-    ├── outlines/           ← 人物 / 情节大纲
+    ├── outlines/           ← 人物 / 情节大纲导出
+    ├── story/               ← 章节手稿、摘要卡片、RAG 索引
+    │   ├── macro_outline.md
+    │   ├── ch_xxx_manuscript.md
+    │   ├── ch_xxx_summary_card.json
+    │   └── rag_index/        ← ChromaDB 向量索引
     ├── sessions/           ← 对话片段日志（可选）
     └── snapshots/          ← 版本快照
         ├── v001.json
@@ -403,8 +416,11 @@ worlds/
 | `GET` | `/api/worlds/{id}/snapshots` | 快照列表 |
 | `GET` | `/api/worlds/{id}/snapshots/diff` | 快照行级 diff |
 | `POST` | `/api/worlds/{id}/snapshots/rollback` | 回滚到快照 |
+| `DELETE` | `/api/worlds/{id}/snapshots/{version}` | 删除单个快照 |
+| `DELETE` | `/api/worlds/{id}/snapshots` | 清空全部快照 |
 | `POST` | `/api/worlds/{id}/refresh/faction-relations` | 重算派系关系 |
 | `POST` | `/api/worlds/{id}/refresh/culture-relations` | 重算文化关系 |
+| `GET` | `/api/worlds/{id}/story/rag/stats` | RAG 索引统计与就绪状态 |
 | `*` | `/api/worlds/{id}/story/*` | 故事 CRUD（章节/大纲/节拍/手稿/伏笔） |
 
 ---
@@ -432,7 +448,7 @@ flowchart LR
     B2[批量导出 / 模板]
   end
   subgraph 远期["🔵 远期"]
-    C1[叙事时间线与事件锚点]
+    C1[叙事知识图谱]
     C2[协作与多世界工具链]
   end
   A1 --> A2 --> B1 --> B2 --> C1 --> C2

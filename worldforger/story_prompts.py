@@ -245,6 +245,93 @@ def build_character_state_user_payload(
 # ────────────────────────────────────────────────────────────
 
 
+def format_rag_chunks(chunks: list[dict]) -> str:
+    """将 RAG 检索到的 chunk 格式化为 prompt 片段。"""
+    if not chunks:
+        return ""
+    lines = []
+    for i, c in enumerate(chunks, 1):
+        meta = c.get("metadata", {})
+        source_type = meta.get("source_type", "manuscript")
+        if source_type == "manuscript":
+            label = f"来源：第 {meta.get('chapter_order', '?')} 章「{meta.get('chapter_title', '')}」"
+        elif source_type == "character":
+            label = f"来源：人物卡「{meta.get('character_name', '')}」"
+        elif source_type == "world_md":
+            label = f"来源：世界观设定「{meta.get('section', '')}」"
+        else:
+            label = f"来源：{source_type}"
+        doc = c.get("document", "")
+        if len(doc) > 800:
+            doc = doc[:800] + "\n…(片段已截断)"
+        lines.append(f"[片段 {i} — {label}]\n{doc}")
+    return "\n\n".join(lines)
+
+
+def format_runtime_states(world: World, chapter_id: str = "") -> str:
+    """格式化角色运行时状态为 prompt 片段。"""
+    from worldforger.story_store import get_character_runtime_states
+
+    states = get_character_runtime_states(world)
+    if not states:
+        return ""
+    lines = ["【人物当前状态（运行时追踪）】"]
+    for s in states:
+        rs = s.get("runtime_state", {})
+        if not isinstance(rs, dict):
+            continue
+        loc = rs.get("current_location", "?")
+        goal = rs.get("current_goal", "?")
+        emo = rs.get("emotional_state", "?")
+        lines.append(f"- {s.get('name', '?')}({s.get('id', '')})：位置={loc}，目标={goal}，情绪={emo}")
+    return "\n".join(lines)
+
+
+def build_book_summary(world: World) -> str:
+    """构建 Book 层全局叙事摘要。"""
+    from worldforger.story_store import get_character_runtime_states, sorted_chapters
+
+    parts = []
+    parts.append(f"【全局叙事摘要】世界「{world.meta.name}」")
+    parts.append(f"创作模式：{world.meta.creative_mode or 'novel'}，体裁标签：{', '.join(world.meta.genre_tags or [])}")
+
+    # 章节概览
+    chapters = sorted_chapters(world)
+    done = [c for c in chapters if c.status != "planned"]
+    if done:
+        parts.append(f"已完成 {len(done)}/{len(chapters)} 个章节：")
+        for c in done[-5:]:
+            card = c.summary_card
+            hook = f" → 钩子：{card.ending_hook}" if card and card.ending_hook else ""
+            parts.append(f"  - 第{c.order}章「{c.title}」(id={c.id}, {c.word_count}字){hook}")
+    else:
+        parts.append(f"共 {len(chapters)} 个章节待撰写。")
+
+    # 伏笔全景
+    open_fs = [f for f in world.story.foreshadowing if f.status != "resolved"]
+    if open_fs:
+        parts.append(f"未回收伏笔 {len(open_fs)} 条：")
+        for f in open_fs[:12]:
+            parts.append(f"  - {f.id}：{f.label}（植于 {f.planted_chapter_id}）")
+    resolved = [f for f in world.story.foreshadowing if f.status == "resolved"]
+    if resolved:
+        parts.append(f"已回收伏笔 {len(resolved)} 条。")
+
+    # 角色长期弧线（从 runtime_state 推断）
+    states = get_character_runtime_states(world)
+    major_chars = [s for s in states if s.get("runtime_state", {}).get("last_updated_chapter")]
+    if major_chars:
+        parts.append("主要角色当前状态：")
+        for s in major_chars[:8]:
+            rs = s.get("runtime_state", {})
+            parts.append(
+                f"  - {s.get('name', '?')}：{rs.get('current_location', '?')}，"
+                f"情绪 {rs.get('emotional_state', '?')}，目标 {rs.get('current_goal', '?')}"
+            )
+
+    return "\n".join(parts)
+
+
 def build_manuscript_user_payload(
     world: World,
     *,
@@ -254,6 +341,7 @@ def build_manuscript_user_payload(
     prev_manuscripts: list[tuple[str, str]],
     user_hint: str,
     include_world_md: bool,
+    rag_chunks: list[dict] | None = None,
 ) -> str:
     ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
     title = ch.title if ch else chapter_id
@@ -269,23 +357,36 @@ def build_manuscript_user_payload(
         parts.append(f"\n【粗纲】\n{cap}")
     if beat_text.strip():
         parts.append(f"\n【本章细纲】\n{beat_text.strip()}")
+
+    # ── 三层记忆：Immediate → Chapter → Book ──
+    # Immediate 层：RAG 检索到的语义相关前文片段 + 人物运行时状态
+    immediate_parts = []
+    if rag_chunks:
+        rag_text = format_rag_chunks(rag_chunks)
+        if rag_text:
+            immediate_parts.append(f"【语义检索到的前情相关片段（请参考以保持叙事一致性）】\n{rag_text}")
+    runtime_text = format_runtime_states(world, chapter_id)
+    if runtime_text:
+        immediate_parts.append(runtime_text)
+    if immediate_parts:
+        parts.append("\n" + "\n\n".join(immediate_parts))
+
+    # Chapter 层：前章摘要卡片 + fallback 原文截断
     if prev_manuscripts:
         parts.append("\n【前文摘要（保持衔接）】")
-        # 优先使用摘要卡片，摘要缺失时退回原文截断
         from worldforger.story_store import summaries_before
 
-        prev_cids = [cid for cid, _ in prev_manuscripts]
         summary_cards = summaries_before(world.meta.id, chapter_id, len(prev_manuscripts), world)
         has_summaries = len(summary_cards) >= len(prev_manuscripts) * 0.5
 
         if has_summaries and summary_cards:
             for card in summary_cards:
                 cid = card.get("chapter_id", "")
-                title = card.get("title", "")
+                ctitle = card.get("title", "")
                 main = card.get("main_events", "")
                 hook = card.get("ending_hook", "")
                 changes = card.get("character_state_changes", [])
-                parts.append(f"\n### {title} ({cid})\n**事件**：{main}")
+                parts.append(f"\n### {ctitle} ({cid})\n**事件**：{main}")
                 if changes:
                     chg_lines = []
                     for sc in changes:
@@ -305,6 +406,12 @@ def build_manuscript_user_payload(
                 if len(body) > 6000:
                     body = body[:6000] + "\n…(该章文稿已截断)"
                 parts.append(f"\n### {lab} ({cid})\n{body}")
+
+    # Book 层：全局叙事摘要
+    book_summary = build_book_summary(world)
+    if book_summary.strip():
+        parts.append(f"\n{book_summary}")
+
     if user_hint.strip():
         parts.append(f"\n【用户补充要求】\n{user_hint.strip()}")
     from worldforger.foreshadow_apply import foreshadow_ledger_text

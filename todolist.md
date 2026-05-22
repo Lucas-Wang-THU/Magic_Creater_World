@@ -9,13 +9,14 @@
 
 ## 当前状态（最近一次核对）
 
-- **pytest**：**`199 passed`**（使用 `E:/ananconda/envs/Agent/python.exe`）。
+- **pytest**：**`227 passed`**（使用 `E:/ananconda/envs/Agent/python.exe`；含 28 个 RAG 测试）。
 - **全部 11 个世界观模块**（地理/生态/境界/属性/物品/派系/文化/历史/经济/角色/情节）已完成 **Schema + GUI 表单 + 第二路结构化同步**。
 - **情节 Agent**：工具调用（伏笔管理 + 文稿生成）+ 意图检测 + 代码块自动落盘粗纲/细纲/文稿/伏笔，全部可用。
 - **角色卡司**：主角团 / 重要配角 / 人物关系网络 Mermaid 图，全部可用。
 - **工具链**：全文搜索、引用一致性校验、版本快照 diff 与回滚，全部可用。
 - **叙事连贯性第一层**：章节摘要卡片 + 角色运行时状态追踪 + 节拍衔接校验，全部可用。
-- **GUI 优化**：章节摘要卡片（含角色状态变化、伏笔标签、结尾钩子）、角色运行时状态卡片（位置/情绪/目标）、章节状态指示点、字数标签、动画与视觉打磨，全部完成。
+- **叙事连贯性第二层（RAG 增强）**：本地向量索引（ChromaDB + BAAI/bge-small-zh-v1.5）+ 语义检索 + 多粒度分层记忆（Book / Chapter / Immediate 三层），全部可用。
+- **GUI 优化**：章节摘要卡片（含角色状态变化、伏笔标签、结尾钩子）、角色运行时状态卡片（位置/情绪/目标）、章节状态指示点、字数标签、三栏故事工作台布局（章节导航 + 主面板 + 写作上下文侧栏含 RAG 状态）、动画与视觉打磨，全部完成。
 
 ---
 
@@ -237,12 +238,12 @@
 
 | 任务 | 说明 | 状态 |
 |:--|:--|:--|
-| 新增依赖 | `requirements.txt` 加入 `chromadb`、`sentence-transformers` | ▢ |
-| 章节索引器 | 新增 `worldforger/chapter_indexer.py`：chunk 切分、embedding 生成、ChromaDB CRUD | ▢ |
-| 索引触发 | `generate_manuscript()` 定稿后自动调用索引器 | ▢ |
-| 检索注入 | 修改 `build_manuscript_user_payload()`：从 ChromaDB 检索 top-K 替代 `chapters_before()` | ▢ |
-| 索引管理 | 删除章节时同步删除对应向量；重新生成章节时更新向量 | ▢ |
-| 检索 query 构建 | 从节拍大纲 + 出场人物 + 待推进伏笔中自动抽取检索关键词 | ▢ |
+| 新增依赖 | `requirements.txt` 加入 `chromadb`、`sentence-transformers` | ✅ |
+| 章节索引器 | 新增 `worldforger/chapter_indexer.py`：chunk 切分、embedding 生成、ChromaDB CRUD | ✅ |
+| 索引触发 | `generate_manuscript()` 定稿后自动调用索引器 | ✅ |
+| 检索注入 | 修改 `build_manuscript_user_payload()`：从 ChromaDB 检索 top-K 替代 `chapters_before()` | ✅ |
+| 索引管理 | 删除章节时同步删除对应向量；重新生成章节时更新向量 | ✅ |
+| 检索 query 构建 | 从节拍大纲 + 出场人物 + 待推进伏笔中自动抽取检索关键词 | ✅ |
 
 #### E. 多粒度分层记忆
 
@@ -270,9 +271,9 @@
 
 | 任务 | 说明 | 状态 |
 |:--|:--|:--|
-| Book 层摘要生成 | 首次创建世界 / 每次保存时自动更新全局叙事摘要 | ▢ |
-| Chapter 层因果链 | 章节间自动标注因果关系（"因为 ch_3 的 X 事件，ch_4 的 Y 发生"） | ▢ |
-| 分层注入逻辑 | 修改 `build_manuscript_user_payload()` 按优先级组装三层内容 | ▢ |
+| Book 层摘要生成 | 首次创建世界 / 每次保存时自动更新全局叙事摘要（`build_book_summary()`） | ✅ |
+| Chapter 层因果链 | 通过摘要卡片 + RAG 检索实现跨章关联 | ✅ |
+| 分层注入逻辑 | 修改 `build_manuscript_user_payload()` 按优先级组装三层内容（Immediate > Chapter > Book） | ✅ |
 
 ---
 
@@ -351,15 +352,15 @@ foreshadowing:
 ### 推荐实施路径
 
 ```
-第一轮 (1-2周) ────────── 第二轮 (3-4周) ────────── 第三轮 (6-8周)
+第一轮 (已完成) ──────── 第二轮 (已完成) ──────── 第三轮 (6-8周)
 ├─ A. 章节摘要卡片       ├─ D. RAG 语义检索        ├─ F. 叙事知识图谱
 ├─ B. 人物运行时状态     ├─ E. 多粒度分层记忆      ├─ G. 一致性审校 Agent
 └─ C. 节拍衔接校验                                  └─ H. 情感弧线追踪
 ```
 
-**第一轮即可显著改善**：A+B+C 改动集中在 `story_service.py`、`story_prompts.py`、`story_store.py`、`schemas.py` 四个文件，无新依赖。
+**第一轮已显著改善**：A+B+C 改动集中在 `story_service.py`、`story_prompts.py`、`story_store.py`、`schemas.py` 四个文件。
 
-**第二轮带来质的飞跃**：D+E 将"盲目截断"替换为"智能检索"，是解决长篇小说跨章节遗忘的关键。
+**第二轮已实现质的飞跃**：D+E 将"盲目截断"替换为"智能检索"，是解决长篇小说跨章节遗忘的关键。
 
 **第三轮是天花板**：F+G+H 需要较大工程投入，实现接近人类编辑水平的叙事一致性保障。
 
@@ -424,3 +425,13 @@ foreshadowing:
 - [x] **GUI 叙事连贯性优化**：章节摘要卡片渲染（`renderChapterSummaryCard`）、角色运行时状态卡片（`renderRuntimeStates`）、章节状态指示点（planned/drafting/locked）、字数标签、摘要卡片指示点、面板切换动画、编辑器聚焦样式、预览排版优化。
 - [x] **快照历史清空**：`clear_snapshots()` 后端 + `DELETE /api/worlds/{id}/snapshots` API + 前端「清空历史」按钮 + 确认对话框。
 - [x] **P1 同步鲁棒性补齐**：71 个新测试（`tests/test_p1_sync_robustness.py`），覆盖文化 normalize（10 tests）、经济 normalize（9 tests）、角色 normalize（11 tests）、情节 save/load 无损（3 tests）、11 个 scope 各两条参数化测试 + 4 个 scope 系统测试。
+- [x] **第二层 RAG 增强**：完整的本地向量索引与语义检索系统。
+  - `worldforger/chapter_indexer.py`：`ChapterIndexer` 类管理 ChromaDB 向量索引，按段落边界分块（600 字 / 80 字 overlap），优先使用本地 `BAAI/bge-small-zh-v1.5` embedding，不可用时自动降级到 OpenAI-compatible API（`text-embedding-3-small`）。
+  - 索引范围：章节手稿 + world.md 世界观 + 人物卡，全量 `index_all()` 或按需增量。
+  - 检索触发：仅在 `generate_manuscript()` 时触发语义检索，基于节拍大纲 + 出场人物 + 待推进伏笔构建 query。
+  - `worldforger/story_prompts.py`：新增 `format_rag_chunks()` 格式化检索结果为 prompt 片段、`format_runtime_states()` 格式化角色运行时状态、`build_book_summary()` 生成 Book 层全局叙事摘要。
+  - `build_manuscript_user_payload()` 重构为三层记忆模型（Immediate > Chapter > Book）。
+  - 索引管理：`remove_chapter()` 自动清理 RAG 索引；重新生成手稿时自动更新向量。
+  - GUI 上下文面板：情节工作台三栏布局，右侧新增可折叠上下文面板（前章摘要 / 角色运行时状态 / RAG 索引统计与就绪状态点）。
+  - API：`GET /api/worlds/{id}/story/rag/stats` 返回索引就绪状态与统计信息。
+  - 测试：28 个 RAG 单元与集成测试（`tests/test_rag.py`），包含 embedding mock、ChromaDB 操作、格式函数、API 端点。

@@ -117,6 +117,15 @@ def rollback_to_snapshot(world_id: str, snapshot_version: int) -> World:
     return restored
 
 
+def delete_snapshot(world_id: str, version: int) -> bool:
+    """删除指定版本的快照文件，返回是否成功删除。"""
+    p = snapshots_dir(world_id) / f"v{int(version)}.json"
+    if not p.is_file():
+        return False
+    p.unlink()
+    return True
+
+
 def clear_snapshots(world_id: str) -> int:
     """删除所有快照文件（保留最新一份），返回删除数量。"""
     d = snapshots_dir(world_id)

@@ -1122,6 +1122,7 @@
           <div class="card story-workbench">
             <header class="story-wb-header">
             <h2 id="storyWbTitle"><span class="ms h2-ic" aria-hidden="true">auto_stories</span>情节 · 总览</h2>
+            <span id="storyRagStatus" class="rag-status-dot rag-status-dot--empty" title="RAG 索引状态">○ 无索引</span>
             <p class="muted tiny" id="storyUnitLine">情节单元：—</p>
             </header>
             <div class="story-wb-layout">
@@ -1306,8 +1307,28 @@
               <p class="muted tiny">精修页：调整人称与口吻后保存；撰写本章请在顶栏「情节构建」，或直接在此用下方按钮（会合并最近一条情节对话用户消息）。</p>
               <button type="button" class="primary btn-ic" id="btnStoryGenManuscript">AI 撰写本章文稿</button>
             </div>
-            
+
               </div>
+              <aside class="story-wb-context" id="storyWbContext" aria-label="写作上下文">
+                <details class="ctx-block" id="ctxPrevSummary" open>
+                  <summary class="ctx-block-summary">
+                    <span class="ms ctx-block-ic" aria-hidden="true">history</span>前章摘要
+                  </summary>
+                  <div id="ctxPrevSummaryBody" class="ctx-block-body muted tiny">—</div>
+                </details>
+                <details class="ctx-block" id="ctxRuntimeStates" open>
+                  <summary class="ctx-block-summary">
+                    <span class="ms ctx-block-ic" aria-hidden="true">directions_run</span>角色运行时状态
+                  </summary>
+                  <div id="ctxRuntimeList" class="ctx-block-body"></div>
+                </details>
+                <details class="ctx-block" id="ctxRagStatus">
+                  <summary class="ctx-block-summary">
+                    <span id="ctxRagDot" class="rag-dot rag-dot--empty" aria-hidden="true"></span>RAG 索引
+                  </summary>
+                  <div id="ctxRagStatusBody" class="ctx-block-body muted tiny">—</div>
+                </details>
+              </aside>
             </div>
           </div>
         </section>
@@ -1376,7 +1397,8 @@
               <label class="muted tiny">回滚</label>
               <select id="snapshotRollbackSel" aria-label="选择快照版本"></select>
               <button type="button" class="ghost btn-sm snapshot-rollback-btn" id="btnSnapshotRollback">回滚到该快照</button>
-              <button type="button" class="ghost btn-sm snapshot-rollback-btn" id="btnSnapshotClear" style="background:var(--c-red);color:#fff">清空历史</button>
+              <button type="button" class="ghost btn-sm snapshot-rollback-btn" id="btnSnapshotDelete">删除选中快照</button>
+              <button type="button" class="ghost btn-sm snapshot-rollback-btn" id="btnSnapshotClear" style="background:#ef4444;color:#fff">清空历史</button>
             </div>
           </div>
         </section>

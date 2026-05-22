@@ -28,6 +28,16 @@ def story_summaries_dir(world_id: str) -> Path:
     return story_dir(world_id) / "summaries"
 
 
+def rag_index_dir(world_id: str) -> Path:
+    """RAG 向量索引目录。"""
+    return story_dir(world_id) / "rag_index"
+
+
+def book_summary_path(world_id: str) -> Path:
+    """全书叙事摘要 JSON 路径。"""
+    return story_dir(world_id) / "book_summary.json"
+
+
 def summary_path(world_id: str, chapter_id: str) -> Path:
     return story_summaries_dir(world_id) / f"{chapter_id}.json"
 

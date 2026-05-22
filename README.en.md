@@ -70,6 +70,7 @@ The app opens automatically at `http://127.0.0.1:8765`. Start building your worl
 | 🧩 **Structure Sync** | Optional post-chat structured extraction — the LLM parses conversation into JSON patches merged into forms |
 | 🗺️ **11 World Modules** | Geography · Ecology · Power System · Attributes · Items · Cultures · Factions · History · Economy · Characters · Story |
 | 📊 **Relationship Visualization** | Mermaid diagrams: relationship networks, skill trees, profession graphs, timelines, causal chains |
+| 🧠 **Semantic Memory (RAG)** | Local vector index (ChromaDB) with semantic retrieval of prior narrative fragments for coherence |
 | 🔍 **Data Tools** | Full-text search, reference consistency linting & auto-fix, version snapshots with diff & rollback |
 | 📤 **Export** | Auto-generated `world.md` human-readable handbook; outlines written to `outlines/` |
 | 💾 **Local-First** | All data lives on your disk — no cloud service required |
@@ -176,7 +177,7 @@ sequenceDiagram
 | **History** | Major event management | Timeline + causal chain diagram |
 | **Economy** | Currencies, markets, trade routes, goods | ID-aligned with Geography/Factions |
 | **Characters** | Protagonist core, supporting cast, cast JSON | Character relationship network |
-| **Story** | Chapters, macro outlines, beat outlines, manuscripts | Foreshadowing timeline |
+| **Story** | Chapters, macro outlines, beat outlines, manuscripts | Foreshadowing timeline · RAG semantic retrieval |
 
 ### 🤖 AI Conversation Features
 
@@ -185,6 +186,7 @@ sequenceDiagram
 | **World-building Chat** | Free-form conversation with the Architect agent; quick chips; Ctrl+Enter to send |
 | **Character Generation** | Dedicated chat thread with optional guide and structure sync |
 | **Story Agent** | Tool calling: foreshadowing CRUD, manuscript generation, auto-detection of markdown code blocks |
+| **RAG Semantic Retrieval** | Local vector index (ChromaDB + BGE embedding), intelligently retrieves relevant prior fragments for writing context |
 | **Creative Modes** | Novel / Game / CoC / DnD — each injects different system prompts and terminology |
 | **One-click Ecology** | Auto-generate ecology settings from current world context |
 
@@ -195,7 +197,8 @@ sequenceDiagram
 | **Full-text Search** | Searches both `world.json` and `world.md` simultaneously |
 | **Reference Linter** | Cross-module ID reference validation (regions, factions, etc.) |
 | **Auto-fix** | Conservative reference repair with `dry_run` preview |
-| **Version Snapshots** | Auto-snapshot on every save; line-level diff viewer; one-click rollback |
+| **Version Snapshots** | Auto-snapshot on every save; line-level diff viewer; one-click rollback; per-snapshot delete |
+| **RAG Index Readiness Indicator** | Story workbench header status dot + sidebar context panel (prev-chapter summary / character states / index stats) |
 | **world.md Export** | Auto-generate human-readable handbook from JSON |
 
 ### 🌐 World Management
@@ -275,6 +278,8 @@ Dependency overview:
 | `pydantic` + `pydantic-settings` | Data validation & config management |
 | `python-dotenv` | Environment variable loading |
 | `httpx` | Async HTTP client |
+| `chromadb` | Local vector database (RAG semantic retrieval) |
+| `sentence-transformers` | Local text embedding (BAAI/bge-small-zh-v1.5) |
 | `pytest` | Test framework |
 
 For Conda environments, specify your interpreter path:
@@ -305,6 +310,9 @@ Key variables:
 | `OPENAI_API_BASE` | API gateway URL | `https://llmapi.paratera.com/v1` |
 | `OPENAI_CHAT_MODEL` | Chat model name | `DeepSeek-V4-Flash` |
 | `STRUCTURE_SYNC_MODEL` | Optional: dedicated model for structure sync | Same as `OPENAI_CHAT_MODEL` |
+| `MCW_EMBEDDING_MODEL` | Optional: local embedding model name | `BAAI/bge-small-zh-v1.5` |
+| `MCW_EMBEDDING_BACKEND` | `auto` / `api` / `local`: `auto` skips HuggingFace if model not cached | `auto` |
+| `MCW_HF_ENDPOINT` | Optional HF mirror (e.g. `https://hf-mirror.com`) | *(empty)* |
 | `WORLDS_DIR` | Optional: custom worlds root directory | `worlds/` |
 
 > 💡 **Temporary key** (not written to `.env`, expires with terminal session):
@@ -371,7 +379,12 @@ worlds/
     ├── world.json          ← Authoritative structured data
     ├── world.md            ← Human-readable handbook (auto-exported)
     ├── manifest.json       ← Creation metadata & gateway info
-    ├── outlines/           ← Character & plot outlines
+    ├── outlines/           ← Character & plot outline exports
+    ├── story/               ← Chapter manuscripts, summary cards, RAG index
+    │   ├── macro_outline.md
+    │   ├── ch_xxx_manuscript.md
+    │   ├── ch_xxx_summary_card.json
+    │   └── rag_index/        ← ChromaDB vector index
     ├── sessions/           ← Chat session logs (optional)
     └── snapshots/          ← Version snapshots
         ├── v001.json
@@ -409,8 +422,11 @@ worlds/
 | `GET` | `/api/worlds/{id}/snapshots` | List snapshots |
 | `GET` | `/api/worlds/{id}/snapshots/diff` | Line-level diff between snapshots |
 | `POST` | `/api/worlds/{id}/snapshots/rollback` | Rollback to snapshot |
+| `DELETE` | `/api/worlds/{id}/snapshots/{version}` | Delete a single snapshot |
+| `DELETE` | `/api/worlds/{id}/snapshots` | Clear all snapshots |
 | `POST` | `/api/worlds/{id}/refresh/faction-relations` | Recalculate faction relations |
 | `POST` | `/api/worlds/{id}/refresh/culture-relations` | Recalculate culture relations |
+| `GET` | `/api/worlds/{id}/story/rag/stats` | RAG index statistics & readiness |
 | `*` | `/api/worlds/{id}/story/*` | Story CRUD (chapters, outlines, beats, manuscripts, foreshadowing) |
 
 ---
@@ -438,7 +454,7 @@ flowchart LR
     B2[Batch export / templates]
   end
   subgraph Far["🔵 Long Term"]
-    C1[Narrative timeline & event anchors]
+    C1[Narrative Knowledge Graph]
     C2[Collaboration & multi-world toolchain]
   end
   A1 --> A2 --> B1 --> B2 --> C1 --> C2

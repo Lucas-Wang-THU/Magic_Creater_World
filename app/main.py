@@ -508,6 +508,19 @@ def api_snapshot_rollback(world_id: str, body: RollbackSnapshotBody) -> dict[str
     return {"world": w.model_dump(mode="json")}
 
 
+@app.delete("/api/worlds/{world_id}/snapshots/{version}")
+def api_snapshot_delete(world_id: str, version: int) -> dict[str, object]:
+    from worldforger.world_store import delete_snapshot
+
+    try:
+        ok = delete_snapshot(world_id, version)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not ok:
+        raise HTTPException(status_code=404, detail="snapshot not found")
+    return {"ok": True, "deleted_version": version}
+
+
 @app.delete("/api/worlds/{world_id}/snapshots")
 def api_snapshot_clear(world_id: str) -> dict[str, object]:
     from worldforger.world_store import clear_snapshots
@@ -1041,6 +1054,19 @@ async def api_story_generate_manuscript(
         raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
     _maybe_persist_story(world_id, w, persist=body.persist)
     return {"reply": reply, "world": w.model_dump(mode="json")}
+
+
+@app.get("/api/worlds/{world_id}/story/rag/stats")
+def api_story_rag_stats(world_id: str) -> dict[str, object]:
+    """返回当前世界 RAG 索引的统计信息。"""
+    from worldforger.chapter_indexer import ChapterIndexer
+
+    try:
+        stats = ChapterIndexer(world_id).get_stats()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    ready = stats.get("total_chunks", 0) > 0
+    return {"ready": ready, **stats}
 
 
 @app.post("/api/worlds/{world_id}/story/foreshadowing/apply")

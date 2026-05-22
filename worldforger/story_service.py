@@ -77,6 +77,12 @@ def remove_chapter(world: World, chapter_id: str) -> bool:
                 p.unlink()
             except OSError:
                 pass
+    # 清理 RAG 索引中该章节的向量
+    try:
+        from worldforger.chapter_indexer import ChapterIndexer
+        ChapterIndexer(wid).remove_chapter(chapter_id)
+    except Exception:
+        pass
     return True
 
 
@@ -181,6 +187,10 @@ async def generate_manuscript(
     prev: list[tuple[str, str]] = []
     for pch in chapters_before(world, chapter_id, prev_n):
         prev.append((pch.id, read_text(manuscript_path(world.meta.id, pch.id))))
+
+    # ── RAG 检索：语义查询相关前文片段 ──
+    rag_chunks = await _try_retrieve_rag_chunks(world, chapter_id, beat)
+
     system = manuscript_system(world, creative_mode=mode_eff, person=person_eff)
     user = build_manuscript_user_payload(
         world,
@@ -190,6 +200,7 @@ async def generate_manuscript(
         prev_manuscripts=prev,
         user_hint=prompt,
         include_world_md=inc_md,
+        rag_chunks=rag_chunks if rag_chunks else None,
     )
     reply = await chat_completion(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
@@ -207,6 +218,9 @@ async def generate_manuscript(
 
     # ── 收尾：更新角色运行时状态 ──
     await _try_update_runtime_states(world, chapter_id, reply)
+
+    # ── 收尾：索引新章节到向量库 ──
+    await _try_index_chapter(world, chapter_id, reply)
 
     return reply
 
@@ -277,3 +291,68 @@ async def _try_update_runtime_states(world: World, chapter_id: str, manuscript_t
     except Exception:
         # 状态提取失败不影响主流程
         pass
+
+
+# ── RAG：检索与索引 ──────────────────────────────────────────
+
+
+async def _try_retrieve_rag_chunks(world: World, chapter_id: str, beat_text: str) -> list[dict]:
+    """从向量索引中检索与当前章相关的历史片段。失败返回空列表。"""
+    try:
+        from worldforger.chapter_indexer import ChapterIndexer
+
+        indexer = ChapterIndexer(world.meta.id)
+        # 提取出场人物 id
+        char_ids = _extract_character_ids_from_beat(world, beat_text)
+        # 提取待推进伏笔 id
+        fs_ids = _extract_foreshadowing_ids(world, chapter_id)
+        return indexer.retrieve_for_chapter(
+            chapter_id,
+            beat_text=beat_text,
+            character_ids=char_ids,
+            foreshadowing_ids=fs_ids,
+            top_k=5,
+        )
+    except Exception:
+        return []
+
+
+async def _try_index_chapter(world: World, chapter_id: str, manuscript_text: str) -> None:
+    """将新生成的章节索引到向量库。失败不阻塞。"""
+    try:
+        from worldforger.chapter_indexer import ChapterIndexer
+
+        ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+        indexer = ChapterIndexer(world.meta.id)
+        # 先移除旧向量（如果重新生成）
+        indexer.remove_chapter(chapter_id)
+        indexer.index_chapter(chapter_id, manuscript_text, {
+            "chapter_order": ch.order if ch else 0,
+            "chapter_title": ch.title if ch else "",
+        })
+    except Exception:
+        pass
+
+
+def _extract_character_ids_from_beat(world: World, beat_text: str) -> list[str]:
+    """从节拍文本中提取出出场人物 ID（与 world 中实际人物匹配）。"""
+    ids: list[str] = []
+    for ent in world.characters.entities:
+        if not isinstance(ent, dict):
+            continue
+        cid = str(ent.get("id", ""))
+        cname = str(ent.get("name", ""))
+        if cid and cid in beat_text:
+            ids.append(cid)
+        elif cname and cname in beat_text:
+            ids.append(cid)
+    return ids
+
+
+def _extract_foreshadowing_ids(world: World, chapter_id: str) -> list[str]:
+    """提取与当前章相关的伏笔 ID（植于本章或计划在本章回收）。"""
+    ids: list[str] = []
+    for f in world.story.foreshadowing:
+        if f.planted_chapter_id == chapter_id or f.payoff_chapter_id == chapter_id:
+            ids.append(f.id)
+    return ids

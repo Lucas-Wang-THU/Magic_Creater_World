@@ -3758,6 +3758,7 @@ async function refreshSnapshotPanel() {
   const meta = $("snapshotDiffMeta");
   const btnDiff = $("btnSnapshotDiff");
   const btnRb = $("btnSnapshotRollback");
+  const btnDel = $("btnSnapshotDelete");
   if (!leftSel || !rightSel || !rbSel) return;
 
   if (!state.world?.meta?.id) {
@@ -3816,6 +3817,7 @@ async function refreshSnapshotPanel() {
     const has = snaps.length > 0;
     if (btnDiff) btnDiff.disabled = !has;
     if (btnRb) btnRb.disabled = !has;
+    if (btnDel) btnDel.disabled = !has;
     if (!has && wrap) {
       wrap.hidden = true;
       if (meta) meta.textContent = "";
@@ -3885,6 +3887,21 @@ async function runSnapshotRollback() {
     void refreshSnapshotPanel();
   } catch (e) {
     toast("回滚失败：" + (e?.message || e));
+  }
+}
+
+async function deleteSnapshot() {
+  if (!state.world) return toast("请先选择世界");
+  const id = state.world.meta.id;
+  const v = parseInt($("snapshotRollbackSel")?.value || "", 10);
+  if (!Number.isFinite(v) || v < 1) return toast("请选择有效快照版本");
+  if (!confirm(`确定删除 v${v} 的快照？此操作不可撤销。`)) return;
+  try {
+    await api(`/api/worlds/${id}/snapshots/${v}`, { method: "DELETE" });
+    toast(`已删除 v${v} 快照`);
+    void refreshSnapshotPanel();
+  } catch (e) {
+    toast("删除失败：" + (e?.message || e));
   }
 }
 
@@ -4013,6 +4030,7 @@ function storyMetaToForm() {
   renderStoryChapterNav();
   renderStoryForeshadowTimeline(s.foreshadowing ?? []);
   renderRuntimeStates();
+  void updateRagStatusDot();
   updateStoryWbStats();
   updateStoryWbTitle();
 }
@@ -4224,6 +4242,7 @@ function setStorySubView(name) {
     if (items) renderStoryForeshadowTimeline(items);
   }
   refreshStoryChatContextLine();
+  refreshStoryContextPanel();
 }
 
 async function refreshStoryPanel() {
@@ -4355,6 +4374,103 @@ function renderRuntimeStates() {
   }).join("");
 }
 
+
+// ── RAG 状态与故事上下文面板 ──────────────────────────────────────
+
+	async function updateRagStatusDot() {
+	  const dot = $("storyRagStatus");
+	  const ctxDot = $("ctxRagDot");
+	  const ctxBody = $("ctxRagStatusBody");
+	  if (!dot && !ctxDot) return;
+
+	  if (!state.world?.meta?.id) {
+	    if (dot) { dot.className = "rag-status-dot rag-status-dot--empty"; dot.textContent = "○ 无索引"; dot.title = "RAG 索引状态"; }
+	    if (ctxDot) { ctxDot.className = "rag-dot rag-dot--empty"; }
+	    if (ctxBody) ctxBody.textContent = "请先选择世界";
+	    return;
+	  }
+
+	  if (dot) { dot.className = "rag-status-dot rag-status-dot--indexing"; dot.textContent = "◌ 检查中…"; }
+	  if (ctxDot) { ctxDot.className = "rag-dot rag-dot--indexing"; }
+
+	  try {
+	    const stats = await api(`/api/worlds/${state.world.meta.id}/story/rag/stats`);
+	    const ready = stats.ready;
+	    const total = stats.total_chunks || 0;
+	    const chapters = stats.indexed_chapters || 0;
+
+	    if (dot) {
+	      dot.className = ready ? "rag-status-dot rag-status-dot--ready" : "rag-status-dot rag-status-dot--empty";
+	      dot.textContent = ready ? `● ${total} 块 · ${chapters} 章` : "○ 无索引";
+	      dot.title = ready ? `RAG 就绪：${total} 个向量块，${chapters} 个章节已索引` : "RAG 索引为空，请先生成章节文稿以构建索引";
+	    }
+	    if (ctxDot) {
+	      ctxDot.className = ready ? "rag-dot rag-dot--ready" : "rag-dot rag-dot--empty";
+	    }
+	    if (ctxBody) {
+	      if (ready) {
+	        const sourceCounts = stats.source_counts || {};
+	        const lines = [];
+	        if (sourceCounts.manuscript) lines.push(`手稿：${sourceCounts.manuscript} 块`);
+	        if (sourceCounts.character) lines.push(`人物：${sourceCounts.character} 块`);
+	        if (sourceCounts.world_md) lines.push(`世界观：${sourceCounts.world_md} 块`);
+	        lines.push(`共 ${total} 块 · ${chapters} 章`);
+	        if (stats.chapter_ids && stats.chapter_ids.length) {
+	          lines.push("已索引：" + stats.chapter_ids.join("、"));
+	        }
+	        ctxBody.innerHTML = lines.map(l => `<div class="ctx-rag-stat-line">${escapeHtml(l)}</div>`).join("");
+	      } else {
+	        ctxBody.innerHTML = '<div class="ctx-rag-stat-line muted">暂无索引。生成章节文稿后自动构建语义检索。</div>';
+	      }
+	    }
+	  } catch (e) {
+	    if (dot) { dot.className = "rag-status-dot rag-status-dot--error"; dot.textContent = "⚠ 错误"; dot.title = "RAG 状态获取失败：" + (e?.message || e); }
+	    if (ctxDot) { ctxDot.className = "rag-dot rag-dot--error"; }
+	    if (ctxBody) ctxBody.textContent = "状态获取失败";
+	  }
+	}
+
+	function refreshStoryContextPanel() {
+	  const prevBody = $("ctxPrevSummaryBody");
+	  if (prevBody) {
+	    const chapters = sortedStoryChapters();
+	    const activeId = state.storyActiveChapterId;
+	    const activeIdx = chapters.findIndex(c => c.id === activeId);
+	    if (activeIdx > 0) {
+	      const prev = chapters[activeIdx - 1];
+	      if (prev.summary_card && prev.summary_card.main_events) {
+	        prevBody.innerHTML = `<strong>第${prev.order}章 ${escapeHtml(prev.title || prev.id)}</strong><br>${escapeHtml(prev.summary_card.main_events)}`;
+	      } else {
+	        prevBody.textContent = `第${prev.order}章 ${escapeHtml(prev.title || prev.id)}（暂无摘要）`;
+	      }
+	    } else if (activeIdx === 0) {
+	      prevBody.textContent = "已是第一章，无前章摘要。";
+	    } else {
+	      prevBody.textContent = "—";
+	    }
+	  }
+
+	  const ctxList = $("ctxRuntimeList");
+	  if (ctxList) {
+	    const entities = state.world?.characters?.entities || [];
+	    const states = entities.filter(e => e && e.runtime_state && Object.keys(e.runtime_state).length > 1);
+	    if (states.length) {
+	      ctxList.innerHTML = states.map(e => {
+	        const rs = e.runtime_state || {};
+	        return `<div class="ctx-runtime-item">
+	          <span class="ctx-runtime-item-name">${escapeHtml(e.name || e.id || '?')}</span>
+	          <span class="ctx-runtime-item-loc">${escapeHtml(rs.current_location || '—')}</span>
+	          <span class="ctx-runtime-item-emotion">${escapeHtml(rs.emotional_state || '—')}</span>
+	          <span class="ctx-runtime-item-goal">${escapeHtml(rs.current_goal || '—')}</span>
+	        </div>`;
+	      }).join("");
+	    } else {
+	      ctxList.innerHTML = '<p class="muted tiny">暂无运行时状态数据</p>';
+	    }
+	  }
+
+	  void updateRagStatusDot();
+	}
 function collectStoryMetaForWorld(w) {
   if (!w.story) w.story = {};
   w.story.summary = ($("storySummary")?.value ?? "").trim();
@@ -5530,6 +5646,7 @@ function selectStoryChapter(chapterId, subView) {
   }
   refreshStoryChatContextLine();
   refreshStoryChatBeatTitleHint(chapterId);
+  refreshStoryContextPanel();
   if (state.activeView === "storyChat" && !subView) return;
   if (subView === "beats") {
     switchView("storyOutline");
@@ -6066,6 +6183,7 @@ async function init() {
 
   $("btnSnapshotDiff")?.addEventListener("click", () => void runSnapshotDiff());
   $("btnSnapshotRollback")?.addEventListener("click", () => void runSnapshotRollback());
+  $("btnSnapshotDelete")?.addEventListener("click", () => void deleteSnapshot());
   $("btnSnapshotClear")?.addEventListener("click", () => void clearSnapshots());
   $("btnReferenceLint")?.addEventListener("click", () => void runReferenceLintFlow({ quietToast: false }));
   $("btnReferenceLintFixPreview")?.addEventListener("click", () => void runReferenceFixPreview());
