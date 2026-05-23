@@ -41,15 +41,24 @@
 ## Quick Start
 
 ```bash
-# 1. Install dependencies
+# 1. Create virtual environment (recommended)
+python -m venv .venv
+
+# Activate on Linux / macOS
+source .venv/bin/activate
+
+# Activate on Windows
+.venv\Scripts\activate
+
+# 2. Install dependencies
 pip install -r requirements.txt
 
-# 2. Configure your API key
+# 3. Configure your API key
 cp .env.example .env          # Linux / macOS
 copy .env.example .env        # Windows
 # Edit .env and fill in PARATERA_API_KEY
 
-# 3. Launch
+# 4. Launch
 python run.py
 ```
 

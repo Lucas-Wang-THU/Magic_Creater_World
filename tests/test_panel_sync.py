@@ -1,4 +1,4 @@
-from worldforger.panel_merge import merge_section_conservative
+from worldforger.panel_merge import _merge_array_by_name_or_append, merge_section_conservative
 from worldforger.panel_sync import apply_structure_patch, parse_structure_json
 from worldforger.world_store import create_world
 
@@ -147,11 +147,51 @@ def test_apply_structure_patch_attribute_system():
     assert merged.attribute_system.stats[0].name == "体魄"
 
 
-def test_merge_replaces_list_when_patch_nonempty():
+def test_merge_appends_non_id_array_by_name():
     base = {"tiers": [{"name": "A"}]}
     patch = {"tiers": [{"name": "A"}, {"name": "B"}]}
     out = merge_section_conservative(base, patch)
     assert len(out["tiers"]) == 2
+    names = [t["name"] for t in out["tiers"]]
+    assert names == ["A", "B"]
+
+
+def test_merge_name_array_dedup_preserves_old():
+    """name 去重追加：patch 只含新条目时，旧条目不丢失。"""
+    base = {"grades": [{"name": "凡品"}, {"name": "灵品"}]}
+    patch = {"grades": [{"name": "仙品"}]}
+    out = merge_section_conservative(base, patch)
+    names = [g["name"] for g in out["grades"]]
+    assert names == ["凡品", "灵品", "仙品"]
+
+
+def test_merge_name_array_duplicate_deep_merges():
+    """同名条目：递归 deep-merge 更新字段，不新增。"""
+    base = {"grades": [{"name": "凡品", "rarity_narrative": "随处可见"}]}
+    patch = {"grades": [{"name": "凡品", "rarity_narrative": "更新描述", "binding_rules": "不可交易"}]}
+    out = merge_section_conservative(base, patch)
+    assert len(out["grades"]) == 1
+    g = out["grades"][0]
+    assert g["rarity_narrative"] == "更新描述"
+    assert g["binding_rules"] == "不可交易"
+
+
+def test_merge_name_array_no_name_falls_back_to_hash_dedup():
+    """无 name 的 dict 条目按内容哈希去重追加。"""
+    base = [{"stats": ["攻", "防"]}]
+    patch = [{"stats": ["攻", "防"]}, {"stats": ["速"]}]
+    merged = _merge_array_by_name_or_append(base, patch)
+    assert len(merged) == 2
+    assert merged[1]["stats"] == ["速"]
+
+
+def test_merge_name_array_patch_only_new_preserves_base():
+    """patch 只含新条目时 base 完整保留 + 新条目追加。"""
+    base = [{"name": "炼气"}, {"name": "筑基"}, {"name": "金丹"}]
+    patch = [{"name": "元婴"}, {"name": "化神"}]
+    merged = _merge_array_by_name_or_append(base, patch)
+    names = [m["name"] for m in merged]
+    assert names == ["炼气", "筑基", "金丹", "元婴", "化神"]
 
 
 def test_apply_structure_patch_characters():

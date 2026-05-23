@@ -20,7 +20,8 @@
       "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/test_api.py::test_sync_panels_endpoint tests/test_p1_sync_robustness.py::TestPerScopeSyncNormalize::test_sync_panels_applies_single_scope tests/test_story_api.py::test_sync_panels_story_scope_integration tests/test_story_chat.py::test_sync_panels_story_scope -v)",
       "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/test_api.py::test_sync_panels_endpoint tests/test_story_api.py::test_sync_panels_story_scope_integration tests/test_story_chat.py::test_sync_panels_story_scope -v)",
       "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/ -v --timeout=30 -k \"not test_generate_manuscript_triggers_summary_card and not test_story_generate_macro and not test_ecology_generate_returns_reply\")",
-      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/ -v -k \"not \\(test_generate_manuscript_triggers_summary_card or test_story_generate_macro or test_ecology_generate_returns_reply\\)\")"
+      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/ -v -k \"not \\(test_generate_manuscript_triggers_summary_card or test_story_generate_macro or test_ecology_generate_returns_reply\\)\")",
+      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/test_panel_sync.py tests/test_api.py::test_sync_panels_endpoint tests/test_p1_sync_robustness.py::TestPerScopeSyncNormalize::test_sync_panels_applies_single_scope tests/test_story_api.py::test_sync_panels_story_scope_integration tests/test_story_chat.py::test_sync_panels_story_scope -v)"
     ]
   }
 }

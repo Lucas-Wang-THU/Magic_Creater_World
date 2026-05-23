@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json as _json
 from typing import Any
 
 
@@ -8,8 +10,8 @@ def merge_section_conservative(
 ) -> dict[str, Any]:
     """
     将 patch 合并进 base：空字符串不覆盖已有非空文案；空数组不覆盖已有非空数组；
-    若双方数组元素都含 id 字段，则按 id 匹配做增量合并（更新已有 + 追加新增），
-    避免模型误返回空列表或不完整列表导致已有数据被清空。
+    若双方数组元素都含 id 字段，则按 id 匹配做增量合并（更新已有 + 追加新增）；
+    否则按 name 去重追加，避免模型误返回不完整列表导致已有数据被清空。
     """
     out = dict(base)
     for k, pv in patch.items():
@@ -30,13 +32,67 @@ def merge_section_conservative(
             if _array_items_have_ids(bv) and _array_items_have_ids(pv):
                 out[k] = merge_array_by_id(bv, pv)
             else:
-                out[k] = pv
+                out[k] = _merge_array_by_name_or_append(bv, pv)
             continue
         if isinstance(bv, dict) and isinstance(pv, dict):
             out[k] = merge_section_conservative(bv, pv)
             continue
         out[k] = pv
     return out
+
+
+def _merge_array_by_name_or_append(
+    base_list: list[dict[str, Any]], patch_list: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """无伪数组的聚合符：按 name 去重追加；若无 name 则按 JSON 序列化去重。
+
+    绝不删除 base 中已有条目。
+    """
+    merged: list[dict[str, Any]] = list(base_list)
+
+    # 收集已有条目的 key（name 或 JSON 哈希）
+    seen_names: set[str] = set()
+    seen_hashes: set[str] = set()
+    for item in merged:
+        if isinstance(item, dict):
+            nm = item.get("name")
+            if isinstance(nm, str) and nm.strip():
+                seen_names.add(nm.strip())
+            else:
+                seen_hashes.add(_stable_json_hash(item))
+        else:
+            seen_hashes.add(_stable_json_hash(item) if isinstance(item, dict) else str(item))
+
+    for patch_item in patch_list:
+        if not isinstance(patch_item, dict):
+            # 非 dict 项按原样追加
+            merged.append(patch_item)
+            continue
+        nm = patch_item.get("name")
+        if isinstance(nm, str) and nm.strip():
+            key = nm.strip()
+            if key in seen_names:
+                # 同名项做 deep-merge 更新
+                for idx, base_item in enumerate(merged):
+                    if isinstance(base_item, dict) and base_item.get("name", "").strip() == key:
+                        merged[idx] = merge_section_conservative(base_item, patch_item)
+                        break
+                continue
+            seen_names.add(key)
+        else:
+            h = _stable_json_hash(patch_item)
+            if h in seen_hashes:
+                continue
+            seen_hashes.add(h)
+        merged.append(dict(patch_item))
+
+    return merged
+
+
+def _stable_json_hash(obj: dict[str, Any]) -> str:
+    """键排序后的 JSON 哈希，用于无 id/无 name 的条目去重。"""
+    raw = _json.dumps(obj, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
 def merge_array_by_id(

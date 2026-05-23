@@ -41,15 +41,24 @@
 ## 快速开始
 
 ```bash
-# 1. 安装依赖
+# 1. 创建虚拟环境（推荐）
+python -m venv .venv
+
+# Linux / macOS 激活
+source .venv/bin/activate
+
+# Windows 激活
+.venv\Scripts\activate
+
+# 2. 安装依赖
 pip install -r requirements.txt
 
-# 2. 配置 API Key
+# 3. 配置 API Key
 cp .env.example .env          # Linux / macOS
 copy .env.example .env        # Windows
 # 编辑 .env，填入 PARATERA_API_KEY
 
-# 3. 启动
+# 4. 启动
 python run.py
 ```
 
