@@ -158,16 +158,14 @@ sequenceDiagram
     loop 校对→补充循环（最多 N 轮）
       API->>P: 对比「架构师回复」vs「同步器 JSON」vs「world.json」
       P-->>API: verdict: ok / retry
-      alt verdict=retry
+      opt verdict=retry
         API->>A: 补充问题
         A-->>API: 补充回复
         API->>S: 抽取新 patch
         S-->>API: patch(vN)
-      else verdict=ok
-        break 通过，退出循环
       end
     end
-    API->>API: 累积 patch 按 ID 增量合并
+    Note over API: 按 ID 增量合并累积 patch
     API-->>W: world + updated_sections + proofreader 审计
     W->>API: PUT …/world（自动落盘）
   end

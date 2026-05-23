@@ -164,16 +164,14 @@ sequenceDiagram
     loop Proofread→Supplement (up to N rounds)
       API->>P: Compare "Architect reply" vs "Sync JSON" vs "world.json"
       P-->>API: verdict: ok / retry
-      alt verdict=retry
+      opt verdict=retry
         API->>A: Supplement questions
         A-->>API: Supplement reply
         API->>S: Extract new patch
         S-->>API: patch(vN)
-      else verdict=ok
-        break Pass, exit loop
       end
     end
-    API->>API: Accumulate patches, ID-aware incremental merge
+    Note over API: ID-aware incremental merge
     API-->>W: world + updated_sections + proofreader audit
     W->>API: PUT …/world (auto-save)
   end
