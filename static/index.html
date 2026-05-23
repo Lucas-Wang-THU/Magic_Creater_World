@@ -186,6 +186,19 @@
                 ><span class="ms lbl-ic-glyph" aria-hidden="true">filter_alt</span
                 ><input type="checkbox" id="syncScopeToView" /> 仅同步当前页对应模块（助手若写了多模块会被截断）</label
               >
+              <label class="muted lbl-ic"
+                ><span class="ms lbl-ic-glyph" aria-hidden="true">fact_check</span
+                >校对轮数
+                <input
+                  type="number"
+                  id="proofreaderMaxRetries"
+                  min="0"
+                  max="5"
+                  value="3"
+                  style="width:3rem"
+                  title="0=跳过校对者；N=最多 N 轮校对→架构师补充"
+                />
+              </label>
             </div>
             <p class="muted sync-hint" id="syncHint"></p>
             <div class="chips" id="promptChips"></div>

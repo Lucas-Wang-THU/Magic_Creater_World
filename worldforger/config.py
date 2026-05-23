@@ -21,6 +21,8 @@ class Settings(BaseSettings):
     openai_chat_model: str = "DeepSeek-V4-Flash"
     # 可选：「板块结构化同步」专用模型；留空则与 OPENAI_CHAT_MODEL 相同
     structure_sync_model: str = ""
+    # 校对者→架构师补充循环最大轮数（0 跳过校对者）；环境变量 PROOFREADER_MAX_RETRIES
+    proofreader_max_retries: int = 3
 
 
 @lru_cache

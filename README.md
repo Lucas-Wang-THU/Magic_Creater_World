@@ -67,7 +67,7 @@ python run.py
 |:--|:--|
 | 📌 **单一事实源** | 磁盘上的 `world.json` 为权威结构；`world.md` 为可读导出 |
 | 💬 **对话构建** | 与"世界观架构师"自然语言交流，4 种创作模式（小说 / 游戏 / CoC / DnD） |
-| 🧩 **结构化同步** | 勾选「对话后同步」，LLM 自动抽取 JSON 补丁合并进表单 |
+| 🧩 **结构化同步 + 校对者** | 三 Agent 流水线：架构师→同步器→校对者→补充循环，自动抽取 JSON 补丁，按 ID 增量合并进表单 |
 | 🗺️ **11 个世界观模块** | 地理 · 生态 · 境界 · 属性 · 物品 · 文化 · 派系 · 历史 · 经济 · 角色 · 故事 |
 | 📊 **关系可视化** | Mermaid 图表：关系网络、技能树、职业晋升图、时间线、因果链 |
 | 🧠 **语义记忆 (RAG)** | 本地向量索引（ChromaDB），智能检索前文片段保持叙事连贯性 |
@@ -77,14 +77,14 @@ python run.py
 
 </div>
 
-### 两条对话路径
+### 两条对话路径（三 Agent 流水线）
 
 | 路径 | 说明 |
 |:--|:--|
 | **第一路 · 对话** | 自然语言与"世界观架构师"交流；可选附带 `world.md` 上下文 |
-| **第二路 · 结构同步** | 勾选后，再调模型把可落盘内容解析为 JSON，合并进表单 |
+| **第二路 · 结构同步** | 三 Agent 流水线：**同步器** 从架构师回复提取 JSON → **校对者** 检查是否遗漏新增内容 → 如有遗漏，**架构师补充** → 同步器再提取 → 循环至多 N 轮（默认 3）。最终按 **ID 增量合并**，已有条目更新、新条目追加，永不覆盖。 |
 
-第二路模型默认同主对话，可用 `STRUCTURE_SYNC_MODEL` 单独指定。
+第二路模型默认同主对话，可用 `STRUCTURE_SYNC_MODEL` 单独指定。校对轮数可用 `PROOFREADER_MAX_RETRIES` 配置，UI 可手动调整（0=跳过校对者）。
 
 ---
 
@@ -118,37 +118,57 @@ flowchart LR
   subgraph 第一路["💬 第一路 · 对话"]
     B[世界观架构师]
   end
-  subgraph 第二路["🧩 第二路 · 可选"]
+  subgraph 第二路["🧩 第二路 · 三 Agent 流水线"]
     C[结构化同步器]
+    D[校对者]
+    E[架构师补充]
   end
   subgraph 本地["💾 本地数据"]
-    D[(world.json)]
-    E[world.md 导出]
+    F[(world.json)]
+    G[world.md 导出]
   end
   A --> B
   B --> C
   C --> D
-  D --> E
+  D -->|通过| F
+  D -->|遗漏| E
+  E --> C
+  F --> G
 ```
 
-**对话后同步与保存（时序）**
+**三 Agent 同步流水线（时序）**
 
 ```mermaid
 sequenceDiagram
   participant U as 👤 用户
   participant W as 🖥️ 工作台
   participant API as ⚡ FastAPI
-  participant LLM as 🤖 模型网关
+  participant S as 🤖 同步器
+  participant P as 🔍 校对者
+  participant A as 🎨 架构师
+
   U->>W: 发送消息（可选勾选同步）
   W->>API: POST …/chat
-  API->>LLM: 补全
-  LLM-->>API: 助手回复
-  API-->>W: reply
+  API-->>W: 架构师回复
+
   alt 开启对话后同步
     W->>API: POST …/sync-panels-from-chat
-    API->>LLM: 抽取 JSON 补丁
-    LLM-->>API: 结构化结果
-    API-->>W: world + updated_sections
+    API->>S: 抽取 JSON patch(v1)
+    S-->>API: patch
+    loop 校对→补充循环（最多 N 轮）
+      API->>P: 对比「架构师回复」vs「同步器 JSON」vs「world.json」
+      P-->>API: verdict: ok / retry
+      alt verdict=retry
+        API->>A: 补充问题
+        A-->>API: 补充回复
+        API->>S: 抽取新 patch
+        S-->>API: patch(vN)
+      else verdict=ok
+        break 通过，退出循环
+      end
+    end
+    API->>API: 累积 patch 按 ID 增量合并
+    API-->>W: world + updated_sections + proofreader 审计
     W->>API: PUT …/world（自动落盘）
   end
 ```
@@ -304,6 +324,7 @@ copy .env.example .env
 | `OPENAI_API_BASE` | API 网关地址 | `https://llmapi.paratera.com/v1` |
 | `OPENAI_CHAT_MODEL` | 对话模型 | `DeepSeek-V4-Flash` |
 | `STRUCTURE_SYNC_MODEL` | 可选：结构化同步专用模型 | 同 `OPENAI_CHAT_MODEL` |
+| `PROOFREADER_MAX_RETRIES` | 可选：校对者→架构师补充最大轮数（0=跳过校对者） | `3` |
 | `MCW_EMBEDDING_MODEL` | 可选：本地 embedding 模型名 | `BAAI/bge-small-zh-v1.5` |
 | `MCW_EMBEDDING_BACKEND` | `auto` / `api` / `local`：无本地缓存时 `auto` 不走 HuggingFace，直接 API | `auto` |
 | `MCW_HF_ENDPOINT` | 可选：Hugging Face 镜像（如 `https://hf-mirror.com`） | *(空)* |
@@ -406,7 +427,7 @@ worlds/
 | `POST` | `/api/worlds/{id}/chat` | 世界观对话 |
 | `POST` | `/api/worlds/{id}/character-chat` | 人物生成对话 |
 | `POST` | `/api/worlds/{id}/story-chat` | 故事 Agent 对话 |
-| `POST` | `/api/worlds/{id}/sync-panels-from-chat` | 结构化同步 |
+| `POST` | `/api/worlds/{id}/sync-panels-from-chat` | 结构化同步（含校对者审计） |
 | `POST` | `/api/worlds/{id}/ecology-generate` | 一键生态生成 |
 | `POST` | `/api/worlds/{id}/outline` | 大纲生成 |
 | `GET` | `/api/worlds/{id}/search` | 全文搜索 |
@@ -447,11 +468,12 @@ flowchart LR
     B1[大纲与卡司版本联动]
     B2[批量导出 / 模板]
   end
-  subgraph 远期["🔵 远期"]
-    C1[叙事知识图谱]
-    C2[协作与多世界工具链]
+  subgraph 已完成["✅ 已完成"]
+    C1[三 Agent 校对者流水线]
+    C2[ID 感知增量合并]
+    C3[RAG 语义检索]
   end
-  A1 --> A2 --> B1 --> B2 --> C1 --> C2
+  A1 --> A2 --> B1 --> B2
 ```
 
 详见 [`todolist.md`](todolist.md)。

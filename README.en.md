@@ -67,7 +67,7 @@ The app opens automatically at `http://127.0.0.1:8765`. Start building your worl
 |:--|:--|
 | 📌 **Single Source of Truth** | `world.json` on disk is the authoritative structure; `world.md` is the human-readable export |
 | 💬 **Conversational Building** | Chat with a "World Architect" LLM agent in natural language across 4 creative modes (Novel / Game / CoC / DnD) |
-| 🧩 **Structure Sync** | Optional post-chat structured extraction — the LLM parses conversation into JSON patches merged into forms |
+| 🧩 **Structure Sync + Proofreader** | 3-Agent pipeline: Architect→Synchronizer→Proofreader→Supplement loop, auto-extracting JSON patches with ID-aware incremental merge into forms |
 | 🗺️ **11 World Modules** | Geography · Ecology · Power System · Attributes · Items · Cultures · Factions · History · Economy · Characters · Story |
 | 📊 **Relationship Visualization** | Mermaid diagrams: relationship networks, skill trees, profession graphs, timelines, causal chains |
 | 🧠 **Semantic Memory (RAG)** | Local vector index (ChromaDB) with semantic retrieval of prior narrative fragments for coherence |
@@ -77,14 +77,14 @@ The app opens automatically at `http://127.0.0.1:8765`. Start building your worl
 
 </div>
 
-### Two Conversation Paths
+### Two Conversation Paths (3-Agent Pipeline)
 
 | Path | Description |
 |:--|:--|
 | **Path 1 · Dialogue** | Natural language chat with the "World Architect"; optionally attach `world.md` as context |
-| **Path 2 · Structure Sync** | When enabled, a second LLM call extracts structured JSON from the conversation and merges it into the world data |
+| **Path 2 · Structure Sync** | 3-Agent pipeline: **Synchronizer** extracts JSON from architect reply → **Proofreader** checks for missing new content → if gaps found, **Architect supplements** → Synchronizer extracts again → loop up to N rounds (default 3). Final merge uses **ID-aware incremental append** — existing entries updated, new entries appended, never overwritten. |
 
-The structure sync model defaults to the main chat model. Set `STRUCTURE_SYNC_MODEL` to use a different one.
+The structure sync model defaults to the main chat model. Set `STRUCTURE_SYNC_MODEL` to use a different one. Proofreading rounds can be configured via `PROOFREADER_MAX_RETRIES` and adjusted in the UI (0 = skip proofreader).
 
 ---
 
@@ -124,37 +124,57 @@ flowchart LR
   subgraph Path1["💬 Path 1 · Dialogue"]
     B[World Architect]
   end
-  subgraph Path2["🧩 Path 2 · Opt"]
+  subgraph Path2["🧩 Path 2 · 3-Agent Pipeline"]
     C[Structure Sync]
+    D[Proofreader]
+    E[Architect Supplement]
   end
   subgraph Local["💾 Local Data"]
-    D[(world.json)]
-    E[world.md export]
+    F[(world.json)]
+    G[world.md export]
   end
   A --> B
   B --> C
   C --> D
-  D --> E
+  D -->|pass| F
+  D -->|gaps| E
+  E --> C
+  F --> G
 ```
 
-**Post-chat Sync & Save (sequence)**
+**3-Agent Sync Pipeline (sequence)**
 
 ```mermaid
 sequenceDiagram
   participant U as 👤 User
   participant W as 🖥️ Workbench
   participant API as ⚡ FastAPI
-  participant LLM as 🤖 Model Gateway
+  participant S as 🤖 Synchronizer
+  participant P as 🔍 Proofreader
+  participant A as 🎨 Architect
+
   U->>W: Send message (sync optional)
   W->>API: POST …/chat
-  API->>LLM: Completion
-  LLM-->>API: Assistant reply
-  API-->>W: reply
+  API-->>W: Architect reply
+
   alt Sync enabled
     W->>API: POST …/sync-panels-from-chat
-    API->>LLM: Extract JSON patch
-    LLM-->>API: Structured result
-    API-->>W: world + updated_sections
+    API->>S: Extract JSON patch(v1)
+    S-->>API: patch
+    loop Proofread→Supplement (up to N rounds)
+      API->>P: Compare "Architect reply" vs "Sync JSON" vs "world.json"
+      P-->>API: verdict: ok / retry
+      alt verdict=retry
+        API->>A: Supplement questions
+        A-->>API: Supplement reply
+        API->>S: Extract new patch
+        S-->>API: patch(vN)
+      else verdict=ok
+        break Pass, exit loop
+      end
+    end
+    API->>API: Accumulate patches, ID-aware incremental merge
+    API-->>W: world + updated_sections + proofreader audit
     W->>API: PUT …/world (auto-save)
   end
 ```
@@ -310,6 +330,7 @@ Key variables:
 | `OPENAI_API_BASE` | API gateway URL | `https://llmapi.paratera.com/v1` |
 | `OPENAI_CHAT_MODEL` | Chat model name | `DeepSeek-V4-Flash` |
 | `STRUCTURE_SYNC_MODEL` | Optional: dedicated model for structure sync | Same as `OPENAI_CHAT_MODEL` |
+| `PROOFREADER_MAX_RETRIES` | Optional: max proofreader→architect supplement rounds (0=skip) | `3` |
 | `MCW_EMBEDDING_MODEL` | Optional: local embedding model name | `BAAI/bge-small-zh-v1.5` |
 | `MCW_EMBEDDING_BACKEND` | `auto` / `api` / `local`: `auto` skips HuggingFace if model not cached | `auto` |
 | `MCW_HF_ENDPOINT` | Optional HF mirror (e.g. `https://hf-mirror.com`) | *(empty)* |
@@ -412,7 +433,7 @@ worlds/
 | `POST` | `/api/worlds/{id}/chat` | World-building chat |
 | `POST` | `/api/worlds/{id}/character-chat` | Character generation chat |
 | `POST` | `/api/worlds/{id}/story-chat` | Story agent chat (with tools) |
-| `POST` | `/api/worlds/{id}/sync-panels-from-chat` | Structure sync |
+| `POST` | `/api/worlds/{id}/sync-panels-from-chat` | Structure sync (with proofreader audit) |
 | `POST` | `/api/worlds/{id}/ecology-generate` | One-click ecology generation |
 | `POST` | `/api/worlds/{id}/outline` | Outline generation |
 | `GET` | `/api/worlds/{id}/search` | Full-text search |
@@ -453,11 +474,12 @@ flowchart LR
     B1[Outline & cast version linking]
     B2[Batch export / templates]
   end
-  subgraph Far["🔵 Long Term"]
-    C1[Narrative Knowledge Graph]
-    C2[Collaboration & multi-world toolchain]
+  subgraph Done["✅ Completed"]
+    C1[3-Agent Proofreader Pipeline]
+    C2[ID-Aware Incremental Merge]
+    C3[RAG Semantic Retrieval]
   end
-  A1 --> A2 --> B1 --> B2 --> C1 --> C2
+  A1 --> A2 --> B1 --> B2
 ```
 
 See [`todolist.md`](todolist.md) for details.

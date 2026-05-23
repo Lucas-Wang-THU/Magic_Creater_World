@@ -7,3 +7,4 @@ worlds/
 .venv/
 .idea/
 .vscode/
+.cursor/

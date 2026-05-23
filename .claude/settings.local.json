@@ -11,7 +11,16 @@
       "Bash(npm install *)",
       "Bash(mv verify_statusbar.mjs verify_statusbar.cjs)",
       "Bash(node verify_statusbar.cjs)",
-      "Bash(git rm *)"
+      "Bash(git rm *)",
+      "Bash(python -m pytest tests/ -x --timeout=60)",
+      "Bash(python -m pytest tests/ -x --timeout=60 -v)",
+      "Bash(\"E:/ananconda/envs/Agent/python.exe\" -c \"from worldforger.panel_merge import merge_array_by_id, merge_section_conservative, _array_items_have_ids; print\\('panel_merge imports OK'\\)\")",
+      "Bash(\"E:/ananconda/envs/Agent/python.exe\" -c \"from worldforger.panel_sync import sync_panels_from_dialogue, _run_proofreader, _run_architect_supplement, _run_synchronizer, PROOFREADER_SYSTEM; print\\('panel_sync imports OK'\\)\")",
+      "Bash(\"E:/ananconda/envs/Agent/python.exe\" -m pytest tests/ -v)",
+      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/test_api.py::test_sync_panels_endpoint tests/test_p1_sync_robustness.py::TestPerScopeSyncNormalize::test_sync_panels_applies_single_scope tests/test_story_api.py::test_sync_panels_story_scope_integration tests/test_story_chat.py::test_sync_panels_story_scope -v)",
+      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/test_api.py::test_sync_panels_endpoint tests/test_story_api.py::test_sync_panels_story_scope_integration tests/test_story_chat.py::test_sync_panels_story_scope -v)",
+      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/ -v --timeout=30 -k \"not test_generate_manuscript_triggers_summary_card and not test_story_generate_macro and not test_ecology_generate_returns_reply\")",
+      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/ -v -k \"not \\(test_generate_manuscript_triggers_summary_card or test_story_generate_macro or test_ecology_generate_returns_reply\\)\")"
     ]
   }
 }

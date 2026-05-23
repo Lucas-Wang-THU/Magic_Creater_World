@@ -14,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from starlette.requests import Request
 
+from worldforger.config import get_settings
 from worldforger.llm import chat_completion
 from worldforger.creative_modes import chat_guides_content, chat_mode_system, genre_tags_prompt_addon, normalize_chat_guides
 from worldforger.panel_sync import sync_panels_from_dialogue
@@ -243,6 +244,7 @@ class SyncPanelsBody(BaseModel):
     persist: bool = False
     scope: SyncScope = "all"
     creative_mode: str | None = None
+    proofreader_max_retries: int | None = None  # None → 使用 Settings 默认值
 
 
 class RefreshRelationsBody(BaseModel):
@@ -698,12 +700,18 @@ async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict
         raise HTTPException(status_code=404, detail="world not found")
     try:
         mode_eff = (body.creative_mode or "").strip() or w.meta.creative_mode
+        pr_max_retries = (
+            body.proofreader_max_retries
+            if body.proofreader_max_retries is not None
+            else get_settings().proofreader_max_retries
+        )
         result = await sync_panels_from_dialogue(
             w,
             user_message=body.user_message,
             assistant_reply=body.assistant_reply,
             scope=body.scope,
             creative_mode=mode_eff,
+            proofreader_max_retries=pr_max_retries,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
@@ -718,6 +726,9 @@ async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict
             "scope_applied": body.scope,
             "merge_warnings": [],
             "normalize_notes": {},
+            "proofreader_rounds": 0,
+            "proofreader_final_verdict": "error",
+            "proofreader_issues": [],
         }
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"structure sync error: {e}") from e
@@ -735,6 +746,9 @@ async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict
         "scope_applied": result["scope_applied"],
         "merge_warnings": result["merge_warnings"],
         "normalize_notes": result.get("normalize_notes") or {},
+        "proofreader_rounds": result["proofreader_rounds"],
+        "proofreader_final_verdict": result["proofreader_final_verdict"],
+        "proofreader_issues": result["proofreader_issues"],
     }
 
 

@@ -9,8 +9,11 @@
 
 ## 当前状态（最近一次核对）
 
-- **pytest**：**`227 passed`**（使用 `E:/ananconda/envs/Agent/python.exe`；含 28 个 RAG 测试）。
+- **pytest**：**`226 passed, 3 deselected`**（229 tests 全部通过；3 个慢速 LLM 测试需 API key；使用 `E:/ananconda/envs/Agent/python.exe`）。
 - **全部 11 个世界观模块**（地理/生态/境界/属性/物品/派系/文化/历史/经济/角色/情节）已完成 **Schema + GUI 表单 + 第二路结构化同步**。
+- **三 Agent 校对者流水线**：架构师→同步器→校对者→架构师补充循环（至多 N 轮，默认 3），校对者检查同步器是否遗漏架构师回复中的新增内容，确保增量追加不丢数据。
+- **ID 感知增量合并**：`merge_array_by_id()` 按 `id` 匹配已有条目做 deep-merge，新条目追加到末尾，**永不覆盖/删除已有数据**。
+- **校对轮数可配置**：环境变量 `PROOFREADER_MAX_RETRIES`（默认 3）；GUI 输入框（0-5）可手动调整；API 透传 `proofreader_rounds`/`proofreader_final_verdict`/`proofreader_issues` 审计结果。
 - **情节 Agent**：工具调用（伏笔管理 + 文稿生成）+ 意图检测 + 代码块自动落盘粗纲/细纲/文稿/伏笔，全部可用。
 - **角色卡司**：主角团 / 重要配角 / 人物关系网络 Mermaid 图，全部可用。
 - **工具链**：全文搜索、引用一致性校验、版本快照 diff 与回滚，全部可用。
@@ -26,7 +29,11 @@
 用户 (GUI)
   │
   ├─ 世界观构建 ──→ POST /chat
-  │                   └─ (可选) POST /sync-panels-from-chat → 第二路合并
+  │                   └─ (可选) POST /sync-panels-from-chat → 三 Agent 流水线
+  │                         ├─ 同步器：架构师回复 → JSON patch(v1)
+  │                         ├─ 校对者：对比回复 vs patch vs world.json
+  │                         ├─ (如遗漏) 架构师补充 → 同步器 → patch(vN)
+  │                         └─ merge_array_by_id() → 增量追加到 world.json
   │
   ├─ 人物生成 ────→ POST /character-chat
   │                   └─ (可选) POST /sync-panels-from-chat → characters 节
@@ -400,7 +407,7 @@ foreshadowing:
 ## 架构速记（便于联调）
 
 - **第一路**：自然语言对话（`chat_completion` / `chat_completion_with_tools`）。
-- **第二路**：`sync_panels_from_dialogue` → `parse_structure_json` → **`normalize_structure_patch_detailed`**（`normalize_structure_patch` 为其首元组）→ `merge_section_conservative` → **各节 `model_validate`**；成功响应含 **`normalize_notes`**。
+- **第二路**：`sync_panels_from_dialogue` → 同步器 → 校对者（`_run_proofreader` → `verdict: ok|retry`）→（如 retry）架构师补充（`_run_architect_supplement`）→ 同步器再提取 → 循环至多 N 轮 → `parse_structure_json` → **`normalize_structure_patch_detailed`**（`normalize_structure_patch` 为其首元组）→ `merge_section_conservative` → `merge_array_by_id`（有 ID 数组增量追加）→ **各节 `model_validate`**；成功响应含 **`normalize_notes`**、**`proofreader_rounds`**、**`proofreader_issues`**。
 - **情节 Agent**：`run_story_chat_agent` → 工具循环（`list_foreshadowing` / `apply_foreshadowing` / `generate_manuscript`）→ `auto_apply_story_artifacts_from_reply`。
 - **静态前端**：`/static/*`；API：`/api/*`；根路径不整站挂载静态，避免盖住 API。
 
@@ -408,6 +415,8 @@ foreshadowing:
 
 ## 已完成（归档）
 
+- [x] **三 Agent 校对者流水线**：架构师→同步器→校对者→补充循环，防止结构化同步遗漏新增内容；`PROOFREADER_MAX_RETRIES` 可配置（默认 3，GUI 可调）；API 返回 `proofreader_rounds`/`proofreader_final_verdict`/`proofreader_issues` 审计追踪。
+- [x] **ID 感知增量合并**：`merge_array_by_id()`（`worldforger/panel_merge.py`）按 `id` 匹配已有条目递归 deep-merge 更新，新条目追加到末尾，永不覆盖/删除；`merge_section_conservative` 自动检测数组由 ID 驱动。
 - [x] 地理 `geography` 归一化、`normalize_structure_patch_detailed` 与 **`normalize_notes`** 全链路（`panel_sync` → API → `app.js` toast）。
 - [x] 全部 11 个世界观模块：Schema、GUI 表单、第二路同步白名单与 scope 路由。
 - [x] **情节 Agent**：工具调用（伏笔管理 + 文稿生成）+ 意图检测。

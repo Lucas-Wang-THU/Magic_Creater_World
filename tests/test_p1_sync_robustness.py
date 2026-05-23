@@ -597,6 +597,7 @@ class TestPerScopeSyncNormalize:
                     "assistant_reply": mock_reply,
                     "scope": scope,
                     "persist": True,
+                    "proofreader_max_retries": 0,
                 },
             )
             assert r.status_code == 200, f"scope={scope} failed: {r.text}"

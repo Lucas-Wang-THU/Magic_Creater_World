@@ -274,6 +274,9 @@ def test_sync_panels_endpoint(mock_sync):
         "scope_applied": "geography",
         "merge_warnings": [],
         "normalize_notes": {},
+        "proofreader_rounds": 0,
+        "proofreader_final_verdict": "ok",
+        "proofreader_issues": [],
     }
 
     r = client.post(

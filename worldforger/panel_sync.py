@@ -7,6 +7,8 @@ from typing import Any
 from worldforger.config import get_settings
 from worldforger.creative_modes import genre_tags_prompt_addon, structure_sync_addon
 from worldforger.llm import chat_completion
+from worldforger.panel_merge import merge_section_conservative
+from worldforger.prompts import system_with_world_json
 from worldforger.schemas import (
     AttributeSystem,
     CharactersSection,
@@ -58,6 +60,27 @@ STRUCTURE_SYSTEM_BASE = """你是「设定结构化同步器」，与负责自�
 7. 若助手回复仅为规划、提问或闲聊、没有任何可落盘设定，输出空对象：{}。
 8. **多模块同答**：若助手一段话里同时写了地理、生态、力量、物品、人物属性、派系、文化/宗教、人物卡司、历史、经济流通等多个方面，必须在**同一个** JSON 里输出**多个顶层键**（geography、ecology、power_system、item_quality_system、attribute_system、factions、cultures、characters、history、economy 等），每个键下给出合并后的完整小节，不要只挑一个模块写。
 9. **地理 regions（大陆/区域）**：凡出现可区分的地理/政治单元，必须写入 **`geography.regions`**；每项至少 **name** + **summary**，并尽量给出稳定 **id** 以便 **relations** 引用。地标、特产、矿脉、可调查点等写入该区域的 **landmarks** / **resources**（短字符串列表）；**勿**把长段落塞进列表项——长叙事放在 **summary** 或 **notes**。区域间邻接、贸易、航道、关隘写在 **`relations`**：`target_id` 指向对方 **id**，`type` 用短标签（如 邻接/贸易/航道/调查轴）。**形态示例（虚构名，勿照抄）**：`{"geography":{"summary":"双陆夹内海","climate_notes":"西岸多雨","map_notes":"上北下南，比例示意","regions":[{"id":"north_realm","name":"北境","summary":"河谷农业带","terrain":"丘陵","climate":"冬雨型","notes":"关隘易守；主线常经古渡","landmarks":["古渡","碑林"],"resources":["盐","木材"],"relations":[{"target_id":"south_realm","type":"贸易","notes":"粮盐"}]}]}}`"""
+
+
+PROOFREADER_SYSTEM = """你是「设定校对者」，与负责自然语言创作的「世界观架构师」及负责 JSON 提取的「结构化同步器」是不同角色。
+你的唯一任务：对比【架构师自然语言回复】与【同步器提取的 JSON patch】，检查同步器是否**完整捕获**了架构师回复中的**所有新增/修改的设定**。
+
+硬性规则：
+1. 只输出**一个** JSON 对象，不要输出任何 JSON 以外的文字。
+2. 逐模块对比：架构师回复中提到的每个设定模块（地理/生态/境界/物品/属性/派系/文化/角色/历史/经济/情节），同步器 JSON 中是否有对应条目。
+3. 数组条目计数：若架构师回复中提到 N 个实体（如 N 个派系、N 种货币、N 个职业），同步器 JSON 中应至少包含 N 个条目。
+4. 字段完整性：每个条目的核心字段（如 name、summary、description）是否已填充有意义的非空值。
+5. 不要求逐字一致：语义等价即可通过。架构师的文学性描述与同步器的结构化表述只要含义相同就视为覆盖。
+6. 若发现遗漏或明显不完整，verdict 设为 "retry"，并在 questions_for_architect 中生成**面向架构师的补充问题**（用自然语言，告诉架构师需要补充哪些具体内容，而非 JSON 指令）。
+7. 若审查通过，verdict 设为 "ok"。
+
+输出格式：
+{
+  "verdict": "ok" | "retry",
+  "missing": ["描述每条遗漏或缺陷"],
+  "questions_for_architect": ["面向架构师的补充问题1", "问题2", ...]
+}
+"""
 
 
 def structure_system_for_scope(scope: str | None) -> str:
@@ -152,6 +175,91 @@ def apply_structure_patch(
     return new_world, updated, warnings, normalize_notes
 
 
+async def _run_proofreader(
+    *,
+    architect_reply: str,
+    patch: dict[str, Any],
+    world_json: str,
+) -> dict[str, Any]:
+    """校对者 LLM：检查同步器 JSON patch 是否完整覆盖架构师回复。"""
+    patch_json = json.dumps(patch, ensure_ascii=False, indent=2)
+    user_block = (
+        "【当前 world.json】\n"
+        + world_json
+        + "\n\n【架构师自然语言回复】\n"
+        + architect_reply.strip()
+        + "\n\n【同步器提取的 JSON patch】\n"
+        + patch_json
+    )
+    raw = await chat_completion(
+        [
+            {"role": "system", "content": PROOFREADER_SYSTEM},
+            {"role": "user", "content": user_block},
+        ],
+        model=_structure_model_name(),
+        temperature=0.05,
+        max_tokens=2048,
+    )
+    return parse_structure_json(raw)
+
+
+async def _run_architect_supplement(
+    *,
+    questions: list[str],
+    world: World,
+    creative_mode: str | None = None,
+) -> str:
+    """架构师补充轮：回答校对者提出的补充问题。"""
+    from worldforger.creative_modes import chat_mode_system
+
+    world_json = json.dumps(world.model_dump(mode="json"), ensure_ascii=False, indent=2)
+    question_text = "\n\n".join(f"{i + 1}. {q}" for i, q in enumerate(questions))
+    user_msg = (
+        "以下是对你上一轮世界观回复的**补充需求**，请针对性地补充缺失的设定，用自然语言描述即可：\n\n"
+        + question_text
+    )
+    system = system_with_world_json(world_json)
+    if creative_mode:
+        addon = chat_mode_system(creative_mode)
+        if addon:
+            system = system + "\n\n" + addon
+    raw = await chat_completion(
+        [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_msg},
+        ],
+        model=get_settings().openai_chat_model,
+        temperature=0.8,
+        max_tokens=4096,
+    )
+    return raw.strip()
+
+
+async def _run_synchronizer(
+    *,
+    world_json: str,
+    assistant_reply: str,
+    system: str,
+) -> dict[str, Any]:
+    """同步器 LLM：从架构师回复中提取 JSON patch。"""
+    user_block = (
+        "【当前 world.json】\n"
+        + world_json
+        + "\n\n【助手自然语言回复】\n"
+        + assistant_reply.strip()
+    )
+    raw = await chat_completion(
+        [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_block},
+        ],
+        model=_structure_model_name(),
+        temperature=0.15,
+        max_tokens=8192,
+    )
+    return parse_structure_json(raw)
+
+
 async def sync_panels_from_dialogue(
     world: World,
     *,
@@ -159,11 +267,13 @@ async def sync_panels_from_dialogue(
     assistant_reply: str,
     scope: str | None = None,
     creative_mode: str | None = None,
+    proofreader_max_retries: int = 3,
 ) -> dict[str, Any]:
-    """
-    Second-pass LLM: natural language -> structured sections.
-    scope: 非 all 时会丢弃其它顶层键（前端默认应使用 all 以免助手多模块输出被截断）。
-    返回 dict：world, updated_sections, applied_patch, structure_output_keys, scope_applied, merge_warnings, normalize_notes
+    """Second-pass LLM: natural language -> structured sections, with optional proofreader loop.
+
+    proofreader_max_retries: 校对者→架构师补充的最大轮数（0 跳过校对者，保持原有行为）。
+    返回 dict 含 world, updated_sections, applied_patch, proofreader_rounds,
+    proofreader_final_verdict, proofreader_issues 等。
     """
     world_json = json.dumps(world.model_dump(mode="json"), ensure_ascii=False, indent=2)
     user_block = (
@@ -179,6 +289,8 @@ async def sync_panels_from_dialogue(
     gt = genre_tags_prompt_addon(world.meta.genre_tags)
     if gt:
         system = system + "\n\n" + gt
+
+    # --- 同步器 #1 ---
     raw = await chat_completion(
         [
             {"role": "system", "content": system},
@@ -193,16 +305,62 @@ async def sync_panels_from_dialogue(
         raise ValueError("parsed root is not an object")
     structure_output_keys = list(raw_patch.keys())
     if sc != "all":
-        patch = {k: v for k, v in raw_patch.items() if k == sc}
+        patch_accum = {k: v for k, v in raw_patch.items() if k == sc}
     else:
-        patch = dict(raw_patch)
-    merged, keys, merge_warnings, normalize_notes = apply_structure_patch(world, patch)
+        patch_accum = dict(raw_patch)
+
+    # --- 校对者 + 架构师补充循环 ---
+    proofreader_rounds = 0
+    proofreader_final_verdict = "ok"
+    proofreader_issues: list[dict[str, Any]] = []
+    retries = max(0, proofreader_max_retries)
+    architect_reply = assistant_reply  # 始终保持最新一轮的架构师回复引用
+
+    for _ in range(retries):
+        proofreader_rounds += 1
+        pr_result = await _run_proofreader(
+            architect_reply=architect_reply,
+            patch=patch_accum,
+            world_json=world_json,
+        )
+        proofreader_issues.append(pr_result)
+        if pr_result.get("verdict") == "retry":
+            proofreader_final_verdict = "retry"
+            questions = pr_result.get("questions_for_architect") or []
+            if not questions:
+                break
+            architect_supplement = await _run_architect_supplement(
+                questions=questions,
+                world=world,
+                creative_mode=creative_mode,
+            )
+            architect_reply = architect_supplement
+            new_patch_raw = await _run_synchronizer(
+                world_json=world_json,
+                assistant_reply=architect_supplement,
+                system=system,
+            )
+            if isinstance(new_patch_raw, dict) and new_patch_raw:
+                if sc != "all":
+                    new_patch = {k: v for k, v in new_patch_raw.items() if k == sc}
+                else:
+                    new_patch = dict(new_patch_raw)
+                patch_accum = merge_section_conservative(patch_accum, new_patch)
+        else:
+            proofreader_final_verdict = "ok"
+            break
+
+    # --- 最终合并 ---
+    merged, keys, merge_warnings, normalize_notes = apply_structure_patch(world, patch_accum)
     return {
         "world": merged,
         "updated_sections": keys,
-        "applied_patch": patch,
+        "applied_patch": patch_accum,
         "structure_output_keys": structure_output_keys,
         "scope_applied": sc,
         "merge_warnings": merge_warnings,
         "normalize_notes": normalize_notes,
+        "proofreader_rounds": proofreader_rounds,
+        "proofreader_final_verdict": proofreader_final_verdict,
+        "proofreader_issues": proofreader_issues,
     }

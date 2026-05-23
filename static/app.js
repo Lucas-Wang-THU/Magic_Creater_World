@@ -6536,6 +6536,8 @@ async function init() {
             persist: false,
             scope: syncScopeForRequest(),
             creative_mode: $("genreMode")?.value || null,
+            proofreader_max_retries:
+              parseInt($("proofreaderMaxRetries")?.value ?? "3") || 0,
           }),
         }
       );
@@ -6551,6 +6553,15 @@ async function init() {
         }
         if (syncRes.merge_warnings?.length) {
           toast("校验提示：" + syncRes.merge_warnings.join("；"));
+        }
+        if (syncRes.proofreader_rounds > 0) {
+          const prStatus =
+            syncRes.proofreader_final_verdict === "ok"
+              ? "通过"
+              : "已用尽重试（仍有遗漏）";
+          toast(
+            "校对者：" + prStatus + "（" + syncRes.proofreader_rounds + " 轮）"
+          );
         }
         const nn = syncRes.normalize_notes;
         if (nn && typeof nn === "object") {
@@ -6649,6 +6660,8 @@ async function init() {
             persist: false,
             scope: syncScopeForRequest(),
             creative_mode: $("genreMode")?.value || null,
+            proofreader_max_retries:
+              parseInt($("proofreaderMaxRetries")?.value ?? "3") || 0,
           }),
         }
       );
@@ -6664,6 +6677,15 @@ async function init() {
         }
         if (syncRes.merge_warnings?.length) {
           toast("校验提示：" + syncRes.merge_warnings.join("；"));
+        }
+        if (syncRes.proofreader_rounds > 0) {
+          const prStatus =
+            syncRes.proofreader_final_verdict === "ok"
+              ? "通过"
+              : "已用尽重试（仍有遗漏）";
+          toast(
+            "校对者：" + prStatus + "（" + syncRes.proofreader_rounds + " 轮）"
+          );
         }
         const nn = syncRes.normalize_notes;
         if (nn && typeof nn === "object") {
@@ -6793,6 +6815,8 @@ async function init() {
           persist: false,
           scope: syncScope,
           creative_mode: $("genreMode")?.value || null,
+          proofreader_max_retries:
+            parseInt($("proofreaderMaxRetries")?.value ?? "3") || 0,
         }),
       });
       if (syncRes.ok) {
@@ -6807,6 +6831,15 @@ async function init() {
         }
         if (syncRes.merge_warnings?.length) {
           toast("校验提示：" + syncRes.merge_warnings.join("；"));
+        }
+        if (syncRes.proofreader_rounds > 0) {
+          const prStatus =
+            syncRes.proofreader_final_verdict === "ok"
+              ? "通过"
+              : "已用尽重试（仍有遗漏）";
+          toast(
+            "校对者：" + prStatus + "（" + syncRes.proofreader_rounds + " 轮）"
+          );
         }
         const nn = syncRes.normalize_notes;
         if (nn && typeof nn === "object") {

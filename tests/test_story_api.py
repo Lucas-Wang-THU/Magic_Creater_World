@@ -103,6 +103,9 @@ def test_sync_panels_story_scope_integration(mock_sync):
         "scope_applied": "story",
         "merge_warnings": [],
         "normalize_notes": {},
+        "proofreader_rounds": 0,
+        "proofreader_final_verdict": "ok",
+        "proofreader_issues": [],
     }
     r = client.post(
         f"/api/worlds/{wid}/sync-panels-from-chat",
