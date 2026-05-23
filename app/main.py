@@ -12,7 +12,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 
 from worldforger.llm import chat_completion
@@ -82,18 +81,41 @@ def _static_nocache_enabled() -> bool:
     return v in ("1", "true", "yes", "on")
 
 
-class DevStaticCacheBypassMiddleware(BaseHTTPMiddleware):
-    """在 MCW_NO_STATIC_CACHE 开启时，去掉对 /static/ 的条件 GET，并禁止缓存。"""
+from starlette.types import ASGIApp, Scope, Receive, Send
 
-    async def dispatch(self, request: Request, call_next):
-        if not _static_nocache_enabled() or not request.url.path.startswith("/static/"):
-            return await call_next(request)
-        scope = dict(request.scope)
-        skip = {b"if-none-match", b"if-modified-since"}
-        scope["headers"] = [(k, v) for k, v in scope.get("headers", ()) if k.lower() not in skip]
-        response = await call_next(Request(scope))
-        response.headers["Cache-Control"] = "no-store, max-age=0"
-        return response
+
+class DevStaticCacheBypassMiddleware:
+    """纯 ASGI：去掉 /static/ 的条件 GET + 移除 ETag + 禁止浏览器缓存。
+
+    BaseHTTPMiddleware 与 StaticFiles 挂载路由有已知交互问题，这里
+    直接操作 ASGI scope/event 以保证可靠性。"""
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not _static_nocache_enabled() or not scope.get("path", "").startswith("/static/"):
+            await self.app(scope, receive, send)
+            return
+
+        # 移除请求中的条件头，避免 304
+        headers = scope.get("headers", ())
+        scope["headers"] = [
+            (k, v) for k, v in headers if k.lower() not in (b"if-none-match", b"if-modified-since")
+        ]
+
+        async def _send(message: dict) -> None:
+            if message["type"] == "http.response.start":
+                # 移除响应中的 ETag，避免浏览器下次发条件请求
+                resp_headers = [
+                    (k, v) for k, v in message.get("headers", ())
+                    if k.lower() not in (b"etag",)
+                ]
+                resp_headers.append((b"cache-control", b"no-store, max-age=0"))
+                message["headers"] = resp_headers
+            await send(message)
+
+        await self.app(scope, receive, _send)
 
 
 class CreateWorldBody(BaseModel):

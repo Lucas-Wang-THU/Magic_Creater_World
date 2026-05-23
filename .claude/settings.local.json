@@ -1,7 +1,17 @@
 {
   "permissions": {
     "allow": [
-      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests -q)"
+      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests -q)",
+      "Bash(curl -s http://127.0.0.1:8765/static/app.js)",
+      "Bash(curl -s http://127.0.0.1:8765/static/styles.css)",
+      "Bash(curl -sI http://127.0.0.1:8765/static/styles.css)",
+      "Bash(\"E:/ananconda/envs/Agent/python.exe\" run.py --no-browser)",
+      "Bash(curl -s http://127.0.0.1:8765/api/config)",
+      "Bash(npx -p playwright node /tmp/verify_statusbar.mjs)",
+      "Bash(npm install *)",
+      "Bash(mv verify_statusbar.mjs verify_statusbar.cjs)",
+      "Bash(node verify_statusbar.cjs)",
+      "Bash(git rm *)"
     ]
   }
 }

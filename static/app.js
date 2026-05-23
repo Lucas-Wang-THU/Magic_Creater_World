@@ -6061,9 +6061,16 @@ async function init() {
 
   try {
     const cfg = await api("/api/config");
-    $("apiHint").textContent = cfg.has_api_key
-      ? `世界观构建：${cfg.default_model} · 同步：${cfg.structure_sync_model ?? cfg.default_model}`
-      : "未配置 PARATERA_API_KEY（世界观构建 / 大纲 / 板块同步将不可用）";
+    const chatModel = cfg.default_model;
+    const syncModel = cfg.structure_sync_model ?? cfg.default_model;
+    const badge = $("apiHint");
+    if (cfg.has_api_key) {
+      badge.textContent = chatModel;
+      badge.title = `对话模型：${chatModel} | 同步模型：${syncModel}`;
+    } else {
+      badge.textContent = "未配置 PARATERA_API_KEY";
+      badge.title = "对话 / 同步将不可用";
+    }
   } catch {
     $("apiHint").textContent = "无法连接 API";
   }

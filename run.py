@@ -55,9 +55,8 @@ def main() -> None:
     else:
         print(f"请在浏览器中访问：{url}")
 
-    if args.reload:
-        # 开发重载时默认禁用 /static 条件缓存，避免 app.js 长期 304 看不到最新前端
-        os.environ.setdefault("MCW_NO_STATIC_CACHE", "1")
+    # 默认禁用 /static 条件缓存，避免浏览器缓存旧版 app.js
+    os.environ.setdefault("MCW_NO_STATIC_CACHE", "1")
 
     uvicorn.run(
         "app.main:app",
