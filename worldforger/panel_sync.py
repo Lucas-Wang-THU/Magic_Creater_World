@@ -24,42 +24,62 @@ from worldforger.schemas import (
     World,
 )
 
-STRUCTURE_SYSTEM_BASE = """你是「设定结构化同步器」，与负责自然语言对话的「世界观架构师」是不同角色。
-你的唯一任务：根据【用户消息】与【助手自然语言回复】，把其中可写入世界设定、且与【当前 world.json】相容的**事实性内容**，整理成 JSON。
+STRUCTURE_SYSTEM_BASE = """你是「设定结构化同步器」。你的输出将被 `json.loads()` 直接解析，因此**你的整个回复体必须是且仅是一个合法 JSON 对象**。
+
+严禁输出：Markdown 标题、代码块围栏（```）、解释性文字、问候语。如果你输出 `# 生态与生境` 或任何非 JSON 文本，系统将无法解析你的回复。
+
+你的任务：根据【用户消息】与【助手自然语言回复】，把其中可写入世界设定的内容整理成 JSON。
+
+顶层键只能来自：geography, ecology, power_system, item_quality_system, attribute_system, factions, cultures, characters, history, economy, story。未涉及的模块不要出现该键。
+
+各模块结构参考：
+- geography: summary, regions[] (每项 id, name, summary; 可选 terrain, climate, notes, landmarks[], resources[], relations[]), climate_notes, map_notes。regions 必须为数组。
+- power_system: 顶层键名必须为 power_system。summary, realm_design_notes, skill_tree_design_notes, tiers[] (每项 name, description, typical_capabilities[], limitations[], examples[]; 可选 skill_tree, subclass_paths), profession_system (可选)。
+- item_quality_system: 顶层键名必须为 item_quality_system。summary, grades[] (每项 name, rarity_narrative, typical_effects, binding_rules, examples[])。
+- attribute_system: 顶层键名必须为 attribute_system。summary, design_notes, stats[] (每项 id, name; 可选 intro, description, reference_percent), tier_average_profiles[]。
+- factions: summary, entities[] (每项 id, name; 可选 goals, territory, key_figures[] (仅字符串数组), relations[] (target_id, type: ally|enemy|neutral|complex, notes))。
+- cultures: summary, entities[] (每项 id, name, kind: culture|religion|syncretic, summary, tenets, practices, sacred_sites[], key_figures[], relations[])。
+- characters: summary, design_notes, entities[] (每项 id, name; 可选 cast_role, faction_ids[], home_region_id, one_line_hook, notes, notable_skills[], relations[])。
+- history: summary, events[] (每项 when, title, summary, consequences[], linked_faction_ids[])。
+- economy: summary, design_notes, currencies[], markets[], trade_routes[], trade_goods[], labor_notes, taxation_notes, volatility_notes。
+- ecology: summary, design_notes, biomes[] (每项 id, name, summary, linked_region_ids[]), species[] (每项 id, name, biome_id, traits[], notable_skills[])。
+- story: summary, design_notes, chapters[] (id, order, title, status), foreshadowing[] (id, label, planted_chapter_id, status), narrator, writing_defaults。
+
+合并规则：
+- 从【当前 world.json】复制该节，再写入本轮变更。没有变化的字段完全省略，禁止输出 "" 或 [] 占位。
+- 数组有更新时输出合并后的完整数组（旧条目 + 新条目），不要只输出新增条目。
+- 若没有任何可落盘设定，输出 {}。
+- 多模块同答时在同一个 JSON 里输出多个顶层键。
+- 不要修改 meta（id、name、version）。
+
+关键约束：
+- factions.entities[].relations[].type 只能是 ally|enemy|neutral|complex
+- factions.entities[].key_figures 只能是字符串数组，禁止对象数组
+- 所有 entities 字段必须为数组，单条也须 [{...}]
+- 区域间关系用 relations，target_id 指向对方 id
+
+牢记：你的**整个回复**必须以 `{` 开头，以 `}` 结尾。不要输出任何其他内容。"""
+
+
+FORMAT_PROOFREADER_SYSTEM = """你是「JSON 格式校对者」。你的唯一任务是修复 JSON 语法错误，使文本变为合法 JSON。
+
+输入：
+- 一段包含 JSON 的文本（可能包裹在 ```json``` 代码块中，也可能前后有多余文字）
+- json.loads 报错信息（包含行号、列号、字符偏移）
 
 硬性规则：
-1. 只输出**一个** JSON 对象，不要输出任何 JSON 以外的文字（不要 Markdown 标题、不要解释）。
-2. 顶层键**只能**来自：geography, ecology, power_system, item_quality_system, attribute_system, factions, cultures, characters, history, economy, story。未涉及或无法可靠抽取的模块**不要出现**该键。**不得**输出 `files`、`search` 等工作台键（「导出与快照」「全文搜索」见对话上下文中 **studio** 说明，非 world.json 持久化字段）。
-3. 每个出现的键对应的对象结构必须与标准 world.json 中该节一致：
-   - geography: **summary**（行星/多陆总览，避免把地标清单堆进总览）、**regions[]**（大陆/王国/海域等可区分单元）、**climate_notes**（全图气候带/季风/异常气象）、**map_notes**（方位、比例、制图或旅行网络说明）。**可选**顶层 **landmarks[]**、**resources[]**（仅放尚未归属区域的散项，或与各区域合并后的汇总；**优先**写在所属区域的 **landmarks / resources**）。字符串数组项为短名；勿输出对象数组。**regions 必须为数组**；单对象须包成 `[{...}]`。区域项：**id**（建议小写 slug，如 `north_realm`，与 **relations[].target_id** 对齐）、**name**、**summary**；可选 **terrain**（地貌类型词）、**climate**（局地气候一句）、**notes**（旅行风险、关卡/调查钩子）、**landmarks**、**resources**、**relations**（`target_id`、`type` 短标签、`notes` 可选）。
-   - power_system: 顶层键必须为 **power_system**（勿拆到根级）。
-     • **summary**：境界总览（力量阶梯在叙事中的位置）。
-     • **realm_design_notes**：境界命名、递进逻辑、破境代价、与 **attribute_system** 的边界。
-     • **skill_tree_design_notes**：跨境技能树规则（节点 **id**、**prereq_ids** 含义、通用树与子类树关系）。
-     • **tiers[]**：每项 **name**、**description**、**typical_capabilities[]**、**limitations[]**、**examples[]**；可选本境 **skill_tree**（节点 **id**、**name**、**summary**、**prereq_ids[]**、**branch**）；可选 **subclass_paths**（**id**、**name**、**tagline**、**flavor**、可选 **profession_id**、可选专属 **skill_tree**）。**prereq_ids** 只能引用**同一棵树**内已声明节点 **id**。
-     • **profession_system**（可选）：**summary**、**design_notes**、**by_tier[]**（**tier_name** + **professions[]**；职业项 **id**、**name**、**tagline**、**flavor**、**exclusive_faction_id**、**notes**）。**subclass_paths.profession_id** 须与同境 **by_tier** 中某职业 **id** 一致。
-   - item_quality_system: 顶层键必须为 **`item_quality_system`**（勿用 `items` / `item_grades` 等别名）。
-     • **summary**：物品阶梯总览、与境界/派系/经济的关系。
-     • **grades[]**：每项 **name**（档位名，必填字符串）、**rarity_narrative**（稀有度叙事）、**typical_effects**（典型效果或词条方向）、**binding_rules**（绑定、交易、掉落、使用限制等可裁定规则）、**examples**（可选，字符串数组，短例）。勿用空对象占位；档位边界须可区分。
-   - attribute_system: summary, design_notes, stats[]（每项 id、name 必填；**intro** 为该维度单独简介；其余 abbreviation、description、scale、typical_use、reference_percent 0–100 整数可选）；**tier_average_profiles[]**（每项 **tier_name** 与境界名对应；**averages** 为对象，键为 stat 的 **id**、值为 0–100 表示该境普通人的平均刻度）。**顶层键名必须为 attribute_system**，禁止使用 attributes、character_stats 或根级纯 stats 数组代替；若误用 attributes 对象/数组，后端会尽力映射。stats 可用 dimensions 等别名，每项须能识别为一条属性维度。
-   - factions: **summary**（多派系总览与博弈格局）。**entities[]**（**必须为数组**；单条派系也须 `[{...}]`；勿把实体摊平到根级）。每项实体：
-     • **id**（必填，短 slug，全局唯一）、**name**（必填）。
-     • **goals**、**territory**：各为**字符串**一段；勿用对象/数组代替整段叙事（长说明可写在 goals 字符串内换行）。
-     • **key_figures[]**：**仅字符串数组**；每项一行（`姓名` 或 `姓名 · 职务` 或带括号的短钩子）。**禁止** `{name, role}` 或 `{name, title}` 对象数组；若模型输出对象，须压成单行字符串再输出。
-     • **relations[]**：每项 **target_id**（须为**另一实体**的 **id**，勿写派系中文名代替 id）、**type** 字段**只能是**英文枚举 **ally** | **enemy** | **neutral** | **complex**（勿用 rival、hostile、联盟、敌对、中立等——若语义如此请映射为 enemy/ally/neutral/complex 后再输出）、**notes**（可选）。
-     • 勿使用 **organizations**、**factions_list** 等替代 **entities**；顶层键名必须是 **factions**。
-   - cultures: summary, entities[]（每项 **id**、**name**、**kind**: culture|religion|syncretic, summary, tenets, practices, sacred_sites[], key_figures[], relations[] 含 target_id、type（短字符串，如影响/冲突/融合）、notes）。**entities 必须为数组**；单条传统/教团也须用 `[{...}]` 包裹。文化与宗教共用本节，用 **kind** 区分。
-   - characters: **summary**（卡司总览）、**design_notes**（与派系要人、历史事件、地理籍贯的对齐说明）。**entities[]**：每项 **id**、**name**；可选 **aliases[]**、**cast_role**（`protagonist_core` | `supporting_major` | `supporting_minor` | `antagonist` | `background`）、**faction_ids[]**（须为已有 **factions.entities[].id**）、**home_region_id**（须为已有 **geography.regions[].id**）、**one_line_hook**、**notes**、**notable_skills[]**（叙事或玩法向人物特长短句，**非**境界 **power_system.skill_tree** 节点）。**relations[]**：**source_id**、**target_id**（须为本次或已有 **entities[].id**）、**relation_type**（如 ally/rival/family/debt/secret）、可选 **visibility**（reader/author_only）、**notes**。
-   - history: summary, events[]（每项 when, title, summary, consequences[], linked_faction_ids[]）
-   - economy: **summary**（通货与总流通叙事）、**design_notes**（与物品档位、派系、地理 id 的对齐）。**currencies[]**：**id**、**name**；可选 **symbol**、**issuer_faction_id**（须 **factions.entities[].id**）、**exchange_notes**。**markets[]**：**id**、**name**；可选 **summary**、**linked_region_ids[]**（**geography.regions[].id**）、**dominant_faction_ids[]**、**notes**。**trade_routes[]**：**id**、**name**、**from_region_id**、**to_region_id**（须为区域 id）；可选 **summary**、**goods_notes**、**controlling_faction_ids[]**、**notes**。**trade_goods[]**：**id**、**name**；可选 **category**（如 strategic|luxury|common|contraband）、**summary**、**notes**。**labor_notes**、**taxation_notes**、**volatility_notes**（劳动力/税收再分配/波动危机等条款式说明）。
-   - ecology: **summary**（全图食物网/危险带/与文明交界叙事）、**design_notes**（如何与 **geography**、**attribute_system** 对齐引用）。**biomes[]**：每项 **id**、**name**、**summary**；**linked_region_ids[]**（须为已有 **geography.regions[].id**）；可选 **climate_habitat**、**hazards**、**notes**。**species[]**：每项 **id**、**name**、**biome_id**（对齐 **biomes[].id**）；**traits[]**（短标签）；**notable_skills[]**（叙事或规则向「技能/行为」短句，非境界 skill_tree）；**encounter_dialogue**（一句遭遇台词或环境旁白，供跑团/叙事）；可选 **danger_notes**。数组项为对象或短字符串时，后端会尽力归一。
-   - story: **summary**、**design_notes**、**unit_label**（章/章节/跑团会话等，可选）。**chapters[]**：**id**、**order**、**title**、**status**（planned|drafting|locked）；可选 **reader_synopsis**、**author_notes**、**word_count**。**foreshadowing[]**：**id**、**label**、**planted_chapter_id**、**payoff_chapter_id**（须为 chapters[].id 或空）、**status**（open|partial|resolved）、**reader_known**、**notes**。**narrator**：**character_id**、**person**、**voice_notes**。**writing_defaults**：**attach_prev_chapters**（0–5）。**勿**在 story 内输出粗纲/细纲/正文全文（它们在 story/*.md 文件）。
-4. **合并策略（重要）**：先从【当前 world.json】复制该节，再写入本轮变更。若某数组或字符串本轮**没有变化**，请**完全省略**该字段，**禁止**输出空字符串 \"\" 或空数组 [] 来占位（否则程序会误保留旧值逻辑复杂；后端会丢弃空占位，但你仍应省略未改字段）。
-5. 若某数组确有更新，必须输出**合并后的完整数组**（含旧条目 + 新条目），不要只输出新增的一条。
-6. 不要修改 meta（id、name、version 等由程序管理）。
-7. 若助手回复仅为规划、提问或闲聊、没有任何可落盘设定，输出空对象：{}。
-8. **多模块同答**：若助手一段话里同时写了地理、生态、力量、物品、人物属性、派系、文化/宗教、人物卡司、历史、经济流通等多个方面，必须在**同一个** JSON 里输出**多个顶层键**（geography、ecology、power_system、item_quality_system、attribute_system、factions、cultures、characters、history、economy 等），每个键下给出合并后的完整小节，不要只挑一个模块写。
-9. **地理 regions（大陆/区域）**：凡出现可区分的地理/政治单元，必须写入 **`geography.regions`**；每项至少 **name** + **summary**，并尽量给出稳定 **id** 以便 **relations** 引用。地标、特产、矿脉、可调查点等写入该区域的 **landmarks** / **resources**（短字符串列表）；**勿**把长段落塞进列表项——长叙事放在 **summary** 或 **notes**。区域间邻接、贸易、航道、关隘写在 **`relations`**：`target_id` 指向对方 **id**，`type` 用短标签（如 邻接/贸易/航道/调查轴）。**形态示例（虚构名，勿照抄）**：`{"geography":{"summary":"双陆夹内海","climate_notes":"西岸多雨","map_notes":"上北下南，比例示意","regions":[{"id":"north_realm","name":"北境","summary":"河谷农业带","terrain":"丘陵","climate":"冬雨型","notes":"关隘易守；主线常经古渡","landmarks":["古渡","碑林"],"resources":["盐","木材"],"relations":[{"target_id":"south_realm","type":"贸易","notes":"粮盐"}]}]}}`"""
+1. 只输出修正后的合法 JSON 对象（不要代码块、不要解释），确保 json.loads 可以无报错解析
+2. 保持所有字段名、字段值、嵌套结构完全不变——只修复语法错误，不增删改内容
+3. 常见需修复问题（按频率排序）：
+   a. 缺少逗号：{"a": 1\n"b": 2} → {"a": 1,\n"b": 2}
+   b. 多余逗号：{"a": 1,} → {"a": 1}；[1, 2,] → [1, 2]
+   c. 单引号替代双引号：{'a': 'b'} → {"a": "b"}
+   d. 字符串内含未转义双引号："title": "He said "hello"" → "title": "He said \\"hello\\""
+   e. 字符串内含换行符：多行字符串值应转义为 \\n
+   f. // 或 /* */ 注释
+   g. JSON 前后的解释性句子（去除即可）
+4. 若文本完全无法识别为 JSON（如纯自然语言、无任何 { } 结构），输出：{"_format_error": true, "reason": "具体说明"}
+5. 若修复后 JSON 依然无法通过 json.loads 校验，也输出 _format_error 对象并说明原因"""
 
 
 PROOFREADER_SYSTEM = """你是「设定校对者」，与负责自然语言创作的「世界观架构师」及负责 JSON 提取的「结构化同步器」是不同角色。
@@ -120,11 +140,33 @@ def _structure_model_name() -> str:
     return m or s.openai_chat_model
 
 
+def _json_size(v: Any) -> int:
+    if isinstance(v, dict):
+        return sum(_json_size(sv) for sv in v.values())
+    if isinstance(v, list):
+        return len(v)
+    if isinstance(v, str):
+        return len(v)
+    return 1
+
+
 def _strip_code_fence(text: str) -> str:
+    """Remove markdown code fences around JSON content.
+
+    Handles both outer-fenced (```json...```) and inline-fenced
+    (# Markdown...```json{...}```) patterns by extracting the largest
+    JSON-like block.
+    """
     t = text.strip()
+    # Case 1: entire text is a fenced code block
     if t.startswith("```"):
         t = re.sub(r"^```[a-zA-Z0-9]*\s*", "", t)
         t = re.sub(r"\s*```$", "", t)
+        return t.strip()
+    # Case 2: markdown with embedded ```json ... ``` block — extract it
+    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", t, re.DOTALL)
+    if m:
+        return m.group(1).strip()
     return t.strip()
 
 
@@ -134,7 +176,119 @@ def parse_structure_json(raw: str) -> dict[str, Any]:
     end = t.rfind("}")
     if start == -1 or end == -1 or end <= start:
         raise ValueError("no json object in model output")
-    return json.loads(t[start : end + 1])
+    segment = t[start : end + 1]
+    # Try progressively more aggressive repairs (common LLM JSON mistakes)
+    attempts = [
+        segment,                                    # 1. standard
+        _strip_json_comments(segment),              # 2. strip // comments
+        _strip_trailing_commas(segment),            # 3. trailing commas
+        _fix_missing_commas(segment),               # 4. missing commas
+        _fix_missing_commas(_strip_trailing_commas(segment)),         # 5. both fixes
+        _fix_missing_commas(_strip_json_comments(segment)),           # 6. comments + commas
+        _fix_missing_commas(_strip_trailing_commas(_strip_json_comments(segment))),  # 7. all fixes
+    ]
+    for i, attempt in enumerate(attempts):
+        try:
+            result = json.loads(attempt)
+            if i > 0:
+                print(f"[MCW-SYNC] JSON repaired with strategy #{i + 1}")
+            return result
+        except json.JSONDecodeError:
+            continue
+    # Last resort: try extracting top-level keys individually
+    result = _extract_top_level_keys(segment)
+    if result:
+        print("[MCW-SYNC] JSON recovered via per-key extraction")
+        return result
+    raise ValueError(f"no json object in model output (tried {len(attempts)} repair strategies)")
+
+
+def _strip_json_comments(text: str) -> str:
+    """Remove // line comments from JSON text."""
+    import re as _re
+    return _re.sub(r"//[^\n]*", "", text)
+
+
+def _strip_trailing_commas(text: str) -> str:
+    """Remove trailing commas before ] or } — a common LLM JSON mistake."""
+    import re as _re
+    return _re.sub(r",\s*([}\]])", r"\1", text)
+
+
+def _fix_missing_commas(text: str) -> str:
+    """Insert missing commas between JSON values — handles LLM formatting mistakes.
+
+    Uses a simple state machine: when a JSON value ends (string close, }, ], number,
+    true/false/null) and the next non-whitespace char starts a new value, insert comma.
+    """
+    import re as _re
+
+    VALUE_ENDERS = {'"', "}", "]"}  # chars that can end a JSON value
+    DIGIT_STARTERS = set("0123456789-")
+    # After a string end not preceded by backslash
+    t = text
+    # Pattern: " (not escaped) followed by optional whitespace followed by " (new key/value)
+    t = _re.sub(r'(?<!\\)"(\s*)(?=")', r'",\1', t)
+    # Pattern: } followed by optional whitespace followed by " or {
+    t = _re.sub(r'}(\s*)(?=")', r'},\1', t)
+    t = _re.sub(r'}(\s*)(?=\{)', r'},\1', t)
+    # Pattern: ] followed by optional whitespace followed by " or {
+    t = _re.sub(r'](\s*)(?=")', r'],\1', t)
+    t = _re.sub(r'](\s*)(?=\{)', r'],\1', t)
+    # Pattern: number literal (must be preceded by JSON structural char, not inside string)
+    # JSON_NUMBER_CTX = lookbehind for : [ { , or whitespace (not a letter/digit inside string)
+    t = _re.sub(r'(?<=[\s:\[,\{])(\d+)(\s*)(?=")', r'\1,\2', t)
+    t = _re.sub(r'(?<=[\s:\[,\{])(\d+)(\s*)(?=\{)', r'\1,\2', t)
+    # Pattern: true/false/null literal (must be preceded by JSON structural char)
+    t = _re.sub(r'(?<=[\s:\[,\{])(true|false|null)(\s*)(?=")', r'\1,\2', t)
+    t = _re.sub(r'(?<=[\s:\[,\{])(true|false|null)(\s*)(?=\{)', r'\1,\2', t)
+    # Pattern:  } or ] followed by [ (array of objects)
+    t = _re.sub(r'([}\]])(\s*)(?=\[)', r'\1,\2', t)
+    # Pattern: number literal followed by [ (array start)
+    t = _re.sub(r'(?<=[\s:\[,\{])(\d+)(\s*)(?=\[)', r'\1,\2', t)
+    return t
+
+
+def _extract_top_level_keys(segment: str) -> dict[str, Any]:
+    """Fallback: extract each known top-level key individually from malformed JSON."""
+    known_keys = [
+        "geography", "ecology", "power_system", "item_quality_system",
+        "attribute_system", "factions", "cultures", "characters",
+        "history", "economy", "story",
+    ]
+    result: dict[str, Any] = {}
+    for key in known_keys:
+        # Look for "key": { ... } in the segment
+        pattern = re.compile(
+            r'"' + re.escape(key) + r'"\s*:\s*\{',
+        )
+        m = pattern.search(segment)
+        if not m:
+            continue
+        val_start = m.end() - 1  # position of {
+        # Find matching }
+        depth = 0
+        val_end = val_start
+        for i in range(val_start, len(segment)):
+            ch = segment[i]
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    val_end = i + 1
+                    break
+        if depth != 0:
+            continue  # unbalanced braces, skip this key
+        val_segment = segment[val_start:val_end]
+        # Try to parse the value
+        for fix_fn in (lambda x: x, _strip_trailing_commas, _fix_missing_commas):
+            try:
+                result[key] = json.loads(fix_fn(val_segment))
+                break
+            except json.JSONDecodeError:
+                continue
+    return result
 
 
 def apply_structure_patch(
@@ -203,6 +357,187 @@ async def _run_proofreader(
     return parse_structure_json(raw)
 
 
+async def _run_format_proofreader(
+    *,
+    raw_json_text: str,
+    parse_error: str,
+) -> dict[str, Any]:
+    """Stage 1: 格式校对者 LLM — 修复同步器输出的 JSON 语法错误。
+
+    返回修复后解析出的 dict；若格式校对者也失败，返回含 _format_error 的 dict。
+    """
+    user_block = (
+        "【原始文本】\n"
+        + raw_json_text[:16000]
+        + "\n\n【json.loads 报错】\n"
+        + parse_error
+    )
+    raw = await chat_completion(
+        [
+            {"role": "system", "content": FORMAT_PROOFREADER_SYSTEM},
+            {"role": "user", "content": user_block},
+        ],
+        model=_structure_model_name(),
+        temperature=0.0,
+        max_tokens=16384,
+    )
+    print(f"[MCW-SYNC] Format proofreader raw output length: {len(raw)} chars")
+    try:
+        result = parse_structure_json(raw)
+        if isinstance(result, dict) and result.get("_format_error"):
+            print(f"[MCW-SYNC] Format proofreader reported error: {result.get('reason', 'unknown')}")
+        else:
+            print(f"[MCW-SYNC] Format proofreader succeeded, keys: {list(result.keys())}")
+        return result
+    except ValueError:
+        print("[MCW-SYNC] Format proofreader output also unparseable")
+        return {"_format_error": True, "reason": "format proofreader output also unparseable"}
+
+
+async def _run_synchronizer_self_correct(
+    *,
+    raw_json_text: str,
+    parse_error: str,
+    world_json: str,
+    system: str,
+) -> dict[str, Any]:
+    """Stage 2: 让同步器自修正 — 告知 JSON 格式错误，要求严格重新输出。
+
+    使用 temperature=0 + 更严格的 JSON 格式要求。
+    """
+    strict_system = (
+        system
+        + "\n\n【重要】你的上一轮输出无法通过 json.loads 校验。"
+        "请修正以下格式问题后重新输出完整的 JSON 对象：\n"
+        + parse_error
+        + "\n\n请严格确保：\n"
+        "- 所有字符串用双引号包裹\n"
+        "- 对象/数组元素之间用逗号分隔\n"
+        "- 对象/数组末尾无多余逗号\n"
+        "- 所有花括号和方括号正确配对\n"
+        "- 字符串内不包含未转义的特殊字符"
+    )
+    user_block = (
+        "【当前 world.json】\n"
+        + world_json
+        + "\n\n【你上一轮输出（有格式错误）】\n"
+        + raw_json_text[:12000]
+    )
+    raw = await chat_completion(
+        [
+            {"role": "system", "content": strict_system},
+            {"role": "user", "content": user_block},
+        ],
+        model=_structure_model_name(),
+        temperature=0.0,
+        max_tokens=16384,
+    )
+    print(f"[MCW-SYNC] Synchronizer self-correct output length: {len(raw)} chars")
+    try:
+        result = parse_structure_json(raw)
+        print(f"[MCW-SYNC] Synchronizer self-correct succeeded, keys: {list(result.keys())}")
+        return result
+    except ValueError as e:
+        print(f"[MCW-SYNC] Synchronizer self-correct also failed: {e}")
+        raise
+
+
+def _has_json_structure(text: str) -> bool:
+    """Check if text contains at least a plausible JSON object structure."""
+    t = _strip_code_fence(text)
+    brace_open = t.find("{")
+    brace_close = t.rfind("}")
+    return brace_open != -1 and brace_close != -1 and brace_close > brace_open
+
+
+JSON_ENFORCE_SYSTEM = """你是 JSON 提取器。你的整个回复必须是且仅是一个合法 JSON 对象，以 `{` 开头、以 `}` 结尾。
+
+严禁：Markdown、代码块、解释。只输出 JSON。
+
+任务：从【助手自然语言回复】中提取可写入 world.json 的结构化设定。参考【当前 world.json】的结构。
+顶层键：geography, ecology, power_system, item_quality_system, attribute_system, factions, cultures, characters, history, economy, story。
+没有变更的模块不要出现。没有任何可落盘设定时输出 {}。"""
+
+
+async def _run_json_enforce_retry(
+    *,
+    world_json: str,
+    assistant_reply: str,
+) -> dict[str, Any]:
+    """Stage 0.5: model produced non-JSON output (e.g. pure Markdown).
+    Re-prompt with an extremely minimal, forceful system message.
+    """
+    user_block = (
+        "【当前 world.json】\n"
+        + world_json
+        + "\n\n【助手自然语言回复】\n"
+        + assistant_reply.strip()
+    )
+    raw = await chat_completion(
+        [
+            {"role": "system", "content": JSON_ENFORCE_SYSTEM},
+            {"role": "user", "content": user_block},
+        ],
+        model=_structure_model_name(),
+        temperature=0.0,
+        max_tokens=16384,
+    )
+    print(f"[MCW-SYNC] JSON-enforce retry output length: {len(raw)} chars")
+    print(f"[MCW-SYNC] JSON-enforce retry preview (first 300): {raw[:300]}")
+    return parse_structure_json(raw)
+
+
+async def _try_parse_with_format_recovery(
+    raw: str,
+    *,
+    world_json: str,
+    system: str,
+    assistant_reply: str = "",
+) -> dict[str, Any]:
+    """尝试解析同步器原始输出；若所有自动修复 + 逐键提取均失败，走多阶段恢复。
+
+    Returns parsed dict. Raises ValueError only if all stages fail.
+    """
+    # Stage 0: non-LLM repair (7 strategies + per-key extraction)
+    try:
+        return parse_structure_json(raw)
+    except ValueError as e0:
+        parse_error = str(e0)
+        print(f"[MCW-SYNC] Stage 0 (non-LLM repair) failed: {parse_error}")
+
+    # Stage 0.5: if output has no JSON structure at all (model produced Markdown/narrative),
+    # re-prompt with a minimal, forceful system message. This is cheaper and more reliable
+    # than the format proofreader for this case.
+    if not _has_json_structure(raw):
+        print("[MCW-SYNC] Stage 0.5: no JSON structure detected, re-prompting with JSON-enforce")
+        try:
+            return await _run_json_enforce_retry(
+                world_json=world_json,
+                assistant_reply=assistant_reply,
+            )
+        except ValueError as e05:
+            print(f"[MCW-SYNC] Stage 0.5 (JSON-enforce retry) failed: {e05}")
+            # Fall through to Stage 1/2 with the original raw output + error
+
+    # Stage 1: format proofreader LLM
+    fp_result = await _run_format_proofreader(
+        raw_json_text=raw,
+        parse_error=parse_error,
+    )
+    if isinstance(fp_result, dict) and not fp_result.get("_format_error"):
+        return fp_result
+    fp_reason = fp_result.get("reason", "unknown") if isinstance(fp_result, dict) else "unknown"
+
+    # Stage 2: synchronizer self-correction
+    print(f"[MCW-SYNC] Stage 1 (format proofreader) failed: {fp_reason}, trying Stage 2")
+    return await _run_synchronizer_self_correct(
+        raw_json_text=raw,
+        parse_error=parse_error,
+        world_json=world_json,
+        system=system,
+    )
+
+
 async def _run_architect_supplement(
     *,
     questions: list[str],
@@ -255,7 +590,7 @@ async def _run_synchronizer(
         ],
         model=_structure_model_name(),
         temperature=0.15,
-        max_tokens=8192,
+        max_tokens=16384,
     )
     return parse_structure_json(raw)
 
@@ -272,8 +607,7 @@ async def sync_panels_from_dialogue(
     """Second-pass LLM: natural language -> structured sections, with optional proofreader loop.
 
     proofreader_max_retries: 校对者→架构师补充的最大轮数（0 跳过校对者，保持原有行为）。
-    返回 dict 含 world, updated_sections, applied_patch, proofreader_rounds,
-    proofreader_final_verdict, proofreader_issues 等。
+    若解析失败则返回 ok=False 的 dict（而非抛异常），以便 API 透传诊断信息。
     """
     world_json = json.dumps(world.model_dump(mode="json"), ensure_ascii=False, indent=2)
     user_block = (
@@ -291,76 +625,157 @@ async def sync_panels_from_dialogue(
         system = system + "\n\n" + gt
 
     # --- 同步器 #1 ---
-    raw = await chat_completion(
-        [
-            {"role": "system", "content": system},
-            {"role": "user", "content": user_block},
-        ],
-        model=_structure_model_name(),
-        temperature=0.15,
-        max_tokens=8192,
-    )
-    raw_patch = parse_structure_json(raw)
-    if not isinstance(raw_patch, dict):
-        raise ValueError("parsed root is not an object")
-    structure_output_keys = list(raw_patch.keys())
-    if sc != "all":
-        patch_accum = {k: v for k, v in raw_patch.items() if k == sc}
-    else:
-        patch_accum = dict(raw_patch)
-
-    # --- 校对者 + 架构师补充循环 ---
+    format_proofreader_used = False
+    format_stages: list[str] = []
+    structure_output_keys: list[str] = []
     proofreader_rounds = 0
     proofreader_final_verdict = "ok"
     proofreader_issues: list[dict[str, Any]] = []
-    retries = max(0, proofreader_max_retries)
-    architect_reply = assistant_reply  # 始终保持最新一轮的架构师回复引用
+    patch_accum: dict[str, Any] = {}
 
-    for _ in range(retries):
-        proofreader_rounds += 1
-        pr_result = await _run_proofreader(
-            architect_reply=architect_reply,
-            patch=patch_accum,
-            world_json=world_json,
+    try:
+        raw = await chat_completion(
+            [
+                {"role": "system", "content": system},
+                {"role": "user", "content": user_block},
+            ],
+            model=_structure_model_name(),
+            temperature=0.15,
+            max_tokens=16384,
         )
-        proofreader_issues.append(pr_result)
-        if pr_result.get("verdict") == "retry":
-            proofreader_final_verdict = "retry"
-            questions = pr_result.get("questions_for_architect") or []
-            if not questions:
-                break
-            architect_supplement = await _run_architect_supplement(
-                questions=questions,
-                world=world,
-                creative_mode=creative_mode,
+        print(f"[MCW-SYNC] Synchronizer raw output length: {len(raw)} chars")
+        print(f"[MCW-SYNC] Synchronizer raw preview (first 500): {raw[:500]}")
+        # Check for truncation: after stripping code fences, content must end with }
+        fence_stripped = _strip_code_fence(raw)
+        if not fence_stripped.rstrip().endswith("}"):
+            print(f"[MCW-SYNC] Output appears truncated (ends with '{raw.rstrip()[-80:]}')")
+            raise ValueError(
+                "synchronizer output appears truncated (no closing '}' after stripping fences); "
+                f"length={len(raw)}, last 100 chars: {raw[-100:]}"
             )
-            architect_reply = architect_supplement
-            new_patch_raw = await _run_synchronizer(
-                world_json=world_json,
-                assistant_reply=architect_supplement,
-                system=system,
-            )
-            if isinstance(new_patch_raw, dict) and new_patch_raw:
-                if sc != "all":
-                    new_patch = {k: v for k, v in new_patch_raw.items() if k == sc}
-                else:
-                    new_patch = dict(new_patch_raw)
-                patch_accum = merge_section_conservative(patch_accum, new_patch)
+        try:
+            raw_patch = parse_structure_json(raw)
+            print(f"[MCW-SYNC] Parsed patch keys: {list(raw_patch.keys())}")
+            print(f"[MCW-SYNC] Patch sizes: {{{', '.join(f'{k}: {_json_size(raw_patch[k])}' for k in raw_patch)}}}")
+        except ValueError as init_parse_err:
+            print(f"[MCW-SYNC] Initial parse failed: {init_parse_err}, entering format recovery")
+            try:
+                raw_patch = await _try_parse_with_format_recovery(
+                    raw, world_json=world_json, system=system,
+                    assistant_reply=assistant_reply,
+                )
+                format_proofreader_used = True
+                format_stages.append("format_recovery")
+                print(f"[MCW-SYNC] Format recovery result keys: {list(raw_patch.keys())}")
+            except ValueError as recovery_err:
+                print(f"[MCW-SYNC] Format recovery also failed: {recovery_err}")
+                print(f"[MCW-SYNC] === SYNCHRONIZER RAW OUTPUT (first 2000 chars) ===")
+                print(raw[:2000])
+                print(f"[MCW-SYNC] === SYNCHRONIZER RAW OUTPUT (last 500 chars) ===")
+                print(raw[-500:])
+                print(f"[MCW-SYNC] === END RAW OUTPUT ===")
+                raise ValueError(
+                    f"parse_structure_json failed ({init_parse_err}); "
+                    f"format recovery also failed ({recovery_err})"
+                ) from recovery_err
+        if not isinstance(raw_patch, dict):
+            raise ValueError("parsed root is not an object")
+        structure_output_keys = list(raw_patch.keys())
+        if sc != "all":
+            patch_accum = {k: v for k, v in raw_patch.items() if k == sc}
         else:
-            proofreader_final_verdict = "ok"
-            break
+            patch_accum = dict(raw_patch)
 
-    # --- 最终合并 ---
-    merged, keys, merge_warnings, normalize_notes = apply_structure_patch(world, patch_accum)
-    return {
-        "world": merged,
-        "updated_sections": keys,
-        "applied_patch": patch_accum,
-        "structure_output_keys": structure_output_keys,
-        "scope_applied": sc,
-        "merge_warnings": merge_warnings,
-        "normalize_notes": normalize_notes,
-        "proofreader_rounds": proofreader_rounds,
-        "proofreader_final_verdict": proofreader_final_verdict,
-        "proofreader_issues": proofreader_issues,
-    }
+        # --- 校对者 + 架构师补充循环 ---
+        retries = max(0, proofreader_max_retries)
+        # 校对者始终以原始架构师回复为参考基准
+        proofreader_reference_reply = assistant_reply
+
+        for _ in range(retries):
+            proofreader_rounds += 1
+            pr_result = await _run_proofreader(
+                architect_reply=proofreader_reference_reply,
+                patch=patch_accum,
+                world_json=world_json,
+            )
+            proofreader_issues.append(pr_result)
+            if pr_result.get("verdict") == "retry":
+                proofreader_final_verdict = "retry"
+                questions = pr_result.get("questions_for_architect") or []
+                if not questions:
+                    break
+                architect_supplement = await _run_architect_supplement(
+                    questions=questions,
+                    world=world,
+                    creative_mode=creative_mode,
+                )
+                supplement_raw = await chat_completion(
+                    [
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": (
+                            "【当前 world.json】\n" + world_json
+                            + "\n\n【助手自然语言回复】\n" + architect_supplement.strip()
+                        )},
+                    ],
+                    model=_structure_model_name(),
+                    temperature=0.15,
+                    max_tokens=16384,
+                )
+                try:
+                    new_patch_raw = parse_structure_json(supplement_raw)
+                except ValueError:
+                    print("[MCW-SYNC] Supplement synchronizer parse failed, entering format recovery")
+                    try:
+                        new_patch_raw = await _try_parse_with_format_recovery(
+                            supplement_raw, world_json=world_json, system=system,
+                            assistant_reply=architect_supplement,
+                        )
+                        format_stages.append("supplement_format_recovery")
+                    except ValueError:
+                        print("[MCW-SYNC] Supplement format recovery also failed, skipping this round")
+                        continue
+                if isinstance(new_patch_raw, dict) and new_patch_raw:
+                    if sc != "all":
+                        new_patch = {k: v for k, v in new_patch_raw.items() if k == sc}
+                    else:
+                        new_patch = dict(new_patch_raw)
+                    patch_accum = merge_section_conservative(patch_accum, new_patch)
+            else:
+                proofreader_final_verdict = "ok"
+                break
+
+        # --- 最终合并 ---
+        merged, keys, merge_warnings, normalize_notes = apply_structure_patch(world, patch_accum)
+        return {
+            "ok": True,
+            "world": merged,
+            "updated_sections": keys,
+            "applied_patch": patch_accum,
+            "structure_output_keys": structure_output_keys,
+            "scope_applied": sc,
+            "merge_warnings": merge_warnings,
+            "normalize_notes": normalize_notes,
+            "proofreader_rounds": proofreader_rounds,
+            "proofreader_final_verdict": proofreader_final_verdict,
+            "proofreader_issues": proofreader_issues,
+            "format_proofreader_used": format_proofreader_used,
+            "format_stages": format_stages,
+        }
+    except Exception as exc:
+        print(f"[MCW-SYNC] sync_panels_from_dialogue exception: {type(exc).__name__}: {exc}")
+        return {
+            "ok": False,
+            "error": str(exc),
+            "world": world,
+            "updated_sections": [],
+            "applied_patch": {},
+            "structure_output_keys": structure_output_keys,
+            "scope_applied": sc,
+            "merge_warnings": [],
+            "normalize_notes": {},
+            "proofreader_rounds": proofreader_rounds,
+            "proofreader_final_verdict": "error",
+            "proofreader_issues": proofreader_issues,
+            "format_proofreader_used": format_proofreader_used,
+            "format_stages": format_stages,
+        }

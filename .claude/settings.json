@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(E:/ananconda/envs/Agent/python.exe -c \"from worldforger.panel_sync import sync_panels_from_dialogue, _try_parse_with_format_recovery; print\\('OK'\\)\")",
+      "Bash(\"E:/ananconda/envs/Agent/python.exe\" -m pytest tests/test_api.py tests/test_story_api.py tests/test_story_chat.py -v --timeout=60 -x)",
+      "Bash(\"E:/ananconda/envs/Agent/python.exe\" -m pytest tests/test_api.py tests/test_story_api.py tests/test_story_chat.py -v -x)"
+    ]
+  }
+}

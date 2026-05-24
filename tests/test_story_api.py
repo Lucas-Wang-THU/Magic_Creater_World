@@ -96,6 +96,7 @@ def test_sync_panels_story_scope_integration(mock_sync):
     merged.story.summary = "新总览"
     merged.story.design_notes = "新设计说明"
     mock_sync.return_value = {
+        "ok": True,
         "world": merged,
         "updated_sections": ["story"],
         "applied_patch": {"story": {"summary": "新总览", "design_notes": "新设计说明"}},

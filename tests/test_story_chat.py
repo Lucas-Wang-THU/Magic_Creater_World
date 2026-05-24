@@ -56,6 +56,7 @@ def test_sync_panels_story_scope(mock_sync):
     merged = w.model_copy(deep=True)
     merged.story.summary = "新总览"
     mock_sync.return_value = {
+        "ok": True,
         "world": merged,
         "updated_sections": ["story"],
         "applied_patch": {"story": {"summary": "新总览"}},

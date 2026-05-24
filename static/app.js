@@ -6526,6 +6526,13 @@ async function init() {
 
     setThinking("sync", { panel: "world" });
     try {
+      const syncScope = syncScopeForRequest();
+      const prMax = parseInt($("proofreaderMaxRetries")?.value ?? "3") || 0;
+      console.group("[MCW] 结构同步诊断");
+      console.log("scope:", syncScope, "proofreader_max_retries:", prMax);
+      console.log("architect_reply_len:", res.reply?.length || 0);
+      console.log("pre-sync state.world.power_system?.tiers?.length:", state.world?.power_system?.tiers?.length);
+      console.log("pre-sync state.world.geography?.regions?.length:", state.world?.geography?.regions?.length);
       const syncRes = await api(
         `/api/worlds/${state.world.meta.id}/sync-panels-from-chat`,
         {
@@ -6534,16 +6541,30 @@ async function init() {
             user_message: userMsg,
             assistant_reply: res.reply,
             persist: false,
-            scope: syncScopeForRequest(),
+            scope: syncScope,
             creative_mode: $("genreMode")?.value || null,
-            proofreader_max_retries:
-              parseInt($("proofreaderMaxRetries")?.value ?? "3") || 0,
+            proofreader_max_retries: prMax,
           }),
         }
       );
+      console.log("syncRes.ok:", syncRes.ok);
+      console.log("syncRes.error:", syncRes.error || "(none)");
+      console.log("syncRes.updated_sections:", JSON.stringify(syncRes.updated_sections));
+      console.log("syncRes.world.power_system?.tiers?.length:", syncRes.world?.power_system?.tiers?.length);
+      console.log("syncRes.world.geography?.regions?.length:", syncRes.world?.geography?.regions?.length);
+      console.log("syncRes.patch keys:", Object.keys(syncRes.patch || {}));
+      console.log("syncRes.merge_warnings:", syncRes.merge_warnings);
+      console.log("syncRes.proofreader_rounds:", syncRes.proofreader_rounds);
+      console.log("syncRes.proofreader_final_verdict:", syncRes.proofreader_final_verdict);
+      console.log("syncRes.format_proofreader_used:", syncRes.format_proofreader_used);
+      console.log("syncRes.format_stages:", syncRes.format_stages);
       if (syncRes.ok) {
         state.world = syncRes.world;
+        console.log("post-assign state.world.power_system?.tiers?.length:", state.world?.power_system?.tiers?.length);
+        console.log("post-assign state.world.geography?.regions?.length:", state.world?.geography?.regions?.length);
         worldToForm(syncRes.world);
+        console.log("post-worldToForm powerTiersJson len:", ($("powerTiersJson")?.value ?? "").length);
+        console.log("post-worldToForm factionsJson len:", ($("factionsJson")?.value ?? "").length);
         setDirty(true);
         refreshContextPanel();
         refreshOutlineHeader();
@@ -6553,6 +6574,9 @@ async function init() {
         }
         if (syncRes.merge_warnings?.length) {
           toast("校验提示：" + syncRes.merge_warnings.join("；"));
+        }
+        if (syncRes.format_proofreader_used) {
+          toast("JSON 格式已自动修复（" + (syncRes.format_stages || []).join(" → ") + "）");
         }
         if (syncRes.proofreader_rounds > 0) {
           const prStatus =
@@ -6590,9 +6614,13 @@ async function init() {
           toast("同步：本轮无结构化变更（可检查助手是否像闲聊或未写可落盘设定）");
         }
       } else {
+        console.log("sync FAILED — ok:false, error:", syncRes.error);
+        console.groupEnd();
         toast("同步解析失败：" + (syncRes.error || ""));
       }
     } catch (se) {
+      console.error("sync EXCEPTION:", se.message, se);
+      console.groupEnd();
       toast("同步未执行：" + se.message);
     } finally {
       setThinking(false);
@@ -6601,11 +6629,15 @@ async function init() {
     applyAttrFromReply();
     if (shouldPersist) {
       try {
+        console.log("pre-save state.world.power_system?.tiers?.length:", state.world?.power_system?.tiers?.length);
         await persistWorldFromForm();
+        console.log("post-save state.world.power_system?.tiers?.length:", state.world?.power_system?.tiers?.length);
       } catch (e) {
+        console.error("persistWorldFromForm failed:", e);
         toast("落盘失败：" + (e?.message || e));
       }
     }
+    console.groupEnd();
     navigateToEconomyAfterSyncIfNeeded(syncUpdatedSections);
   }
 

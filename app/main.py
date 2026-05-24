@@ -698,42 +698,54 @@ async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict
         w = load_world(world_id)
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="world not found")
-    try:
-        mode_eff = (body.creative_mode or "").strip() or w.meta.creative_mode
-        pr_max_retries = (
-            body.proofreader_max_retries
-            if body.proofreader_max_retries is not None
-            else get_settings().proofreader_max_retries
-        )
-        result = await sync_panels_from_dialogue(
-            w,
-            user_message=body.user_message,
-            assistant_reply=body.assistant_reply,
-            scope=body.scope,
-            creative_mode=mode_eff,
-            proofreader_max_retries=pr_max_retries,
-        )
-    except RuntimeError as e:
-        raise HTTPException(status_code=503, detail=str(e)) from e
-    except (ValueError, json.JSONDecodeError, TypeError) as e:
+    mode_eff = (body.creative_mode or "").strip() or w.meta.creative_mode
+    pr_max_retries = (
+        body.proofreader_max_retries
+        if body.proofreader_max_retries is not None
+        else get_settings().proofreader_max_retries
+    )
+    result = await sync_panels_from_dialogue(
+        w,
+        user_message=body.user_message,
+        assistant_reply=body.assistant_reply,
+        scope=body.scope,
+        creative_mode=mode_eff,
+        proofreader_max_retries=pr_max_retries,
+    )
+    if not result.get("ok"):
+        # sync_panels_from_dialogue returns ok=False on parse/recovery failure;
+        # world is the original World model (not a dict) in the error path
+        w_out = result["world"]
+        world_dict = w_out.model_dump(mode="json") if hasattr(w_out, "model_dump") else w_out
         return {
             "ok": False,
-            "error": str(e),
-            "world": w.model_dump(mode="json"),
-            "updated_sections": [],
-            "patch": {},
-            "structure_output_keys": [],
-            "scope_applied": body.scope,
-            "merge_warnings": [],
-            "normalize_notes": {},
-            "proofreader_rounds": 0,
-            "proofreader_final_verdict": "error",
-            "proofreader_issues": [],
+            "error": result.get("error", "structure sync error"),
+            "world": world_dict,
+            "updated_sections": result.get("updated_sections") or [],
+            "patch": result.get("applied_patch") or {},
+            "structure_output_keys": result.get("structure_output_keys") or [],
+            "scope_applied": result.get("scope_applied") or body.scope,
+            "merge_warnings": result.get("merge_warnings") or [],
+            "normalize_notes": result.get("normalize_notes") or {},
+            "proofreader_rounds": result.get("proofreader_rounds") or 0,
+            "proofreader_final_verdict": result.get("proofreader_final_verdict") or "error",
+            "proofreader_issues": result.get("proofreader_issues") or [],
+            "format_proofreader_used": result.get("format_proofreader_used", False),
+            "format_stages": result.get("format_stages") or [],
         }
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"structure sync error: {e}") from e
 
     merged = result["world"]
+    print(f"[MCW-API] Sync result updated_sections: {result['updated_sections']}")
+    print(f"[MCW-API] Sync result merge_warnings: {result['merge_warnings']}")
+    print(f"[MCW-API] Sync result proofreader_rounds: {result['proofreader_rounds']}")
+    if result['updated_sections']:
+        for key in result['updated_sections']:
+            section = getattr(merged, key, None)
+            if section is not None:
+                if hasattr(section, 'tiers'):
+                    print(f"[MCW-API] merged.{key}.tiers count: {len(section.tiers or [])}")
+                if hasattr(section, 'entities'):
+                    print(f"[MCW-API] merged.{key}.entities count: {len(section.entities or [])}")
     if body.persist:
         merged.bump_version()
         save_world(merged, export_markdown=True)
@@ -749,6 +761,8 @@ async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict
         "proofreader_rounds": result["proofreader_rounds"],
         "proofreader_final_verdict": result["proofreader_final_verdict"],
         "proofreader_issues": result["proofreader_issues"],
+        "format_proofreader_used": result.get("format_proofreader_used", False),
+        "format_stages": result.get("format_stages", []),
     }
 
 

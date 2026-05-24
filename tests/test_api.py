@@ -267,6 +267,7 @@ def test_sync_panels_endpoint(mock_sync):
     w2 = w.model_copy(deep=True)
     w2.geography.summary = "从对话合并"
     mock_sync.return_value = {
+        "ok": True,
         "world": w2,
         "updated_sections": ["geography"],
         "applied_patch": {"geography": {"summary": "从对话合并"}},
