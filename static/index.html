@@ -1209,7 +1209,7 @@
               <div class="story-wb-split">
                 <div class="story-wb-editor-col">
                   <label class="muted tiny">章节</label>
-                  <select id="storyBeatChapterSelect"></select>
+                  <select id="storyBeatChapterSelect" onchange="loadStoryBeat()"></select>
                   <label class="muted tiny">细纲 Markdown</label>
                   <textarea id="storyBeatEdit" class="story-editor" rows="12"></textarea>
                   <div class="row">
@@ -1293,19 +1293,28 @@
             </div>
             <div id="storyPaneAudit" class="story-pane hidden">
               <h3 class="story-pane-h3"><span class="ms" aria-hidden="true">verified</span>审校与情感分析</h3>
-              <div class="story-audit-section">
-                <label class="muted">章节选择</label>
-                <select id="storyAuditChapterSelect" onchange="renderConsistencyReport(this.value)"></select>
+              <!-- 一致性审校 -->
+              <div class="story-audit-card">
+                <div class="story-audit-card-head">
+                  <span class="story-audit-card-icon ms" aria-hidden="true">fact_check</span>
+                  <span>一致性审校</span>
+                  <select id="storyAuditChapterSelect" class="story-audit-head-select" onchange="renderConsistencyReport(this.value)"></select>
+                </div>
+                <div id="storyAuditConsistency" class="story-audit-consistency">
+                  <p class="muted tiny">请选择一个章节查看审校报告</p>
+                </div>
               </div>
-              <div id="storyAuditConsistency" class="story-audit-consistency">
-                <p class="muted tiny">请选择一个章节查看审校报告</p>
+              <!-- 情感弧线 -->
+              <div class="story-audit-card">
+                <div class="story-audit-card-head">
+                  <span class="story-audit-card-icon ms" aria-hidden="true">show_chart</span>
+                  <span>情感弧线</span>
+                </div>
+                <div id="storySentimentChart" class="story-sentiment-chart">
+                  <p class="muted tiny">暂无情感数据。请先生成至少一章文稿。</p>
+                </div>
+                <div id="storySentimentLogs" class="story-sentiment-logs"></div>
               </div>
-              <hr class="story-audit-divider" />
-              <h4 class="story-pane-h3"><span class="ms" aria-hidden="true">timeline</span>情感弧线</h4>
-              <div id="storySentimentChart" class="story-sentiment-chart">
-                <p class="muted tiny">暂无情感数据</p>
-              </div>
-              <div id="storySentimentLogs" class="story-sentiment-logs"></div>
             </div>
             <div id="storyPaneWrite" class="story-pane hidden">
               <div class="row story-write-row">

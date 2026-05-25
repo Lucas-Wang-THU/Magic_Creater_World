@@ -207,6 +207,7 @@ async def generate_manuscript(
         user_hint=prompt,
         include_world_md=inc_md,
         rag_chunks=rag_chunks if rag_chunks else None,
+        person=person_eff,
     )
     reply = await chat_completion(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],

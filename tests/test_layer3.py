@@ -700,11 +700,15 @@ class TestSentimentTracker:
                              sentiment_log=SentimentLog(chapter_id="ch_02", overall_tone="tense")),
             ]
             tracker = SentimentTracker(world_id)
-            chart = tracker.build_sentiment_arc_chart(w)
-            assert "xychart-beta" in chart
-            assert "ch_01" in chart
-            assert "4" in chart  # positive = 4
-            assert "2" in chart  # tense = 2
+            chart_data = tracker.build_sentiment_arc_chart(w)
+            assert isinstance(chart_data, list)
+            assert len(chart_data) == 2
+            assert chart_data[0]["chapter_id"] == "ch_01"
+            assert chart_data[0]["tone_value"] == 5  # positive = 5
+            assert chart_data[0]["tone_color"] == "#16a34a"
+            assert chart_data[1]["tone_value"] == 2  # tense = 2
+            assert chart_data[1]["tone_color"] == "#f59e0b"
+            assert "avg_intensity" in chart_data[0]
         finally:
             ws.world_root = original
 
@@ -720,7 +724,7 @@ class TestSentimentTracker:
             w = create_world("空图表")
             w.story.chapters = []
             tracker = SentimentTracker(world_id)
-            assert tracker.build_sentiment_arc_chart(w) == ""
+            assert tracker.build_sentiment_arc_chart(w) == []
         finally:
             ws.world_root = original
 
@@ -1140,7 +1144,7 @@ class TestLayer3ApiEndpoints:
             data = r.json()
             assert "sentiment_logs" in data
             assert len(data["sentiment_logs"]) == 1
-            assert "mermaid_chart" in data
+            assert "chart_data" in data
         finally:
             ws.world_root = original_root
 

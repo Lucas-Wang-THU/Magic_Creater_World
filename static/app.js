@@ -3921,7 +3921,7 @@ async function clearSnapshots() {
   }
 }
 
-function switchView(name) {
+async function switchView(name) {
   const route = resolveStoryPanelRoute(name);
   name = route.panel;
   if (route.storySubView) state.storySubView = route.storySubView;
@@ -3940,7 +3940,7 @@ function switchView(name) {
   if (name === "story") {
     state.storyUnitLabel = storyUnitLabelForMode(state.world?.meta?.creative_mode || $("genreMode")?.value);
     storyMetaToForm();
-    void refreshStoryPanel();
+    await refreshStoryPanel();
     setStorySubView(state.storySubView || "overview");
   }
   if (name === "cultures") scheduleCultureVizRefresh();
@@ -4147,7 +4147,9 @@ function refreshStoryChapterSelects(chaptersDisplay) {
     state.storyActiveChapterId ||
     chapters[0]?.id ||
     "";
-  if (active) {
+  // Ensure active is a valid chapter in the current world (prevents stale IDs after world switch)
+  const validActive = active && chapters.some(c => c.id === active) ? active : (chapters[0]?.id || "");
+  if (validActive) {
     for (const id of [
       "storyBeatChapterSelect",
       "storyMsChapterSelect",
@@ -4156,13 +4158,13 @@ function refreshStoryChapterSelects(chaptersDisplay) {
       "storyAuditChapterSelect",
     ]) {
       const el = $(id);
-      if (el && [...el.options].some((o) => o.value === active)) el.value = active;
+      if (el && [...el.options].some((o) => o.value === validActive)) el.value = validActive;
     }
-    state.storyActiveChapterId = active;
+    state.storyActiveChapterId = validActive;
   }
   syncStoryChatWritingControlsFromForm();
   refreshStoryChatContextLine();
-  refreshStoryChatBeatTitleHint(active);
+  refreshStoryChatBeatTitleHint(validActive);
 }
 
 async function refreshStoryChaptersAligned() {
@@ -4172,11 +4174,12 @@ async function refreshStoryChaptersAligned() {
     const res = await api(`/api/worlds/${state.world.meta.id}/story`);
     if (res.story) state.world.story = res.story;
     if (res.unit_label) state.storyUnitLabel = res.unit_label;
+    storyMetaToForm();
     if ($("storyChaptersJson"))
       $("storyChaptersJson").value = JSON.stringify(state.world.story?.chapters ?? [], null, 2);
     refreshStoryChapterSelects(res.chapters_display);
     renderStoryChapterNav(preserved || state.storyActiveChapterId);
-    if (preserved) selectStoryChapter(preserved);
+    if (preserved) await selectStoryChapter(preserved);
     if (Array.isArray(res.chapter_sync_notes) && res.chapter_sync_notes.length) {
       toast("章节已与细纲对齐：" + res.chapter_sync_notes.join("；"));
     }
@@ -4184,6 +4187,16 @@ async function refreshStoryChaptersAligned() {
     refreshStoryChapterSelects();
     refreshStoryChatContextLine();
     toast("加载章节列表失败：" + (e?.message || e));
+  }
+  // 若审校面板当前可见，自动加载数据
+  if (state.storySubView === "audit" && state.storyActiveChapterId) {
+    void refreshSentimentArc();
+    void renderConsistencyReport(state.storyActiveChapterId);
+  }
+  // 若大纲面板当前可见，自动加载粗纲或细纲数据
+  if (state.storySubView === "outline") {
+    if (state.storyOutlineSub === "macro" || !state.storyOutlineSub) void loadStoryMacro();
+    if (state.storyOutlineSub === "beats" && state.storyActiveChapterId) void loadStoryBeat();
   }
 }
 
@@ -4223,7 +4236,16 @@ function setStoryOutlineSub(name) {
     $(pid)?.classList.toggle("hidden", key !== name);
   }
   if (name === "macro") void loadStoryMacro();
-  if (name === "beats") void loadStoryBeat();
+  if (name === "beats") {
+    // Sync beats chapter select to active chapter before loading
+    const beatSel = $("storyBeatChapterSelect");
+    if (beatSel && state.storyActiveChapterId) {
+      if ([...beatSel.options].some(o => o.value === state.storyActiveChapterId)) {
+        beatSel.value = state.storyActiveChapterId;
+      }
+    }
+    void loadStoryBeat();
+  }
   if (name === "auxiliary") refreshOutlineHeader();
 }
 
@@ -4247,6 +4269,9 @@ function setStorySubView(name) {
   if (name === "chapter") void loadStoryManuscript();
   if (name === "write") renderRuntimeStates();
   if (name === "audit") {
+    // Sync audit chapter select to active chapter
+    const auditSel = $("storyAuditChapterSelect");
+    if (auditSel && state.storyActiveChapterId) auditSel.value = state.storyActiveChapterId;
     void refreshSentimentArc();
     const activeCh = sortedStoryChapters().find(c => c.id === state.storyActiveChapterId);
     if (activeCh) renderConsistencyReport(activeCh.id);
@@ -4284,7 +4309,16 @@ async function loadStoryMacro() {
 }
 
 async function loadStoryBeat() {
-  const cid = $("storyBeatChapterSelect")?.value;
+  const sel = $("storyBeatChapterSelect");
+  let cid = sel?.value;
+  // Fall back to active chapter id when select has no value
+  if (!cid && state.storyActiveChapterId) {
+    cid = state.storyActiveChapterId;
+    // If the select exists and has the active chapter as an option, sync it
+    if (sel && [...sel.options].some(o => o.value === cid)) {
+      sel.value = cid;
+    }
+  }
   if (!cid || !state.world?.meta?.id) return;
   const res = await api(`/api/worlds/${state.world.meta.id}/story/chapters/${encodeURIComponent(cid)}/beat`);
   if ($("storyBeatEdit")) $("storyBeatEdit").value = res.content || "";
@@ -4365,11 +4399,26 @@ function renderChapterSummaryCard(chapterId) {
 
 // ── Layer 3: 一致性审校报告渲染 ──────────────────────────────
 
-function renderConsistencyReport(chapterId) {
+async function renderConsistencyReport(chapterId) {
   const container = $("storyAuditConsistency");
-  const ch = (state.world?.story?.chapters || []).find(c => c.id === chapterId);
   if (!container) return;
-  const cr = ch?.consistency_report;
+  if (!chapterId) {
+    container.innerHTML = '<p class="muted tiny">请选择一个章节查看审校报告</p>';
+    return;
+  }
+  const ch = (state.world?.story?.chapters || []).find(c => c.id === chapterId);
+  let cr = ch?.consistency_report;
+  // Fallback: 从磁盘加载（世界重载后内存中可能为 null）
+  if (!cr && state.world?.meta?.id) {
+    try {
+      const res = await api(`/api/worlds/${state.world.meta.id}/story/consistency-report/${chapterId}`);
+      if (res.consistency_report) {
+        cr = res.consistency_report;
+        // 回填到内存模型
+        if (ch) ch.consistency_report = cr;
+      }
+    } catch (_) { /* silent */ }
+  }
   if (!cr) {
     container.innerHTML = '<p class="muted tiny">该章节尚无审校报告。请先生成文稿。</p>';
     return;
@@ -4413,8 +4462,8 @@ async function refreshSentimentArc() {
   try {
     const res = await api(`/api/worlds/${state.world.meta.id}/story/sentiment-arc`);
     const chartContainer = $("storySentimentChart");
-    if (chartContainer && res.mermaid_chart) {
-      drawMermaidHost(chartContainer, res.mermaid_chart);
+    if (chartContainer && res.chart_data && res.chart_data.length) {
+      chartContainer.innerHTML = buildSentimentChartHtml(res.chart_data);
     } else if (chartContainer) {
       chartContainer.innerHTML = '<p class="muted tiny">暂无情感数据。请先生成至少一章文稿。</p>';
     }
@@ -4422,22 +4471,62 @@ async function refreshSentimentArc() {
     const logsEl = $("storySentimentLogs");
     if (logsEl && res.sentiment_logs && res.sentiment_logs.length) {
       const toneLabels = { positive: "正面", negative: "负面", tense: "紧张", calm: "平静", mixed: "混合" };
+      const toneColors = { positive: "#16a34a", negative: "#dc2626", tense: "#f59e0b", calm: "#6366f1", mixed: "#a855f7" };
+      const transitionLabels = {
+        smooth: "平滑过渡", abrupt: "突兀转折", intentional_contrast: "刻意对比", first_chapter: "首章"
+      };
       logsEl.innerHTML = res.sentiment_logs.map(log => {
         const segs = (log.segments || []).map(s =>
-          `<span class="sentiment-seg" title="强度 ${s.intensity}/10">${s.label || '?'}:${toneLabels[s.tone] || s.tone}</span>`
+          `<span class="sentiment-seg" style="background:${toneColors[s.tone] || '#e2e8f0'}18;color:${toneColors[s.tone] || '#64748b'};border-color:${toneColors[s.tone] || '#e2e8f0'}40" title="${s.label || '?'}: ${toneLabels[s.tone] || s.tone} · 强度 ${s.intensity}/10">${s.label || '?'} ${toneLabels[s.tone] || s.tone} ${'★'.repeat(Math.min(s.intensity || 5, 5))}</span>`
         ).join(" ");
+        const overallTone = toneLabels[log.overall_tone] || log.overall_tone || '?';
+        const overallColor = toneColors[log.overall_tone] || '#64748b';
+        const endTone = toneLabels[log.ending_tone] || log.ending_tone || '?';
+        const endColor = toneColors[log.ending_tone] || '#64748b';
+        const trans = transitionLabels[log.transition_from_prev] || log.transition_from_prev || '?';
         return `<div class="sentiment-log-item">
           <strong>${escapeHtml(log.title || log.chapter_id)}</strong>
-          <span class="muted tiny">整体：${toneLabels[log.overall_tone] || log.overall_tone || '?'} · 结尾：${toneLabels[log.ending_tone] || log.ending_tone || '?'} · 过渡：${log.transition_from_prev || '?'}</span>
-          <div>${segs}</div>
+          <div class="sentiment-log-meta">
+            <span class="sentiment-tag" style="background:${overallColor}18;color:${overallColor};border:1px solid ${overallColor}40">整体 ${overallTone}</span>
+            <span class="sentiment-tag" style="background:${endColor}18;color:${endColor};border:1px solid ${endColor}40">结尾 ${endTone}</span>
+            <span class="sentiment-tag muted">过渡 ${trans}</span>
+          </div>
+          <div class="sentiment-segs">${segs}</div>
         </div>`;
       }).join("");
     } else if (logsEl) {
-      logsEl.innerHTML = '<p class="muted tiny">暂无情感数据</p>';
+      logsEl.innerHTML = '<p class="muted tiny" style="padding:8px 14px">暂无情感数据</p>';
     }
   } catch (e) {
     // silent
   }
+}
+
+function buildSentimentChartHtml(chartData) {
+  const toneLabels = { positive: "正面", negative: "负面", tense: "紧张", calm: "平静", mixed: "混合" };
+  const maxVal = 5;
+  const bars = chartData.map((pt, i) => {
+    const hPct = (pt.tone_value / maxVal) * 100;
+    const shortTitle = pt.title.length > 6 ? pt.title.slice(0, 6) + '..' : pt.title;
+    return `<div class="sc-bar-col" title="${escapeHtml(pt.title)} · ${toneLabels[pt.overall_tone] || pt.overall_tone} · 强度 ${pt.avg_intensity}">
+      <div class="sc-bar-val">${pt.tone_value}</div>
+      <div class="sc-bar-fill" style="height:${hPct}%;background:${pt.tone_color};box-shadow:0 2px 6px ${pt.tone_color}40"></div>
+      <div class="sc-bar-intensity" title="平均强度 ${pt.avg_intensity}">${'★'.repeat(Math.round(pt.avg_intensity / 2))}</div>
+      <div class="sc-bar-label">${escapeHtml(shortTitle)}</div>
+      <div class="sc-bar-tone">${toneLabels[pt.overall_tone] || pt.overall_tone}</div>
+    </div>`;
+  }).join("");
+
+  return `<div class="sentiment-chart-wrap">
+    <div class="sc-legend">
+      <span class="sc-legend-item"><i style="background:#16a34a"></i>正面</span>
+      <span class="sc-legend-item"><i style="background:#6366f1"></i>平静</span>
+      <span class="sc-legend-item"><i style="background:#a855f7"></i>混合</span>
+      <span class="sc-legend-item"><i style="background:#f59e0b"></i>紧张</span>
+      <span class="sc-legend-item"><i style="background:#dc2626"></i>负面</span>
+    </div>
+    <div class="sc-bars">${bars}</div>
+  </div>`;
 }
 
 
@@ -4630,13 +4719,13 @@ function initStoryPanelBindings() {
     $(navId)?.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-story-chapter-id]");
       if (!btn?.dataset.storyChapterId) return;
-      selectStoryChapter(btn.dataset.storyChapterId);
+      void selectStoryChapter(btn.dataset.storyChapterId);
     });
   }
   $("btnStoryChatOpenChapter")?.addEventListener("click", () => {
     const cid = storyChatActiveChapterId();
     if (!cid) return toast("请先在左侧选择章节");
-    selectStoryChapter(cid, "chapter");
+    void selectStoryChapter(cid, "chapter");
   });
   $("storyForeshadowList")?.addEventListener("input", scheduleStoryForeshadowSync);
   $("storyForeshadowList")?.addEventListener("change", scheduleStoryForeshadowSync);
@@ -4742,7 +4831,7 @@ function initStoryPanelBindings() {
       state.world = res.world;
       storyMetaToForm();
       const newId = res.chapter?.id;
-      if (newId) selectStoryChapter(newId);
+      if (newId) void selectStoryChapter(newId);
       setDirty(true);
       toast("已新建章节");
     } catch (e) {
@@ -5730,7 +5819,7 @@ function renderStoryChapterNav(activeId) {
   if (state.storyGen) applyStoryGenerationUi(state.storyGen);
 }
 
-function selectStoryChapter(chapterId, subView) {
+async function selectStoryChapter(chapterId, subView) {
   if (!chapterId) return;
   state.storyActiveChapterId = chapterId;
   renderStoryChapterNav(chapterId);
@@ -5748,13 +5837,13 @@ function selectStoryChapter(chapterId, subView) {
   refreshStoryContextPanel();
   if (state.activeView === "storyChat" && !subView) return;
   if (subView === "beats") {
-    switchView("storyOutline");
+    await switchView("storyOutline");
     setStoryOutlineSub("beats");
   } else if (subView === "chapter") {
-    switchView("storyChapter");
+    await switchView("storyChapter");
     void loadStoryManuscript();
   } else if (subView === "write") {
-    switchView("storyWrite");
+    await switchView("storyWrite");
   } else if (subView) setStorySubView(subView);
   else if (state.storySubView === "outline" && state.storyOutlineSub === "beats") void loadStoryBeat();
   else if (state.storySubView === "chapter") void loadStoryManuscript();
@@ -6051,6 +6140,10 @@ async function loadWorld(id) {
   refreshFilesView();
   refreshSearchView();
   refreshWorldTabTitle();
+  // If story panel is open, refresh story data for the new world
+  if (state.storySubView) {
+    await refreshStoryChaptersAligned();
+  }
 }
 
 async function refreshFactionRelationsFromPanel() {

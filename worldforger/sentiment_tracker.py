@@ -70,25 +70,37 @@ class SentimentTracker:
             "→ 本章开篇应注意情感过渡，避免突兀的基调切换（除非有意为之）。"
         )
 
-    # ── Mermaid chart generation ────────────────────────────────
+    # ── Chart data generation ────────────────────────────────────
 
-    def build_sentiment_arc_chart(self, world: World) -> str:
-        """Build a Mermaid XY chart showing sentiment arc across chapters."""
+    def build_sentiment_arc_chart(self, world: World) -> list[dict]:
+        """Build chart data for sentiment arc visualization (rendered as HTML in frontend)."""
         logs = self.get_all_logs(world)
         if not logs:
-            return ""
+            return []
 
-        # Build data points: each chapter gets an overall sentiment value
         tone_values = {
-            "positive": 4, "calm": 3, "mixed": 2.5, "tense": 2, "negative": 1,
+            "positive": 5, "calm": 4, "mixed": 3, "tense": 2, "negative": 1,
         }
-        lines = ["xychart-beta"]
-        lines.append('    title "情感弧线"')
-        lines.append('    x-axis ["' + '", "'.join(sl.title or sl.chapter_id for sl in logs) + '"]')
-        lines.append("    y-axis \"情感倾向\" 1 --> 5")
-        values = [str(tone_values.get(sl.overall_tone, 2.5)) for sl in logs]
-        lines.append("    line [" + ", ".join(values) + "]")
-        return "\n".join(lines)
+        tone_colors = {
+            "positive": "#16a34a", "calm": "#6366f1", "mixed": "#a855f7",
+            "tense": "#f59e0b", "negative": "#dc2626",
+        }
+
+        points = []
+        for sl in logs:
+            tv = tone_values.get(sl.overall_tone, 3)
+            segs = sl.segments or []
+            avg_intensity = sum(s.intensity for s in segs) / len(segs) if segs else 5
+            points.append({
+                "chapter_id": sl.chapter_id,
+                "title": sl.title or sl.chapter_id,
+                "overall_tone": sl.overall_tone,
+                "tone_value": tv,
+                "tone_color": tone_colors.get(sl.overall_tone, "#64748b"),
+                "ending_tone": sl.ending_tone,
+                "avg_intensity": round(avg_intensity, 1),
+            })
+        return points
 
 
 def _parse_sentiment(raw: str, chapter_id: str, title: str) -> SentimentLog | None:

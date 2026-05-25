@@ -20,6 +20,48 @@ def person_instruction(person: StoryPerson) -> str:
     return _PERSON_LABELS.get(person, _PERSON_LABELS["third_person_limited"])
 
 
+def _pov_anti_examples(person: StoryPerson) -> str:
+    """按叙事人称生成反面示例，防止人称漂移。"""
+    if person == "first_person":
+        return (
+            "【叙事人称硬约束 — 反面示例】\n"
+            "本章使用第一人称，叙述者 = 已绑定的 POV 角色。\n"
+            "❌ 禁止以其他角色的视角叙述内心活动。\n"
+            "❌ 禁止出现「他心想」「她暗自思忖」等跳出第一人称的写法。\n"
+            "✅ 只能写「我」所看、所感、所想。"
+        )
+    elif person == "third_person_limited":
+        return (
+            "【叙事人称硬约束 — 反面示例】\n"
+            "❌ 「我站在城墙上，望着远方的烽火。」（禁止第一人称叙述）\n"
+            "❌ 「我们一行人穿过密林，李明和我走在最前面。」（禁止第一人称复数）\n"
+            "❌ 「李明心想：这家伙肯定在撒谎。」同时写「王五心想：他果然上当了。」（限知视角只能贴近一个 POV 角色的内心）\n"
+            "✅ 「李明站在城墙上，望着远方的烽火。」（第三人称）\n"
+            "✅ 「三人穿过密林，李明走在最前面。」（第三人称）\n"
+            "✅ 仅描写 POV 角色能感知到的信息；其他角色的内心活动不可直接描写。"
+        )
+    else:
+        return (
+            "【叙事人称硬约束 — 反面示例】\n"
+            "❌ 「我站在城墙上，望着远方的烽火。」（禁止第一人称叙述）\n"
+            "❌ 「我们一行人穿过密林。」（禁止第一人称复数）\n"
+            "✅ 「李明站在城墙上，望着远方的烽火。」（第三人称）\n"
+            "✅ 全知视角可描写各角色内心活动，但勿无节制剧透未回收伏笔。"
+        )
+
+
+def _character_reference_rules() -> str:
+    """人物指称规则：用人名而非过度依赖代词。"""
+    return (
+        "【人物指称规则】\n"
+        "1. 每段首次提及某角色，必须用完整人名，禁止以「他」「她」开头。\n"
+        "2. 同段落多个同性别角色互动时，每个动作/对话的主体必须用人名标清，禁止连续使用「他」「她」造成指代不明。\n"
+        "3. 心理描写开头必须用「人名 + 心想/暗想/思忖」，不可仅用「他」「她」。\n"
+        "4. 场景切换或视角转换后第一句话，必须用人名重新锚定。\n"
+        "5. 「他」「她」仅限前一句已用人名明确指代且当前句无其他同性别角色时使用；每 3–4 句至少重新出现一次人名。"
+    )
+
+
 def narrator_block(world: World, *, person_override: StoryPerson | None = None) -> str:
     n = world.story.narrator
     person = person_override or n.person
@@ -31,6 +73,8 @@ def narrator_block(world: World, *, person_override: StoryPerson | None = None) 
         lines.append(f"叙事人物（POV）：id={cid}" + (f"，姓名={name}" if name else ""))
     if (n.voice_notes or "").strip():
         lines.append(f"口吻与禁忌：{n.voice_notes.strip()}")
+    elif person != "first_person":
+        lines.append("口吻与禁忌：全文使用第三人称，优先用人名称呼角色而非过度依赖「他」「她」，每段首次出现和场景切换时必须用人名锚定。")
     return "\n".join(lines)
 
 
@@ -86,10 +130,13 @@ def chapter_beats_system(world: World, *, creative_mode: str | None) -> str:
 def manuscript_system(world: World, *, creative_mode: str | None, person: StoryPerson | None) -> str:
     mode_eff = normalize_creative_mode(creative_mode) or world.meta.creative_mode
     unit = _unit_for_mode(mode_eff)
+    person_eff = person or world.story.narrator.person
     return (
         "你是小说/跑团执笔者，根据世界设定、粗纲与细纲撰写**章节文稿**。\n"
         f"当前单元：{unit}。\n"
-        f"{narrator_block(world, person_override=person)}\n"
+        f"{narrator_block(world, person_override=person)}\n\n"
+        f"{_pov_anti_examples(person_eff)}\n\n"
+        f"{_character_reference_rules()}\n"
         "输出 Markdown 正文；可在文末单独用「## 作者备注」写仅作者可见的信息（读者版将剥离）。\n"
         "禁止与 world.json 冲突；未回收伏笔不要在正文中提前揭穿。\n"
         + (f"\n{story_mode_addon(mode_eff, unit_label=unit)}\n" if story_mode_addon(mode_eff, unit_label=unit) else "")
@@ -597,14 +644,28 @@ def build_manuscript_user_payload(
     user_hint: str,
     include_world_md: bool,
     rag_chunks: list[dict] | None = None,
+    person: StoryPerson | None = None,
 ) -> str:
     ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
     title = ch.title if ch else chapter_id
     unit = resolve_unit_label(world)
+    person_eff = person or world.story.narrator.person
+    pov_label = person_instruction(person_eff)
     parts = [
         f"【任务】撰写「{unit}」文稿：{title}（id={chapter_id}）",
-        f"\n【世界设定摘要】\n{compact_world_snippet(world, include_markdown=include_world_md)}",
     ]
+    # ── POV 硬约束（user prompt 首部，利用注意力峰区）──
+    parts.append(
+        f"\n【叙事人称硬约束 — 本章写作开始前务必确认】\n"
+        f"本章叙事人称：{pov_label}\n"
+        + (
+            "严禁出现任何第一人称叙述（「我」「我们」作为叙述主体）。\n"
+            "角色对话中角色说「我」是允许的，但叙述者绝不能以「我」自称。\n"
+            if person_eff != "first_person" else ""
+        )
+        + "如果写到一半发现人称错误，请立即回头修改。"
+    )
+    parts.append(f"\n【世界设定摘要】\n{compact_world_snippet(world, include_markdown=include_world_md)}")
     if macro_outline.strip():
         cap = macro_outline.strip()
         if len(cap) > 14000:
@@ -682,6 +743,10 @@ def build_manuscript_user_payload(
     parts.append(
         f"\n【伏笔台账（正文勿提前揭穿未回收项）】\n"
         f"{foreshadow_ledger_text(world, chapter_id=chapter_id)}"
+    )
+    # ── 尾部署名提醒（近因效应：最后一行紧邻模型输出的位置）──
+    parts.append(
+        f"\n（开始写作前再次确认：本章使用{pov_label}，优先用人名称呼角色，不依赖「他」「她」。请开始正文。）"
     )
     return "\n".join(parts)
 

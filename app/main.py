@@ -1180,7 +1180,7 @@ def api_get_consistency_report(world_id: str, chapter_id: str) -> dict[str, Any]
 
 @app.get("/api/worlds/{world_id}/story/sentiment-arc")
 def api_get_sentiment_arc(world_id: str) -> dict[str, Any]:
-    """返回所有情感日志 + Mermaid 情感弧线图定义。"""
+    """返回所有情感日志 + 情感弧线图数据。"""
     from worldforger.sentiment_tracker import SentimentTracker
 
     try:
@@ -1189,10 +1189,10 @@ def api_get_sentiment_arc(world_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="world not found") from None
     tracker = SentimentTracker(world_id)
     logs = tracker.get_all_logs(w)
-    chart = tracker.build_sentiment_arc_chart(w)
+    chart_data = tracker.build_sentiment_arc_chart(w)
     return {
         "sentiment_logs": [log.model_dump(mode="json") for log in logs],
-        "mermaid_chart": chart,
+        "chart_data": chart_data,
     }
 
 
