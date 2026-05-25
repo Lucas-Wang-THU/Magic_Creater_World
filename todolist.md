@@ -9,7 +9,7 @@
 
 ## 当前状态（最近一次核对）
 
-- **pytest**：**`226 passed, 3 deselected`**（229 tests 全部通过；3 个慢速 LLM 测试需 API key；使用 `E:/ananconda/envs/Agent/python.exe`）。
+- **pytest**：**`337 passed, 3 deselected`**（337 tests 全部通过；含 84 个 Layer 3 测试；3 个慢速 LLM 测试需 API key；使用 `E:/ananconda/envs/Agent/python.exe`）。
 - **全部 11 个世界观模块**（地理/生态/境界/属性/物品/派系/文化/历史/经济/角色/情节）已完成 **Schema + GUI 表单 + 第二路结构化同步**。
 - **三 Agent 校对者流水线**：架构师→同步器→校对者→架构师补充循环（至多 N 轮，默认 3），校对者检查同步器是否遗漏架构师回复中的新增内容，确保增量追加不丢数据。
 - **ID 感知增量合并**：`merge_array_by_id()` 按 `id` 匹配已有条目做 deep-merge，新条目追加到末尾，**永不覆盖/删除已有数据**。
@@ -20,6 +20,7 @@
 - **叙事连贯性第一层**：章节摘要卡片 + 角色运行时状态追踪 + 节拍衔接校验，全部可用。
 - **叙事连贯性第二层（RAG 增强）**：本地向量索引（ChromaDB + BAAI/bge-small-zh-v1.5）+ 语义检索 + 多粒度分层记忆（Book / Chapter / Immediate 三层），全部可用。
 - **GUI 优化**：章节摘要卡片（含角色状态变化、伏笔标签、结尾钩子）、角色运行时状态卡片（位置/情绪/目标）、章节状态指示点、字数标签、三栏故事工作台布局（章节导航 + 主面板 + 写作上下文侧栏含 RAG 状态）、动画与视觉打磨，全部完成。
+- **叙事连贯性第三层（深度增强）**：叙事知识图谱（Narrative KG）+ 7 维度一致性自动审校 + 情感弧线追踪 + Mermaid 曲线可视化，全部完成。
 
 ---
 
@@ -317,10 +318,10 @@ foreshadowing:
 
 | 任务 | 说明 | 状态 |
 |:--|:--|:--|
-| KG Schema | 在 `schemas.py` 新增 NarrativeKG 模型（entities / events / foreshadowing） | ▢ |
-| KG 存储 | 新增 `worldforger/narrative_kg.py`：读写 `narrative_kg.json` | ▢ |
-| 事件抽取 | 章节生成后自动从正文抽取事件和状态变化，更新 KG | ▢ |
-| KG 查询注入 | 生成前查询 KG 获取当前角色状态，注入 prompt | ▢ |
+| KG Schema | 在 `schemas.py` 新增 NarrativeKG 模型（entities / events / foreshadowing） | ✅ |
+| KG 存储 | 新增 `worldforger/narrative_kg.py`：读写 `narrative_kg.json` | ✅ |
+| 事件抽取 | 章节生成后自动从正文抽取事件和状态变化，更新 KG | ✅ |
+| KG 查询注入 | 生成前查询 KG 获取当前角色状态，注入 prompt | ✅ |
 
 #### G. 一致性自动审校 Agent
 
@@ -339,10 +340,10 @@ foreshadowing:
 
 | 任务 | 说明 | 状态 |
 |:--|:--|:--|
-| 审校 prompt | 新增 `story_prompts.consistency_check_system()` 和 user payload | ▢ |
-| 审校调用 | `generate_manuscript()` 完成后运行审校，结果写入章节的 `author_notes` | ▢ |
-| 前端展示 | 审校结果在章节目录中可视化展示（问题数 badge + 详情展开） | ▢ |
-| 自动修复建议 | 审校 Agent 输出可选的修复建议，用户可选择应用 | ▢ |
+| 审校 prompt | 新增 `story_prompts.consistency_check_system()` 和 user payload | ✅ |
+| 审校调用 | `generate_manuscript()` 完成后运行审校，结果写入章节的 `author_notes` | ✅ |
+| 前端展示 | 审校结果在章节目录中可视化展示（问题数 badge + 详情展开） | ✅ |
+| 自动修复建议 | 审校 Agent 输出可选的修复建议，用户可选择应用 | ✅ |
 
 #### H. 情感弧线追踪
 
@@ -350,16 +351,16 @@ foreshadowing:
 
 | 任务 | 说明 | 状态 |
 |:--|:--|:--|
-| 情感分析模块 | 新增 `worldforger/sentiment_tracker.py`：调用 LLM 或 textblob 逐段标注情感 | ▢ |
-| 情感注入 | 修改 manuscript 生成 prompt，注入上一章结尾情感状态 | ▢ |
-| 情感曲线可视化 | 前端 Mermaid 图表：各章情感倾向走势 | ▢ |
+| 情感分析模块 | 新增 `worldforger/sentiment_tracker.py`：调用 LLM 或 textblob 逐段标注情感 | ✅ |
+| 情感注入 | 修改 manuscript 生成 prompt，注入上一章结尾情感状态 | ✅ |
+| 情感曲线可视化 | 前端 Mermaid 图表：各章情感倾向走势 | ✅ |
 
 ---
 
 ### 推荐实施路径
 
 ```
-第一轮 (已完成) ──────── 第二轮 (已完成) ──────── 第三轮 (6-8周)
+第一轮 (已完成) ──────── 第二轮 (已完成) ──────── 第三轮 (已完成)
 ├─ A. 章节摘要卡片       ├─ D. RAG 语义检索        ├─ F. 叙事知识图谱
 ├─ B. 人物运行时状态     ├─ E. 多粒度分层记忆      ├─ G. 一致性审校 Agent
 └─ C. 节拍衔接校验                                  └─ H. 情感弧线追踪
@@ -369,7 +370,7 @@ foreshadowing:
 
 **第二轮已实现质的飞跃**：D+E 将"盲目截断"替换为"智能检索"，是解决长篇小说跨章节遗忘的关键。
 
-**第三轮是天花板**：F+G+H 需要较大工程投入，实现接近人类编辑水平的叙事一致性保障。
+**第三轮已完成**：F+G+H 实现了叙事知识图谱、7 维度一致性自动审校和情感弧线追踪，达到接近人类编辑水平的叙事一致性保障。
 
 ### 关键参考论文
 
@@ -382,6 +383,491 @@ foreshadowing:
 | [LumberChunker (EMNLP 2024)](https://blog.ml.cmu.edu/2026/03/17/lumberchunker-long-form-narrative-document-segmentation/) | 语义边界分块（非固定 token） | RAG 分块策略 |
 | [ComoRAG (AAAI 2026)](https://github.com/EternityJune25/ComoRAG) | 认知启发式记忆组织 RAG | 复杂叙事推理、长上下文检索 |
 | [DeepWriter (AAAI 2026)](https://ojs.aaai.org/index.php/AAAI/article/view/40648) | 多 Agent 协作 + BookScore 评估 | 超长篇幅写作、质量评估 |
+
+---
+
+## 人物动态系统 — 从静态卡司到有机生命体
+
+> 诊断日期：2026-05-24
+> 核心判断：当前角色系统已具备静态建模能力（卡司、关系图、运行时状态），但缺少**跨章节动态演变**的追踪机制。角色在 ch_3 结尾"愤怒地离开京城"，ch_4 若无其事地出现——无系统级约束阻止这种断裂。
+>
+> 以下方案从动态系统角度，将角色从"可查询的数据库条目"升级为"随时间演变的有机体"。
+
+---
+
+### 当前状态盘点
+
+| 已有能力 | 覆盖层 | 缺口 |
+|:--|:--|:--|
+| 角色卡司（entities + cast_role + 关系图） | 静态建模 | 关系是快照，不追踪演变过程 |
+| `CharacterRuntimeState`（位置/情绪/目标） | 单点动态 | 仅当前状态，无历史轨迹、无因果链 |
+| `ChapterSummaryCard.character_state_changes` | 章级记录 | 仅摘要，不结构化、不可查询 |
+| `relationship_updates: dict[str, str]` | 简单记录 | 字符串描述，无信任度/阶段/双向视角 |
+| 人物关系 Mermaid 图 | 可视化 | 静态图，不反映关系演变 |
+| 角色运行时状态卡片（GUI） | 展示 | 只显示当前值，无变化趋势 |
+
+**缺失的核心能力**（按系统重要性排序）：
+
+1. **关系演变追踪** — 信任度变化、关系阶段迁移、双向感知不对等
+2. **角色认知/知识系统** — 谁知道什么、信息差、秘密的传播
+3. **角色决策日志** — 关键选择及其后果，驱动行为一致性
+4. **身体状况追踪** — 受伤/疤痕/疲劳/外貌变化，身体承载历史
+5. **团队/群像动力学** — 领导权、士气、内部张力、替罪羊机制
+6. **角色个人时间线** — 与主故事时间线可能不同步的个人事件序列
+
+---
+
+### P0 — 关系演变状态机（2 周）
+
+#### 问题
+
+当前 `characters.relations` 是静态快照：`{source_id, target_id, relation_type, notes}`。无法回答：
+- 芬恩对艾拉的信任度从 ch_1 到 ch_5 是上升还是下降？
+- 凯伦表面上是 ally，实则内心是否仍怀有敌意？
+- 格罗姆和艾拉在 ch_3 之后关系是否进入过"冰期"？
+
+#### Schema 设计
+
+```python
+class RelationshipState(BaseModel):
+    """单个角色对另一个角色的动态关系状态"""
+    source_id: str                          # 感知方
+    target_id: str                          # 被感知方
+    relation_type: str = "neutral"          # 表面关系标签：ally/rival/family/debt/secret/lover/mentor
+    trust_level: int = Field(default=50, ge=0, le=100)
+    # 0=完全不信任, 50=中性/不确定, 100=绝对信任
+    respect_level: int = Field(default=50, ge=0, le=100)
+    # 0=蔑视, 100=极度尊敬
+    affinity_level: int = Field(default=50, ge=0, le=100)
+    # 0=厌恶/敌意, 50=中性, 100=深厚感情
+
+    # 关系阶段
+    phase: Literal[
+        "strangers", "acquaintances", "allies_tense", "allies_reliable",
+        "friends", "deep_bond", "conflicted", "estranged", "reconciling",
+        "enemies", "rivals_reluctant", "broken"
+    ] = "strangers"
+    phase_history: list[dict] = Field(default_factory=list)
+    # [{"phase": "allies_tense", "from_chapter": "ch_2", "to_chapter": "ch_4"}, ...]
+
+    # 双向不对称标记
+    perception_mismatch: str = ""
+    # "芬恩认为他们是可靠盟友(trust=80)，但凯伦对芬恩的信任只有 30"
+
+    # 关键转折事件
+    turning_points: list[dict] = Field(default_factory=list)
+    # [{"chapter": "ch_3", "event": "芬恩舍身掩护凯伦", "effect": "trust +15, phase → allies_reliable"}]
+
+    last_updated_chapter: str = ""
+```
+
+**存储位置**：在 `characters.entities[].relations[]` 中扩展（向后兼容——新字段可选，旧字段保留）。
+
+#### 更新机制
+
+每章生成后，轻量 LLM 调用检测关系变化：
+```
+【关系演变检测】
+对比本章正文与前章关系状态，对每对互动角色：
+1. 是否有增加/减少信任的事件？（用 5-15 分的变化量）
+2. 关系阶段是否应迁移？（不强制每章都变——真正的信任需要多章积累）
+3. 是否存在双向感知不对等？（A 以为和 B 是朋友，B 其实在利用 A）
+
+输出 JSON：{"relationship_updates": [{"source": "char_a", "target": "char_b", "trust_delta": +10, ...}]}
+```
+
+#### 注入策略
+
+在 manuscript prompt 中追加：
+```
+【当前关系状态——请让互动与信任水平一致】
+- 芬恩→艾拉：trust=65, phase=allies_reliable（正在建立信任，但仍保留一定距离）
+  → 芬恩不会对艾拉敞开心扉，但会在行动上支持
+- 凯伦→芬恩：trust=30, phase=allies_tense（表面合作，内心有敌意）
+  → 凯伦的台词应有微妙的讽刺/质疑，但不会直接对抗
+```
+
+#### 涉及文件
+
+| 文件 | 改动 |
+|:--|:--|
+| `worldforger/schemas.py` | 新增 `RelationshipState`，扩展 `characters.relations[]` dict |
+| `worldforger/story_prompts.py` | 新增 `relationship_detection_system()` 和 user payload；manuscript prompt 注入关系状态 |
+| `worldforger/story_service.py` | 章节后关系检测调用 + 关系状态更新 |
+| `static/app.js` | 关系面板：信任度柱状图 + 关系阶段时间轴 + 双向感知对比 |
+
+---
+
+### P0 — 角色认知/知识系统（2 周）
+
+#### 问题
+
+当前系统不追踪"谁知道什么"。导致：
+- 角色在对话中不经意说出不该知道的信息
+- 同一个秘密被反复"首次揭露"
+- 无法利用信息差制造戏剧张力（读者知道 A 是叛徒，B 不知道——但系统不追踪这个）
+
+#### Schema 设计
+
+```python
+class CharacterKnowledgeEntry(BaseModel):
+    """单条知识——某个角色知道某件事"""
+    knowledge_id: str = ""                  # 如 "know_traitor_identity"
+    character_id: str = ""                  # 谁知道
+    topic: str = ""                         # "芬恩是叛徒" / "翠绿议会的真正起源"
+    category: Literal[
+        "secret",          # 秘密（只有特定角色知道）
+        "personal_history", # 个人历史（童年经历、创伤）
+        "world_lore",      # 世界设定知识
+        "plan",            # 计划/策略（某角色知道的行动计划）
+        "suspicion",       # 怀疑（不确定但有所察觉）
+        "misunderstanding", # 误解（角色以为是真的但其实是假的）
+    ] = "secret"
+    certainty: Literal["knows_for_sure", "strongly_suspects", "vaguely_senses", "believes_wrongly"] = "knows_for_sure"
+    source_chapter: str = ""                # 从哪章获得此知识
+    source_detail: str = ""                 # 如何获得的："偷听了议会对话"
+    shared_with: list[str] = Field(default_factory=list)
+    # [{"char_id": "char_b", "chapter": "ch_5", "method": "主动告知"}]
+    is_still_true: bool = True              # 是否仍是真相（可能后来的事件改变了事实）
+    notes: str = ""
+
+class CharacterKnowledgeGraph(BaseModel):
+    """全局角色知识图谱"""
+    entries: list[CharacterKnowledgeEntry] = Field(default_factory=list)
+    # 视角查询：GET /knowledge?character=char_a → 该角色知道的全部信息
+    # 秘密查询：GET /knowledge?topic=traitor → 谁知道/不知道此信息
+```
+
+**存储位置**：`World` 新增可选字段 `character_knowledge: CharacterKnowledgeGraph`
+
+#### 检测与更新
+
+每章生成后：
+```
+【角色知识检测】
+检查本章正文中：
+1. 是否有角色获得了新信息？（谁、什么信息、从什么来源、确定程度）
+2. 是否有角色分享了信息？（谁告诉了谁什么）
+3. 是否有角色基于错误信息行动？（记录下来——这是戏剧冲突来源）
+4. 是否有角色"不应该知道但说了出来"？（标注为潜在的一致性 bug）
+
+对每个检测到的知识变化，创建或更新 KnowledgeEntry。
+```
+
+#### 注入策略
+
+在 manuscript prompt 中追加：
+```
+【本章各角色所知信息（请严格遵守信息边界）】
+- 艾拉 KNOWS: 芬恩的真实身份（ch_2 偷听得知）、裂隙的初步情报
+- 艾拉 DOES NOT KNOW: 凯伦在 ch_3 与敌人的秘密交易
+- 芬恩 KNOWS: 艾拉在隐瞒某事（suspicion, ch_4 察觉到异常）
+- 芬恩 DOES NOT KNOW: 艾拉隐瞒的具体内容
+
+【信息差叙事规则】
+1. 角色不能说出ta不知道的信息
+2. 如果 X 不知道 Y，X 的对话和内心独白不应含有 Y
+3. 利用信息差制造张力：读者知道但角色不知道的，用角色的"无知"行为体现
+4. 误解（believes_wrongly）是好的戏剧素材——不要急于纠正
+```
+
+#### 涉及文件
+
+| 文件 | 改动 |
+|:--|:--|
+| `worldforger/schemas.py` | 新增 `CharacterKnowledgeEntry`、`CharacterKnowledgeGraph`，`World` 增加字段 |
+| `worldforger/story_prompts.py` | 新增 `knowledge_detection_system()`；manuscript prompt 注入知识边界 |
+| `worldforger/story_service.py` | 章节后知识检测 + 更新 |
+| `worldforger/panel_sync.py` | 同步器 characters scope 支持 knowledge entries |
+| `static/app.js` | 新增"角色知识"面板：按角色视角筛选 + 信息差高亮 + 秘密传播图 |
+
+---
+
+### P1 — 角色决策日志（1.5 周）
+
+#### 问题
+
+角色在 ch_2 做了一个关键选择（"放弃救 NPC 以获取情报"），到 ch_8 时行为模式已变，但无系统追踪该决策的长期影响。导致角色行为看似随机——没有决策→后果→信念变化的因果链。
+
+#### Schema 设计
+
+```python
+class CharacterDecision(BaseModel):
+    """角色的关键决策及其后果链"""
+    decision_id: str = ""
+    character_id: str = ""
+    chapter: str = ""
+    summary: str = ""                       # "艾拉选择不救 NPC 莫里斯，以获取翠绿议会的关键情报"
+    decision_type: Literal[
+        "moral_choice",       # 道德抉择（牺牲谁/什么）
+        "trust_decision",     # 信任决策（相信/拒绝某人）
+        "strategic_choice",   # 战略选择（走哪条路）
+        "self_revelation",    # 自我揭示（角色的某个选择暴露了ta真正的价值观）
+        "relationship_choice", # 关系决策（切断/建立/修复关系）
+        "sacrifice",          # 牺牲（失去某物以换取某物）
+    ] = "moral_choice"
+    options_considered: list[str] = Field(default_factory=list)
+    # ["A: 冲进去救莫里斯但失去情报", "B: 放弃莫里斯获取情报"]
+    option_chosen: str = ""                 # "B"
+    stated_reason: str = ""                 # 角色自己说的理由
+    actual_reason: str = ""                 # 真实原因（可能不同——角色会自我欺骗）
+
+    # 后果链
+    immediate_consequences: list[str] = Field(default_factory=list)
+    # ["莫里斯死亡", "获得翠绿议会情报", "凯伦对艾拉的信任降低"]
+    long_term_consequences: list[dict] = Field(default_factory=list)
+    # [{"chapter": "ch_5", "effect": "艾拉开始回避需要牺牲他人的决策", "type": "personality_shift"}]
+
+    # 角色的反思
+    reflections: list[dict] = Field(default_factory=list)
+    # [{"chapter": "ch_4", "reflection": "艾拉梦到莫里斯", "type": "emotional"}]
+
+    # 是否已被证明是错误/正确的？
+    outcome_verdict: Literal["pending", "proved_right", "proved_wrong", "ambiguous", "irrelevant"] = "pending"
+```
+
+**存储位置**：在 `characters.entities[]` 每项 dict 中新增可选字段 `decisions: list[dict]`
+
+#### 检测时机
+
+每章生成后检测新的关键决策（与 aftermath 检测合并调用）。不要求每章都有新决策——关键决策以 3-5 章为单位出现。
+
+#### Prompt 注入
+
+```
+【角色决策历史——行为一致性参考】
+艾拉的关键决策：
+- ch_2：放弃莫里斯获取情报（moral_choice）→ 长期影响：对牺牲类决策犹豫
+  → 本章提示：如果艾拉面临"牺牲 X 换取 Y"的情境，她的犹豫应比普通角色更明显
+- ch_5：主动向芬恩坦白身份（self_revelation）→ 说明艾拉在信任方面有进展
+  → 本章提示：艾拉的对人态度应有微妙变化——更愿意冒信任风险
+```
+
+#### 涉及文件
+
+| 文件 | 改动 |
+|:--|:--|
+| `worldforger/schemas.py` | 新增 `CharacterDecision` |
+| `worldforger/story_prompts.py` | 新增 `decision_detection_system()`；manuscript prompt 注入决策历史 |
+| `worldforger/story_service.py` | 章节后决策检测 |
+| `static/app.js` | 角色面板新增"关键决策"时间轴 + 后果链可视化 |
+
+---
+
+### P1 — 角色身体状况追踪（1 周）
+
+#### 问题
+
+角色在 ch_1 手臂中箭，ch_2 若无其事地攀岩——没有"伤病史"追踪。真正的身体承载历史：旧伤在雨天隐隐作痛、疤痕让人不敢穿短袖、长期疲劳导致判断力下降。
+
+#### Schema 设计
+
+```python
+class CharacterPhysicalState(BaseModel):
+    """角色身体状况——身体承载叙事历史"""
+    character_id: str = ""
+
+    # 活跃伤情
+    active_injuries: list[dict] = Field(default_factory=list)
+    # [{"injury_id": "inj_001", "type": "箭伤", "location": "左肩",
+    #   "caused_in_chapter": "ch_1", "severity": "moderate",
+    #   "healing_progress": "60%", "functional_impact": "左手抬不过肩",
+    #   "last_mentioned_chapter": "ch_3"}]
+
+    # 永久疤痕/改变
+    permanent_marks: list[dict] = Field(default_factory=list)
+    # [{"mark_id": "scar_001", "type": "疤痕", "location": "左前臂",
+    #   "origin": "ch_1 箭伤愈合", "visibility": "noticeable",
+    #   "character_feeling": "不愿被人看到"}]
+
+    # 慢性状态
+    chronic_conditions: list[dict] = Field(default_factory=list)
+    # [{"condition": "左肩旧伤——阴雨天酸痛", "since_chapter": "ch_2"}]
+
+    # 当前身体状态
+    fatigue_level: Literal["rested", "tired", "exhausted", "collapse_imminent"] = "rested"
+    general_condition: str = ""
+    # "连续三章高强度战斗，身体处于透支边缘"
+
+    last_updated_chapter: str = ""
+```
+
+**存储位置**：在 `characters.entities[]` 每项 dict 中新增可选字段 `physical_state: dict`
+
+#### 更新与注入
+
+轻量——不需要独立 LLM 调用。在 manuscript prompt 中要求模型自己标注身体状态变化：
+```
+【角色身体状况——请让身体承载历史】
+- 芬恩：左肩箭伤（ch_1，愈合约 60%，左手抬不过肩）、疲劳度=tired
+  → 本章任何涉及左臂的动作应有不适感（一句即可）
+  → 如果有人拍他左肩，他应该缩一下
+- 艾拉：无伤，但疲劳度=exhausted（ch_4-5 连续战斗+失眠）
+  → 决策速度应变慢，可能因为疲劳犯小错误
+
+【身体叙事规则】
+1. 旧伤不是背景装饰——它真的影响行动
+2. 疲劳会影响判断力——疲劳的角色更容易出错
+```
+
+#### 涉及文件
+
+| 文件 | 改动 |
+|:--|:--|
+| `worldforger/schemas.py` | 新增 `CharacterPhysicalState` |
+| `worldforger/story_prompts.py` | manuscript prompt 注入身体状态 |
+| `worldforger/story_service.py` | 章节后从正文提取身体状态变化（复用已有 aftermath 提取流程） |
+| `static/app.js` | 角色卡片展示活跃伤情 + 身体状况 |
+
+---
+
+### P2 — 团队/群像动力学（2 周）
+
+#### 问题
+
+当前系统看角色是个体之和，但没有"团队作为一个整体"的状态追踪。真实团队有：士气、非正式领导权、替罪羊、内部小团体、集体情绪。
+
+#### Schema 设计
+
+```python
+class GroupDynamicsState(BaseModel):
+    """团队/主角团作为一个整体的动态状态"""
+    group_id: str = ""                      # 如 "party_main"
+    name: str = ""                          # "主角团"
+    member_ids: list[str] = Field(default_factory=list)
+
+    # 团队士气
+    morale: int = Field(default=50, ge=0, le=100)
+    morale_trend: Literal["rising", "stable", "declining", "volatile"] = "stable"
+    morale_factors: list[dict] = Field(default_factory=list)
+    # [{"factor": "连续胜利", "effect": +10, "since_chapter": "ch_3"}]
+
+    # 非正式结构
+    informal_leader_id: str = ""            # 实际上的决策者（不一定是名义领导）
+    mediator_id: str = ""                  # 团队中的和事佬/调解者
+    outsider_id: str = ""                   # 感觉被排除在外的人
+    tension_pairs: list[dict] = Field(default_factory=list)
+    # [{"char_a": "char_finn", "char_b": "char_kellen", "tension_type": "信任危机", "intensity": 7}]
+
+    # 团队阶段
+    team_stage: Literal[
+        "forming", "storming", "norming", "performing", "adjourning",
+        "fracturing", "rebuilding"
+    ] = "forming"
+    stage_history: list[dict] = Field(default_factory=list)
+
+    # 内部小团体
+    sub_groups: list[dict] = Field(default_factory=list)
+    # [{"members": ["char_finn", "char_aila"], "basis": "互相信任的核心二人组"}]
+
+    # 团队创伤
+    shared_traumas: list[dict] = Field(default_factory=list)
+    # [{"event": "北境小镇被毁", "chapter": "ch_5", "collective_impact": "团队对情报准确性格外敏感"}]
+
+    last_updated_chapter: str = ""
+```
+
+**存储位置**：`World` 新增可选字段 `group_dynamics: list[GroupDynamicsState]`
+
+#### 检测与注入
+
+每 3 章运行一次团队动力学检测，或在有重大团队事件（加入新成员、有人死亡/离开、重大内部冲突）后触发。
+
+在 manuscript prompt 中：
+```
+【当前团队状态——请注意群像氛围】
+- 主角团处于 storming→norming 过渡阶段，士气 declining（连续失利+信任危机）
+- 芬恩是非正式领袖（多数决策大家默认等他表态），凯伦是 outsider（与团队有隔阂）
+- 芬恩↔凯伦 tension=7/10：凯伦质疑芬恩的决策，芬恩回避与凯伦的正面沟通
+- 本章要求：至少一个场景展现团队的当前张力——不是通过对话直说，而是在决策过程中的微妙互动
+```
+
+#### 涉及文件
+
+| 文件 | 改动 |
+|:--|:--|
+| `worldforger/schemas.py` | 新增 `GroupDynamicsState`，`World` 增加字段 |
+| `worldforger/story_prompts.py` | 新增 `group_dynamics_detection_system()`；manuscript prompt 注入团队状态 |
+| `worldforger/story_service.py` | 每 3 章 + 重大事件后触发团队检测 |
+| `static/app.js` | 新增"团队看板"：士气趋势图 + 非正式结构图 + 张力热力图 |
+
+---
+
+### P2 — 角色个人时间线（1.5 周）
+
+#### 问题
+
+当前只有一条主故事时间线（`history.events[]`）。但每个角色有自己的个人时间线——"格罗姆在 ch_2 之前就认识 NPC X""艾拉在 ch_1 和 ch_2 之间偷偷去了某个地方"。不追踪会导致时间矛盾。
+
+#### Schema 设计
+
+```python
+class PersonalTimelineEvent(BaseModel):
+    """角色个人时间线上的事件（可能对他人不可见）"""
+    event_id: str = ""
+    character_id: str = ""
+    chapter: str = ""                       # 发生在哪个章节期间
+    relative_timing: str = ""               # "ch_2 开始前" / "ch_3 中间" / "ch_4 结束后"
+    event: str = ""                         # "格罗姆在出发前独自去了一趟旧神殿"
+    known_by: list[str] = Field(default_factory=list)  # 哪些角色知道此事件
+    significance: str = ""                  # 对角色弧光的意义
+    linked_events: list[str] = Field(default_factory=list)  # 关联的主时间线事件 id
+
+class CharacterPersonalTimeline(BaseModel):
+    """某个角色的完整个人时间线"""
+    character_id: str = ""
+    events: list[PersonalTimelineEvent] = Field(default_factory=list)
+```
+
+**存储位置**：在 `characters.entities[]` 每项 dict 中新增可选字段 `personal_timeline: list[dict]`
+
+这个功能相对独立，可作为 P2 的收尾模块。它更像一个"编辑辅助工具"——角色创建时 LLM 可为每人生成 3-5 个个人历史事件，后续章节中如有新增则追加。
+
+#### 涉及文件
+
+| 文件 | 改动 |
+|:--|:--|
+| `worldforger/schemas.py` | 新增 `PersonalTimelineEvent`、`CharacterPersonalTimeline` |
+| `worldforger/story_prompts.py` | 角色创建 prompt 中生成个人时间线；manuscript 一致性参考 |
+| `static/app.js` | 角色面板新增"个人时间线"视图 |
+
+---
+
+### 与 todolist_far.md 文学呼吸感模块的关系
+
+`todolist_far.md` 中 10 个文学呼吸感模块与本方案人物动态系统互为补充：
+
+| 文学呼吸感模块 (todolist_far.md) | 对应本方案动态系统 | 关系 |
+|:--|:--|:--|
+| 模块 1：角色语言风格档案 | 关系演变 → 称呼/语气随之变化 | 语言风格随关系阶段自动调整 |
+| 模块 2：情绪后遗症追踪器 | 身体状况追踪（疲劳/慢性状态） | 后遗症的身体化表现：失眠→疲劳 |
+| 模块 6：人性缺陷与关系伤害 | 关系演变状态机 | 缺陷触发→关系 trust 下降→phase 迁移 |
+| 模块 7：微观习惯/小尺度情感 | 关系演变 → 习惯 callback 追踪 | "记得谁怕冷"→ trust 上升的微观体现 |
+| 模块 10：角色相互改变追踪 | 角色决策日志 + 关系演变 | 决策→后果→人格改变→关系阶段迁移 |
+
+**核心差异**：`todolist_far.md` 的模块关注**生成内容的质量**（prompt 注入使 AI 写出更像人的文字），本方案的动态系统关注**状态追踪的完整性**（数据结构 + 检测更新，使系统能回答"角色 X 在 ch_N 时的信任度/知识/身体状况/决策后果是什么"）。
+
+两者共同构成完整的"角色有机体"——文学呼吸感模块负责**输出质量**（文字肌理），动态系统负责**状态演算**（因果一致性）。
+
+---
+
+### 实施路径
+
+```
+Phase 1（2-3 周）──────────── Phase 2（2-3 周）──────────── Phase 3（2-3 周）──
+├─ P0: 关系演变状态机          ├─ P1: 角色决策日志           ├─ P2: 团队/群像动力学
+├─ P0: 角色认知/知识系统       ├─ P1: 角色身体状况追踪       ├─ P2: 角色个人时间线
+│                               │                             │
+│  + todolist_far Phase 1      │  + todolist_far Phase 2     │  + todolist_far Phase 3
+│    (语言风格+后遗症+反公式)    │    (呼吸段落+金句+缺陷+习惯) │    (设定揭示+不可逆失败+相互改变)
+└──────────────────────────────┴──────────────────────────────┴──────────────────────────
+```
+
+**Phase 1 策略**：关系演变 + 认知系统是两个基础性的"横向"系统——几乎所有角色功能都依赖它们。优先做这两个，后续模块（决策日志、身体追踪、团队动力学）可以建立在它们之上。
+
+**Phase 2 策略**：决策日志 + 身体状况是"纵向"系统——追踪单个角色随时间的变化。它们依赖 Phase 1 的关系和知识系统来提供上下文。
+
+**Phase 3 策略**：团队动力学 + 个人时间线是"全局"系统——需要 Phase 1+2 的数据累积才能发挥最大价值。
 
 ---
 
@@ -444,3 +930,14 @@ foreshadowing:
   - GUI 上下文面板：情节工作台三栏布局，右侧新增可折叠上下文面板（前章摘要 / 角色运行时状态 / RAG 索引统计与就绪状态点）。
   - API：`GET /api/worlds/{id}/story/rag/stats` 返回索引就绪状态与统计信息。
   - 测试：28 个 RAG 单元与集成测试（`tests/test_rag.py`），包含 embedding mock、ChromaDB 操作、格式函数、API 端点。
+- [x] **第三层深度增强**：叙事知识图谱 + 一致性审校 + 情感弧线追踪。
+  - `worldforger/schemas.py`：新增 `NarrativeKG`（entities / events / foreshadowing）、`CharacterStateSnapshot`、`KGEntity`、`KGEvent`、`ConsistencyIssue`、`ConsistencyReport`、`SentimentSegment`、`SentimentLog`；`StoryWritingDefaults` 新增 `enable_narrative_kg` / `enable_consistency_check` / `enable_sentiment_track` 开关；`StoryChapter` 新增 `consistency_report` / `sentiment_log` 可选字段；`StorySection` 新增 `narrative_kg`。
+  - `worldforger/story_store.py`：新增 KG/审校/情感存储路径函数与读写 helper；`ensure_story_dirs()` 创建对应子目录。
+  - `worldforger/story_prompts.py`：新增 KG 抽取、一致性审校、情感分析三套 prompt；manuscript prompt 注入 KG 角色状态、前章情感基调。
+  - `worldforger/narrative_kg.py`：`NarrativeKGManager` 类——load/save、角色状态查询、时间线获取、物品状态、事件合并去重、prompt 格式化。
+  - `worldforger/consistency_checker.py`：`run_consistency_check()`——7 维度审校（位置/性格/物品/POV/伏笔/情感/时间线），非阻塞式章节后检查，结果持久化到 `consistency_reports/{cid}.json`。
+  - `worldforger/sentiment_tracker.py`：`SentimentTracker`——load/save、前章结尾情感获取、Mermaid XY 图表生成。
+  - `worldforger/story_service.py`：3 个收尾 hook（`_try_extract_kg_events` / `_try_run_consistency_check` / `_try_track_sentiment`），均由 `writing_defaults` toggle 控制，失败不阻塞主流程。
+  - `app/main.py`：4 个新 API——`GET /story/narrative-kg`、`GET /story/consistency-report/{chapter_id}`、`GET /story/sentiment-arc`、`PATCH /story/writing-defaults`。
+  - GUI：故事工作台"审校"面板（问题数 badge + 严重度颜色 + 详情展开）、情感弧线 Mermaid XY 图、Layer 3 开关复选框。
+  - 测试：84 个 Layer 3 单元与集成测试（`tests/test_layer3.py`），覆盖 Schema 验证、存储读写、KG Manager、Sentiment Tracker、Consistency Checker mock、Service hook、API 端点、Prompt 函数。

@@ -141,6 +141,9 @@
         <button type="button" data-view="storyWrite" title="人称、POV 与文稿精修（撰写本章在情节构建）">
           <span class="ms nav-ic" aria-hidden="true">draw</span>写作
         </button>
+        <button type="button" data-view="storyAudit" title="一致性审校与情感弧线">
+          <span class="ms nav-ic" aria-hidden="true">verified</span>审校
+        </button>
         <div class="nav-label">数据</div>
         <button type="button" data-view="search" title="world.json 与 world.md 全文检索">
           <span class="ms nav-ic" aria-hidden="true">search</span>搜索
@@ -1288,6 +1291,22 @@
                 <textarea id="storyForeshadowJson" class="json-editor-compact" spellcheck="false"></textarea>
               </details>
             </div>
+            <div id="storyPaneAudit" class="story-pane hidden">
+              <h3 class="story-pane-h3"><span class="ms" aria-hidden="true">verified</span>审校与情感分析</h3>
+              <div class="story-audit-section">
+                <label class="muted">章节选择</label>
+                <select id="storyAuditChapterSelect" onchange="renderConsistencyReport(this.value)"></select>
+              </div>
+              <div id="storyAuditConsistency" class="story-audit-consistency">
+                <p class="muted tiny">请选择一个章节查看审校报告</p>
+              </div>
+              <hr class="story-audit-divider" />
+              <h4 class="story-pane-h3"><span class="ms" aria-hidden="true">timeline</span>情感弧线</h4>
+              <div id="storySentimentChart" class="story-sentiment-chart">
+                <p class="muted tiny">暂无情感数据</p>
+              </div>
+              <div id="storySentimentLogs" class="story-sentiment-logs"></div>
+            </div>
             <div id="storyPaneWrite" class="story-pane hidden">
               <div class="row story-write-row">
                 <label class="muted">叙事人物 <select id="storyNarratorCharacter"></select></label>
@@ -1301,6 +1320,17 @@
                 >
                 <label class="muted"
                   >前 <input type="number" id="storyAttachPrev" min="0" max="5" value="3" style="width: 3rem" /> 章</label
+                >
+              </div>
+              <div class="row story-write-row">
+                <label class="muted lbl-ic"
+                  ><input type="checkbox" id="storyToggleKG" checked /> 知识图谱提取</label
+                >
+                <label class="muted lbl-ic"
+                  ><input type="checkbox" id="storyToggleConsistency" checked /> 一致性审校</label
+                >
+                <label class="muted lbl-ic"
+                  ><input type="checkbox" id="storyToggleSentiment" checked /> 情感弧线追踪</label
                 >
               </div>
               <label class="muted tiny" for="storyNarratorVoice">文风 / 口吻说明</label>

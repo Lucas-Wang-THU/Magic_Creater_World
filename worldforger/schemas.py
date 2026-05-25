@@ -364,6 +364,96 @@ class CharacterRuntimeState(BaseModel):
     last_updated_chapter: str = Field(default="", description="最后更新此状态的章节 id")
 
 
+# ── Layer 3: Narrative KG ──────────────────────────────────────────
+
+class CharacterStateSnapshot(BaseModel):
+    """KG 中的角色状态快照——每章一个切片。"""
+    chapter_id: str = ""
+    location: str = ""
+    emotion: str = ""
+    goal: str = ""
+
+
+class KGEntity(BaseModel):
+    """KG 实体：角色或关键物品。"""
+    entity_id: str = ""
+    entity_type: Literal["character", "item"] = "character"
+    name: str = ""
+    # character fields
+    states: list[CharacterStateSnapshot] = Field(default_factory=list)
+    # item fields
+    item_status: Literal["active", "lost", "destroyed"] = "active"
+    possessed_by: str = ""
+    last_seen_chapter: str = ""
+
+
+class KGEvent(BaseModel):
+    """KG 事件：章节中的关键叙事事件。"""
+    event_id: str = ""
+    chapter_id: str = ""
+    event_type: str = ""  # revelation, battle, death, betrayal, alliance, discovery, ...
+    summary: str = ""
+    participants: list[str] = Field(default_factory=list)  # entity_ids
+    location: str = ""
+    consequences: list[str] = Field(default_factory=list)
+
+
+class NarrativeKG(BaseModel):
+    """轻量事件-实体-时间三元组知识图谱。"""
+    entities: list[KGEntity] = Field(default_factory=list)
+    events: list[KGEvent] = Field(default_factory=list)
+    foreshadowing_ids: list[str] = Field(default_factory=list)
+    last_updated_chapter: str = ""
+
+
+# ── Layer 3: Consistency Checker ───────────────────────────────────
+
+class ConsistencyIssue(BaseModel):
+    """一致性审校发现的单个问题。"""
+    issue_id: str = ""
+    category: Literal[
+        "position", "personality", "item_state",
+        "pov", "foreshadowing", "emotional_continuity", "timeline",
+    ] = "position"
+    severity: Literal["critical", "warning", "info"] = "warning"
+    description: str = ""
+    excerpt: str = ""
+    suggestion: str = ""
+
+
+class ConsistencyReport(BaseModel):
+    """单章一致性审校报告。"""
+    chapter_id: str = ""
+    checked_at: str = ""
+    total_issues: int = 0
+    issues: list[ConsistencyIssue] = Field(default_factory=list)
+    verdict: Literal["clean", "minor_issues", "needs_review"] = "clean"
+
+
+# ── Layer 3: Sentiment Tracker ──────────────────────────────────────
+
+class SentimentSegment(BaseModel):
+    """单段情感标注。"""
+    segment_index: int = 0
+    label: str = ""  # "开篇"/"中段"/"高潮"/"尾声"
+    tone: Literal["positive", "negative", "tense", "calm", "mixed"] = "mixed"
+    intensity: int = Field(default=5, ge=1, le=10)
+    summary: str = ""
+
+
+class SentimentLog(BaseModel):
+    """单章情感弧线日志。"""
+    chapter_id: str = ""
+    title: str = ""
+    segments: list[SentimentSegment] = Field(default_factory=list)
+    overall_tone: str = ""
+    ending_tone: str = ""
+    transition_from_prev: Literal[
+        "smooth", "abrupt", "intentional_contrast", "first_chapter"
+    ] = "first_chapter"
+    analyzed_at: str = ""
+
+
 class StoryNarrator(BaseModel):
     character_id: str = Field(default="", description="对齐 characters.entities[].id，空表示不绑定 POV 角色。")
     person: StoryPerson = "third_person_limited"
@@ -375,6 +465,10 @@ class StoryWritingDefaults(BaseModel):
     include_world_md: bool = False
     include_macro_outline: bool = True
     include_chapter_beats: bool = True
+    # Layer 3 toggles
+    enable_narrative_kg: bool = True
+    enable_consistency_check: bool = True
+    enable_sentiment_track: bool = True
 
 
 class StoryOutlineMacro(BaseModel):
@@ -393,6 +487,8 @@ class StoryChapter(BaseModel):
     reader_synopsis: str = ""
     author_notes: str = ""
     summary_card: ChapterSummaryCard | None = Field(default=None, description="本章收尾摘要卡片")
+    consistency_report: ConsistencyReport | None = Field(default=None, description="一致性审校报告")
+    sentiment_log: SentimentLog | None = Field(default=None, description="情感弧线日志")
 
 
 class StoryForeshadowing(BaseModel):
@@ -420,6 +516,7 @@ class StorySection(BaseModel):
     outline_macro: StoryOutlineMacro = Field(default_factory=StoryOutlineMacro)
     chapters: list[StoryChapter] = Field(default_factory=list)
     foreshadowing: list[StoryForeshadowing] = Field(default_factory=list)
+    narrative_kg: NarrativeKG = Field(default_factory=NarrativeKG)
 
 
 class World(BaseModel):

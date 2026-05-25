@@ -7,14 +7,20 @@ from worldforger.schemas import StoryChapter, StoryPerson, World
 from worldforger.story_prompts import (
     build_chapter_summary_user_payload,
     build_character_state_user_payload,
+    build_consistency_check_user_payload,
+    build_kg_extraction_user_payload,
     build_manuscript_user_payload,
+    build_sentiment_analysis_user_payload,
     chapter_beats_system,
     chapter_list_for_prompt,
     chapter_summary_system,
     character_state_extract_system,
     compact_world_snippet,
+    consistency_check_system,
+    kg_extraction_system,
     macro_outline_system,
     manuscript_system,
+    sentiment_analysis_system,
 )
 from worldforger.story_store import (
     beat_path,
@@ -222,6 +228,18 @@ async def generate_manuscript(
     # ── 收尾：索引新章节到向量库 ──
     await _try_index_chapter(world, chapter_id, reply)
 
+    # ── Layer 3：知识图谱提取 ──
+    if world.story.writing_defaults.enable_narrative_kg:
+        await _try_extract_kg_events(world, chapter_id, reply)
+
+    # ── Layer 3：一致性审校 ──
+    if world.story.writing_defaults.enable_consistency_check:
+        await _try_run_consistency_check(world, chapter_id, reply)
+
+    # ── Layer 3：情感弧线追踪 ──
+    if world.story.writing_defaults.enable_sentiment_track:
+        await _try_track_sentiment(world, chapter_id, reply)
+
     return reply
 
 
@@ -330,6 +348,79 @@ async def _try_index_chapter(world: World, chapter_id: str, manuscript_text: str
             "chapter_order": ch.order if ch else 0,
             "chapter_title": ch.title if ch else "",
         })
+    except Exception:
+        pass
+
+
+# ── 收尾：叙事知识图谱提取 ─────────────────────────────────
+
+
+async def _try_extract_kg_events(world: World, chapter_id: str, manuscript_text: str) -> None:
+    """正文生成后，从正文提取 KG 实体和事件。失败不阻塞。"""
+    import json as _json
+
+    try:
+        from worldforger.narrative_kg import NarrativeKGManager
+
+        system = kg_extraction_system()
+        user = build_kg_extraction_user_payload(
+            world, chapter_id=chapter_id, manuscript_text=manuscript_text,
+        )
+        reply = await chat_completion(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.2,
+            max_tokens=2048,
+        )
+        data = _json.loads(reply.strip())
+        if not isinstance(data, dict):
+            return
+        mgr = NarrativeKGManager(world.meta.id)
+        kg = mgr.merge_extraction(data)
+        world.story.narrative_kg = kg
+    except Exception:
+        pass
+
+
+# ── 收尾：一致性审校 ──────────────────────────────────────
+
+
+async def _try_run_consistency_check(world: World, chapter_id: str, manuscript_text: str) -> None:
+    """正文生成后，运行 7 维度一致性审校。失败不阻塞。"""
+    try:
+        from worldforger.consistency_checker import run_consistency_check
+
+        await run_consistency_check(world, chapter_id, manuscript_text)
+    except Exception:
+        pass
+
+
+# ── 收尾：情感弧线追踪 ─────────────────────────────────────
+
+
+async def _try_track_sentiment(world: World, chapter_id: str, manuscript_text: str) -> None:
+    """正文生成后，分析情感弧线并保存。失败不阻塞。"""
+    import json as _json
+
+    try:
+        from worldforger.sentiment_tracker import SentimentTracker, _parse_sentiment
+
+        ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+        system = sentiment_analysis_system()
+        user = build_sentiment_analysis_user_payload(
+            world, chapter_id=chapter_id, manuscript_text=manuscript_text,
+        )
+        reply = await chat_completion(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.2,
+            max_tokens=1024,
+        )
+        log = _parse_sentiment(reply.strip(), chapter_id, ch.title if ch else "")
+        if not log:
+            return
+        tracker = SentimentTracker(world.meta.id)
+        tracker.save_log(log)
+        if ch:
+            ch.sentiment_log = log
     except Exception:
         pass
 

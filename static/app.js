@@ -73,6 +73,7 @@ const STORY_NAV_VIEWS = {
   storyChapter: "chapter",
   storyForeshadow: "foreshadow",
   storyWrite: "write",
+  storyAudit: "audit",
 };
 
 const STORY_NAV_LABELS = {
@@ -81,6 +82,7 @@ const STORY_NAV_LABELS = {
   storyChapter: "章节",
   storyForeshadow: "伏笔",
   storyWrite: "写作",
+  storyAudit: "审校",
 };
 
 const STORY_SUB_TO_NAV = {
@@ -89,6 +91,7 @@ const STORY_SUB_TO_NAV = {
   chapter: "storyChapter",
   foreshadow: "storyForeshadow",
   write: "storyWrite",
+  audit: "storyAudit",
 };
 
 function isStoryPanelView(name) {
@@ -4024,6 +4027,9 @@ function storyMetaToForm() {
   if ($("storyNarratorVoice")) $("storyNarratorVoice").value = n.voice_notes ?? "";
   const wd = s.writing_defaults || {};
   if ($("storyAttachPrev")) $("storyAttachPrev").value = String(wd.attach_prev_chapters ?? 3);
+  if ($("storyToggleKG")) $("storyToggleKG").checked = wd.enable_narrative_kg !== false;
+  if ($("storyToggleConsistency")) $("storyToggleConsistency").checked = wd.enable_consistency_check !== false;
+  if ($("storyToggleSentiment")) $("storyToggleSentiment").checked = wd.enable_sentiment_track !== false;
   refreshStoryNarratorSelect(n.character_id || "");
   refreshStoryChapterSelects();
   syncStoryChatWritingControlsFromForm();
@@ -4130,6 +4136,7 @@ function refreshStoryChapterSelects(chaptersDisplay) {
     "storyMsChapterSelect",
     "storyWriteChapterSelect",
     "storyChatChapterSelect",
+    "storyAuditChapterSelect",
   ]) {
     const el = $(id);
     if (!el) continue;
@@ -4146,6 +4153,7 @@ function refreshStoryChapterSelects(chaptersDisplay) {
       "storyMsChapterSelect",
       "storyWriteChapterSelect",
       "storyChatChapterSelect",
+      "storyAuditChapterSelect",
     ]) {
       const el = $(id);
       if (el && [...el.options].some((o) => o.value === active)) el.value = active;
@@ -4230,6 +4238,7 @@ function setStorySubView(name) {
     chapter: "storyPaneChapter",
     foreshadow: "storyPaneForeshadow",
     write: "storyPaneWrite",
+    audit: "storyPaneAudit",
   };
   for (const [key, pid] of Object.entries(panes)) {
     $(pid)?.classList.toggle("hidden", key !== name);
@@ -4237,6 +4246,11 @@ function setStorySubView(name) {
   if (name === "outline") setStoryOutlineSub(state.storyOutlineSub || "macro");
   if (name === "chapter") void loadStoryManuscript();
   if (name === "write") renderRuntimeStates();
+  if (name === "audit") {
+    void refreshSentimentArc();
+    const activeCh = sortedStoryChapters().find(c => c.id === state.storyActiveChapterId);
+    if (activeCh) renderConsistencyReport(activeCh.id);
+  }
   if (name === "foreshadow") {
     const items = parseStoryForeshadowingFromForm();
     if (items) renderStoryForeshadowTimeline(items);
@@ -4345,6 +4359,84 @@ function renderChapterSummaryCard(chapterId) {
       footer.appendChild(tagsEl);
     }
     tagsEl.innerHTML = tagsHtml;
+  }
+}
+
+
+// ── Layer 3: 一致性审校报告渲染 ──────────────────────────────
+
+function renderConsistencyReport(chapterId) {
+  const container = $("storyAuditConsistency");
+  const ch = (state.world?.story?.chapters || []).find(c => c.id === chapterId);
+  if (!container) return;
+  const cr = ch?.consistency_report;
+  if (!cr) {
+    container.innerHTML = '<p class="muted tiny">该章节尚无审校报告。请先生成文稿。</p>';
+    return;
+  }
+  const verdictLabels = { clean: "通过", minor_issues: "有小问题", needs_review: "需人工复核" };
+  const verdictColors = { clean: "#16a34a", minor_issues: "#eab308", needs_review: "#dc2626" };
+  const sevIcons = { critical: "🔴", warning: "🟡", info: "🔵" };
+  const catLabels = {
+    position: "位置", personality: "性格", item_state: "物品",
+    pov: "视角", foreshadowing: "伏笔", emotional_continuity: "情感连续", timeline: "时间线"
+  };
+  let html = `<div class="story-audit-header">
+    <span class="story-audit-verdict" style="color:${verdictColors[cr.verdict] || '#666'}">
+      审校结果：${verdictLabels[cr.verdict] || cr.verdict}（${cr.total_issues || 0} 个问题）
+    </span>
+    <span class="muted tiny">检查时间：${cr.checked_at || '?'}</span>
+  </div>`;
+  if (cr.issues && cr.issues.length) {
+    html += '<ul class="story-audit-issues">';
+    for (const iss of cr.issues) {
+      html += `<li class="story-audit-issue">
+        <span class="story-audit-issue-head">
+          ${sevIcons[iss.severity] || '⚪'} [${catLabels[iss.category] || iss.category}] ${escapeHtml(iss.description)}
+        </span>`;
+      if (iss.excerpt) html += `<div class="story-audit-excerpt muted tiny">原文：${escapeHtml(iss.excerpt)}</div>`;
+      if (iss.suggestion) html += `<div class="story-audit-suggestion">建议：${escapeHtml(iss.suggestion)}</div>`;
+      html += '</li>';
+    }
+    html += '</ul>';
+  } else {
+    html += '<p class="muted tiny">✓ 未发现一致性问题。</p>';
+  }
+  container.innerHTML = html;
+}
+
+
+// ── Layer 3: 情感弧线 ────────────────────────────────────────
+
+async function refreshSentimentArc() {
+  if (!state.world?.meta?.id) return;
+  try {
+    const res = await api(`/api/worlds/${state.world.meta.id}/story/sentiment-arc`);
+    const chartContainer = $("storySentimentChart");
+    if (chartContainer && res.mermaid_chart) {
+      drawMermaidHost(chartContainer, res.mermaid_chart);
+    } else if (chartContainer) {
+      chartContainer.innerHTML = '<p class="muted tiny">暂无情感数据。请先生成至少一章文稿。</p>';
+    }
+    // Update logs list
+    const logsEl = $("storySentimentLogs");
+    if (logsEl && res.sentiment_logs && res.sentiment_logs.length) {
+      const toneLabels = { positive: "正面", negative: "负面", tense: "紧张", calm: "平静", mixed: "混合" };
+      logsEl.innerHTML = res.sentiment_logs.map(log => {
+        const segs = (log.segments || []).map(s =>
+          `<span class="sentiment-seg" title="强度 ${s.intensity}/10">${s.label || '?'}:${toneLabels[s.tone] || s.tone}</span>`
+        ).join(" ");
+        return `<div class="sentiment-log-item">
+          <strong>${escapeHtml(log.title || log.chapter_id)}</strong>
+          <span class="muted tiny">整体：${toneLabels[log.overall_tone] || log.overall_tone || '?'} · 结尾：${toneLabels[log.ending_tone] || log.ending_tone || '?'} · 过渡：${log.transition_from_prev || '?'}</span>
+          <div>${segs}</div>
+        </div>`;
+      }).join("");
+    } else if (logsEl) {
+      logsEl.innerHTML = '<p class="muted tiny">暂无情感数据</p>';
+    }
+  } catch (e) {
+    // silent
   }
 }
 
@@ -4496,6 +4588,9 @@ function collectStoryMetaForWorld(w) {
   w.story.writing_defaults.attach_prev_chapters = Number.isFinite(ap)
     ? Math.max(0, Math.min(5, ap))
     : 3;
+  w.story.writing_defaults.enable_narrative_kg = $("storyToggleKG")?.checked ?? true;
+  w.story.writing_defaults.enable_consistency_check = $("storyToggleConsistency")?.checked ?? true;
+  w.story.writing_defaults.enable_sentiment_track = $("storyToggleSentiment")?.checked ?? true;
 }
 
 function bindStoryEditorPreview(textareaId, previewId, authorCheckboxId) {
@@ -5609,10 +5704,14 @@ function renderStoryChapterNav(activeId) {
           const dotClass = c.status === "drafting" ? " story-ch-status-dot--drafting" : c.status === "locked" ? " story-ch-status-dot--locked" : " story-ch-status-dot--planned";
           const wc = c.word_count ? ` <span class="story-ch-status-label">${c.word_count} 字</span>` : "";
           const summaryDot = c.summary_card ? ' <span class="story-ch-status-dot" style="background:#0d9488" title="有摘要卡片"></span>' : "";
+          const cr = c.consistency_report;
+          const crBadge = cr
+            ? ` <span class="story-ch-consistency-badge" style="background:${cr.verdict === 'clean' ? '#16a34a' : cr.verdict === 'minor_issues' ? '#eab308' : '#dc2626'}" title="审校：${cr.total_issues || 0} 个问题 · ${cr.verdict}">${cr.total_issues || 0}</span>`
+            : "";
           return `<button type="button" class="story-ch-nav-btn${active}" data-story-chapter-id="${escapeAttr(
             id
           )}" title="${escapeAttr(title)}${escapeAttr(st)}">
-        <span class="story-ch-order">${escapeHtml(String(c.order))}</span><span class="story-ch-status-dot${dotClass}" title="${c.status || 'planned'}"></span>${summaryDot}${escapeHtml(title)}${wc}
+        <span class="story-ch-order">${escapeHtml(String(c.order))}</span><span class="story-ch-status-dot${dotClass}" title="${c.status || 'planned'}"></span>${summaryDot}${crBadge}${escapeHtml(title)}${wc}
       </button>`;
         })
         .join("")

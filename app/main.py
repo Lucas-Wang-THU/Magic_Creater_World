@@ -208,6 +208,12 @@ class StoryGenerateBeatsBody(BaseModel):
     persist: bool = True
 
 
+class StoryWritingDefaultsPatchBody(BaseModel):
+    enable_narrative_kg: bool | None = None
+    enable_consistency_check: bool | None = None
+    enable_sentiment_track: bool | None = None
+
+
 class StoryGenerateManuscriptBody(BaseModel):
     chapter_id: str = Field(min_length=1, max_length=120)
     prompt: str = Field(default="", max_length=8000)
@@ -1117,6 +1123,109 @@ def api_story_rag_stats(world_id: str) -> dict[str, object]:
         raise HTTPException(status_code=500, detail=str(e)) from e
     ready = stats.get("total_chunks", 0) > 0
     return {"ready": ready, **stats}
+
+
+# ── Layer 3: Narrative KG ──────────────────────────────────────────
+
+
+@app.get("/api/worlds/{world_id}/story/narrative-kg")
+def api_get_narrative_kg(world_id: str) -> dict[str, Any]:
+    """返回叙事知识图谱的完整 JSON，供前端可视化。"""
+    from worldforger.narrative_kg import NarrativeKGManager
+
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    mgr = NarrativeKGManager(world_id)
+    kg = w.story.narrative_kg
+    # Ensure we have the latest from disk
+    disk_kg = mgr.load()
+    if disk_kg.entities or disk_kg.events:
+        kg = disk_kg
+    return {"narrative_kg": kg.model_dump(mode="json")}
+
+
+# ── Layer 3: Consistency Reports ────────────────────────────────────
+
+
+@app.get("/api/worlds/{world_id}/story/consistency-report/{chapter_id}")
+def api_get_consistency_report(world_id: str, chapter_id: str) -> dict[str, Any]:
+    """返回指定章节的一致性审校报告。"""
+    from worldforger.story_store import read_consistency_report
+
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    ch = next((c for c in w.story.chapters if c.id == chapter_id), None)
+    if not ch:
+        raise HTTPException(status_code=404, detail="chapter not found")
+    report = ch.consistency_report
+    if not report:
+        disk = read_consistency_report(world_id, chapter_id)
+        if disk:
+            from worldforger.schemas import ConsistencyReport
+            try:
+                report = ConsistencyReport(**disk)
+            except Exception:
+                pass
+    if not report:
+        return {"consistency_report": None}
+    return {"consistency_report": report.model_dump(mode="json")}
+
+
+# ── Layer 3: Sentiment Arc ──────────────────────────────────────────
+
+
+@app.get("/api/worlds/{world_id}/story/sentiment-arc")
+def api_get_sentiment_arc(world_id: str) -> dict[str, Any]:
+    """返回所有情感日志 + Mermaid 情感弧线图定义。"""
+    from worldforger.sentiment_tracker import SentimentTracker
+
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    tracker = SentimentTracker(world_id)
+    logs = tracker.get_all_logs(w)
+    chart = tracker.build_sentiment_arc_chart(w)
+    return {
+        "sentiment_logs": [log.model_dump(mode="json") for log in logs],
+        "mermaid_chart": chart,
+    }
+
+
+# ── Layer 3: Writing Defaults Toggle ────────────────────────────────
+
+
+@app.patch("/api/worlds/{world_id}/story/writing-defaults")
+def api_patch_story_writing_defaults(
+    world_id: str, body: StoryWritingDefaultsPatchBody
+) -> dict[str, Any]:
+    """切换 Layer 3 功能的开关（enable_narrative_kg / enable_consistency_check / enable_sentiment_track）。"""
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    wd = w.story.writing_defaults
+    changed = False
+    if body.enable_narrative_kg is not None:
+        wd.enable_narrative_kg = body.enable_narrative_kg
+        changed = True
+    if body.enable_consistency_check is not None:
+        wd.enable_consistency_check = body.enable_consistency_check
+        changed = True
+    if body.enable_sentiment_track is not None:
+        wd.enable_sentiment_track = body.enable_sentiment_track
+        changed = True
+    if changed:
+        w.bump_version()
+        save_world(w, export_markdown=False)
+    return {
+        "writing_defaults": wd.model_dump(mode="json"),
+        "changed": changed,
+    }
 
 
 @app.post("/api/worlds/{world_id}/story/foreshadowing/apply")

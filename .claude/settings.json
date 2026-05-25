@@ -3,7 +3,13 @@
     "allow": [
       "Bash(E:/ananconda/envs/Agent/python.exe -c \"from worldforger.panel_sync import sync_panels_from_dialogue, _try_parse_with_format_recovery; print\\('OK'\\)\")",
       "Bash(\"E:/ananconda/envs/Agent/python.exe\" -m pytest tests/test_api.py tests/test_story_api.py tests/test_story_chat.py -v --timeout=60 -x)",
-      "Bash(\"E:/ananconda/envs/Agent/python.exe\" -m pytest tests/test_api.py tests/test_story_api.py tests/test_story_chat.py -v -x)"
+      "Bash(\"E:/ananconda/envs/Agent/python.exe\" -m pytest tests/test_api.py tests/test_story_api.py tests/test_story_chat.py -v -x)",
+      "Bash(git stash *)",
+      "Bash(git checkout *)",
+      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/test_layer3.py -v --tb=line -q)",
+      "Bash(E:/ananconda/envs/Agent/python.exe -c \"from worldforger.chapter_indexer import _get_local_model, _should_skip_local_download, _model_cached; print\\('Import OK'\\); print\\('skip download:', _should_skip_local_download\\(\\)\\); print\\('model cached:', _model_cached\\('BAAI/bge-small-zh-v1.5'\\)\\)\")",
+      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/test_rag.py tests/test_layer3.py -v --tb=short -q)",
+      "Bash(E:/ananconda/envs/Agent/python.exe -c ' *)"
     ]
   }
 }

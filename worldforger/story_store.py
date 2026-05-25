@@ -38,6 +38,35 @@ def book_summary_path(world_id: str) -> Path:
     return story_dir(world_id) / "book_summary.json"
 
 
+# ── Layer 3: Narrative KG ──────────────────────────────────────────
+
+
+def narrative_kg_path(world_id: str) -> Path:
+    return story_dir(world_id) / "narrative_kg.json"
+
+
+# ── Layer 3: Consistency Reports ──────────────────────────────────
+
+
+def consistency_dir(world_id: str) -> Path:
+    return story_dir(world_id) / "consistency_reports"
+
+
+def consistency_path(world_id: str, chapter_id: str) -> Path:
+    return consistency_dir(world_id) / f"{chapter_id}.json"
+
+
+# ── Layer 3: Sentiment Logs ───────────────────────────────────────
+
+
+def sentiment_dir(world_id: str) -> Path:
+    return story_dir(world_id) / "sentiment_logs"
+
+
+def sentiment_path(world_id: str, chapter_id: str) -> Path:
+    return sentiment_dir(world_id) / f"{chapter_id}.json"
+
+
 def summary_path(world_id: str, chapter_id: str) -> Path:
     return story_summaries_dir(world_id) / f"{chapter_id}.json"
 
@@ -83,6 +112,8 @@ def ensure_story_dirs(world_id: str) -> None:
     story_beats_dir(world_id).mkdir(parents=True, exist_ok=True)
     story_manuscript_dir(world_id).mkdir(parents=True, exist_ok=True)
     story_summaries_dir(world_id).mkdir(parents=True, exist_ok=True)
+    consistency_dir(world_id).mkdir(parents=True, exist_ok=True)
+    sentiment_dir(world_id).mkdir(parents=True, exist_ok=True)
 
 
 def new_chapter_id() -> str:
@@ -241,3 +272,66 @@ def update_character_runtime_state(world: World, char_id: str, updates: dict, ch
             rs["last_updated_chapter"] = chapter_id
             ent["runtime_state"] = rs
             return
+
+
+# ── Layer 3: Narrative KG read/write ──────────────────────────────
+
+
+def read_narrative_kg(world_id: str) -> dict | None:
+    import json as _json
+
+    p = narrative_kg_path(world_id)
+    if not p.is_file():
+        return None
+    try:
+        return _json.loads(read_text(p))
+    except _json.JSONDecodeError:
+        return None
+
+
+def write_narrative_kg(world_id: str, data: dict) -> None:
+    import json as _json
+
+    write_text(narrative_kg_path(world_id), _json.dumps(data, ensure_ascii=False, indent=2))
+
+
+# ── Layer 3: Consistency Report read/write ────────────────────────
+
+
+def read_consistency_report(world_id: str, chapter_id: str) -> dict | None:
+    import json as _json
+
+    p = consistency_path(world_id, chapter_id)
+    if not p.is_file():
+        return None
+    try:
+        return _json.loads(read_text(p))
+    except _json.JSONDecodeError:
+        return None
+
+
+def write_consistency_report(world_id: str, chapter_id: str, data: dict) -> None:
+    import json as _json
+
+    write_text(consistency_path(world_id, chapter_id), _json.dumps(data, ensure_ascii=False, indent=2))
+
+
+# ── Layer 3: Sentiment Log read/write ─────────────────────────────
+
+
+def read_sentiment_log(world_id: str, chapter_id: str) -> dict | None:
+    import json as _json
+
+    p = sentiment_path(world_id, chapter_id)
+    if not p.is_file():
+        return None
+    try:
+        return _json.loads(read_text(p))
+    except _json.JSONDecodeError:
+        return None
+
+
+def write_sentiment_log(world_id: str, chapter_id: str, data: dict) -> None:
+    import json as _json
+
+    write_text(sentiment_path(world_id, chapter_id), _json.dumps(data, ensure_ascii=False, indent=2))

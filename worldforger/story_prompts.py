@@ -242,6 +242,261 @@ def build_character_state_user_payload(
     return "\n".join(parts)
 
 
+# ── Layer 3: Narrative KG extraction prompt ─────────────────────
+
+
+def kg_extraction_system() -> str:
+    return (
+        "你是叙事知识图谱提取器，负责从章节正文中提取角色状态变化、关键事件和物品流转。\n"
+        "你只需要输出 JSON，不要输出任何其他文字。\n"
+        "JSON 格式：\n"
+        "{\n"
+        '  "entities": [\n'
+        '    {"entity_id": "char_xxx", "entity_type": "character",\n'
+        '     "name": "角色名",\n'
+        '     "states": [{"chapter_id": "本章id", "location": "结尾位置", '
+        '"emotion": "情绪", "goal": "当前目标"}]},\n'
+        '    {"entity_id": "item_xxx", "entity_type": "item", "name": "物品名",\n'
+        '     "item_status": "active|lost|destroyed", "possessed_by": "char_xxx",\n'
+        '     "last_seen_chapter": "本章id"}\n'
+        "  ],\n"
+        '  "events": [\n'
+        '    {"event_id": "evt_xxx", "chapter_id": "本章id",\n'
+        '     "event_type": "revelation|battle|death|betrayal|alliance|discovery|other",\n'
+        '     "summary": "事件简述（50-100字）",\n'
+        '     "participants": ["char_xxx"], "location": "地点",\n'
+        '     "consequences": ["后果1", "后果2"]}\n'
+        "  ],\n"
+        '  "foreshadowing_planted": ["本章新埋的伏笔id"],\n'
+        '  "foreshadowing_resolved": ["本章回收的伏笔id"]\n'
+        "}\n"
+        "注意：\n"
+        "- entities 仅列出本章中状态/归属有变化的角色或物品。状态无变化的不要列出。\n"
+        "- events 仅列出本章中的关键叙事事件（通常 1-5 个），日常琐事不要列出。\n"
+        "- event_id 建议使用 evt_ 前缀加序号。\n"
+    )
+
+
+def build_kg_extraction_user_payload(
+    world: World,
+    *,
+    chapter_id: str,
+    manuscript_text: str,
+) -> str:
+    parts = [
+        f"从以下章节正文中提取角色状态变化、关键事件和物品流转：\n",
+        f"【本章信息】id={chapter_id}\n",
+        "【角色列表】",
+    ]
+    for ent in world.characters.entities[:20]:
+        if isinstance(ent, dict):
+            rs = ent.get("runtime_state", {})
+            parts.append(
+                f"- id={ent.get('id','')} name={ent.get('name','')} "
+                f"cast_role={ent.get('cast_role','')}"
+                f"{' 上章=' + str(rs.get('last_updated_chapter','')) if rs else ''}"
+            )
+    # Current KG state for deduplication
+    kg = world.story.narrative_kg
+    if kg.entities or kg.events:
+        existing_events = [e.event_id for e in kg.events[-10:]]
+        existing_entities = [e.entity_id for e in kg.entities]
+        parts.append(
+            f"\n【已有 KG 状态（避免重复）】\n"
+            f"已有实体 ids: {existing_entities}\n"
+            f"最近事件 ids: {existing_events}"
+        )
+    body = manuscript_text.strip()
+    if len(body) > 12000:
+        body = body[:12000] + "\n…(文稿已截断)"
+    parts.append(f"\n【正文（截断）】\n{body}")
+    return "\n".join(parts)
+
+
+# ── Layer 3: Consistency check prompt ────────────────────────────
+
+
+def consistency_check_system() -> str:
+    return (
+        "你是叙事一致性审校 Agent，负责检查章节文稿的 7 个一致性维度。\n"
+        "你只需要输出 JSON，不要输出任何其他文字。\n"
+        "JSON 格式：\n"
+        "{\n"
+        '  "verdict": "clean|minor_issues|needs_review",\n'
+        '  "issues": [\n'
+        '    {"category": "position|personality|item_state|pov|foreshadowing|emotional_continuity|timeline",\n'
+        '     "severity": "critical|warning|info",\n'
+        '     "description": "问题描述（具体说明不一致之处）",\n'
+        '     "excerpt": "相关原文摘录（可选）",\n'
+        '     "suggestion": "修改建议（可选）"}\n'
+        "  ]\n"
+        "}\n"
+        "检查清单：\n"
+        "1. 人物位置一致性：各角色位置与上一章结尾是否一致？如有跳跃是否有合理解释？\n"
+        "2. 人物性格一致性：言行是否符合 characters 设定？是否有 OOC 行为？\n"
+        "3. 物品状态一致性：重要物品出现/消失/使用是否有合理解释？\n"
+        "4. 叙事视角一致性：是否遵守设定的 POV 和人称？多 POV 切换是否明确？\n"
+        "5. 伏笔一致性：是否错误提前揭示未回收伏笔？新伏笔是否合理？\n"
+        "6. 情感连续性：情感基调是否与上一章结尾合理衔接？\n"
+        "7. 时间线一致性：事件时间顺序是否与已有章节冲突？\n"
+        "注意：\n"
+        "- 无问题则 issues 为空数组，verdict 为 clean。\n"
+        "- 仅报告明确的不一致，不确定的不要列为问题。\n"
+        "- severity: critical=严重破坏前后连贯, warning=可能不一致, info=轻微瑕疵。\n"
+    )
+
+
+def build_consistency_check_user_payload(
+    world: World,
+    *,
+    chapter_id: str,
+    manuscript_text: str,
+) -> str:
+    ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+    unit = resolve_unit_label(world)
+    parts = [
+        f"对以下{unit}文稿进行 7 维度一致性检查：",
+        f"\n【{unit}信息】id={chapter_id}，标题={ch.title if ch else ''}",
+        f"\n【叙事设置】\n{narrator_block(world)}",
+    ]
+    # Character profiles
+    parts.append("\n【角色设定】")
+    for ent in world.characters.entities[:15]:
+        if isinstance(ent, dict):
+            rs = ent.get("runtime_state", {})
+            parts.append(
+                f"- {ent.get('name','')} (id={ent.get('id','')}) "
+                f"角色={ent.get('cast_role','')} "
+                f"当前位置={rs.get('current_location','?')} "
+                f"情绪={rs.get('emotional_state','?')}"
+            )
+    # Previous chapter summary
+    from worldforger.story_store import summaries_before
+
+    prev_cards = summaries_before(world.meta.id, chapter_id, 1, world)
+    if prev_cards:
+        card = prev_cards[0]
+        parts.append(
+            f"\n【上一章摘要】\n"
+            f"事件：{card.get('main_events','')}\n"
+            f"结尾钩子：{card.get('ending_hook','')}"
+        )
+    # Foreshadowing ledger
+    from worldforger.foreshadow_apply import foreshadow_ledger_text
+
+    parts.append(f"\n【伏笔台账】\n{foreshadow_ledger_text(world, chapter_id=chapter_id)}")
+    # Previous sentiment for emotional continuity check
+    prev_ch = next((c for c in sorted(world.story.chapters, key=lambda x: x.order) if c.order < (ch.order if ch else 999)), None)
+    if prev_ch and prev_ch.sentiment_log:
+        parts.append(f"\n【上一章结尾情感基调】{prev_ch.sentiment_log.ending_tone}")
+    body = manuscript_text.strip()
+    if len(body) > 10000:
+        body = body[:10000] + "\n…(文稿已截断)"
+    parts.append(f"\n【{unit}正文（截断）】\n{body}")
+    return "\n".join(parts)
+
+
+# ── Layer 3: Sentiment analysis prompt ───────────────────────────
+
+
+def sentiment_analysis_system() -> str:
+    return (
+        "你是情感弧线分析器，负责将章节正文分为若干段落并标注情感倾向。\n"
+        "你只需要输出 JSON，不要输出任何其他文字。\n"
+        "JSON 格式：\n"
+        "{\n"
+        '  "segments": [\n'
+        '    {"segment_index": 1, "label": "开篇|中段|高潮|尾声",\n'
+        '     "tone": "positive|negative|tense|calm|mixed",\n'
+        '     "intensity": 5, "summary": "本段氛围简述（20-40字）"}\n'
+        "  ],\n"
+        '  "overall_tone": "本章主导情感倾向",\n'
+        '  "ending_tone": "结尾段情感倾向（用于下章过渡）",\n'
+        '  "transition_from_prev": "smooth|abrupt|intentional_contrast|first_chapter"\n'
+        "}\n"
+        "注意：\n"
+        "- 通常分为 3-6 个段落。不要分得过细（每段至少 300 字）。\n"
+        "- intensity 1-10：1=非常平淡，10=极度强烈。\n"
+        "- transition_from_prev：与上一章结尾的情感对比。首章填 first_chapter。\n"
+    )
+
+
+def build_sentiment_analysis_user_payload(
+    world: World,
+    *,
+    chapter_id: str,
+    manuscript_text: str,
+) -> str:
+    ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+    parts = [
+        f"对以下章节正文进行情感弧线分析：",
+        f"章节：{ch.title if ch else chapter_id} (id={chapter_id})",
+    ]
+    # Previous chapter sentiment for transition analysis
+    prev_ch = next(
+        (c for c in sorted(world.story.chapters, key=lambda x: x.order)
+         if c.id != chapter_id and c.order < (ch.order if ch else 999)),
+        None
+    )
+    if prev_ch and prev_ch.sentiment_log:
+        parts.append(f"上一章结尾情感：{prev_ch.sentiment_log.ending_tone}")
+    else:
+        parts.append("上一章结尾情感：（无，这是首章）")
+    body = manuscript_text.strip()
+    if len(body) > 10000:
+        body = body[:10000] + "\n…(文稿已截断)"
+    parts.append(f"\n【正文（截断）】\n{body}")
+    return "\n".join(parts)
+
+
+# ── Layer 3: Prompt injection helpers ────────────────────────────
+
+
+def format_kg_states_for_prompt(world: World, chapter_id: str = "") -> str:
+    """Format Narrative KG character states for manuscript prompt injection."""
+    kg = world.story.narrative_kg
+    if not kg.entities:
+        return ""
+    char_entities = [e for e in kg.entities if e.entity_type == "character" and e.states]
+    if not char_entities:
+        return ""
+    lines = ["【知识图谱 — 角色当前状态（跨章节追踪）】"]
+    for ent in char_entities:
+        latest = ent.states[-1] if ent.states else None
+        if not latest:
+            continue
+        lines.append(
+            f"- {ent.name}({ent.entity_id})：位于 {latest.location}，"
+            f"情绪 {latest.emotion}，目标 {latest.goal}"
+        )
+    recent_events = kg.events[-5:]
+    if recent_events:
+        lines.append("\n最近关键事件：")
+        for evt in recent_events:
+            lines.append(f"  - [{evt.chapter_id}] {evt.event_type}: {evt.summary[:80]}")
+    return "\n".join(lines)
+
+
+def format_previous_sentiment_for_prompt(world: World, chapter_id: str) -> str:
+    """Format previous chapter ending sentiment for manuscript prompt injection."""
+    ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+    if not ch:
+        return ""
+    prev_ch = next(
+        (c for c in sorted(world.story.chapters, key=lambda x: x.order)
+         if c.order < ch.order and c.sentiment_log),
+        None
+    )
+    if not prev_ch or not prev_ch.sentiment_log:
+        return ""
+    sl = prev_ch.sentiment_log
+    return (
+        f"【上一章结尾情感基调】{sl.ending_tone}（强度 {sl.segments[-1].intensity if sl.segments else '?'}/10）\n"
+        f"过渡评价：{sl.transition_from_prev}\n"
+        "→ 本章开篇应注意情感过渡，避免突兀的基调切换（除非有意为之）。"
+    )
+
+
 # ────────────────────────────────────────────────────────────
 
 
@@ -368,6 +623,14 @@ def build_manuscript_user_payload(
     runtime_text = format_runtime_states(world, chapter_id)
     if runtime_text:
         immediate_parts.append(runtime_text)
+    # Layer 3: KG states injection
+    kg_text = format_kg_states_for_prompt(world, chapter_id)
+    if kg_text:
+        immediate_parts.append(kg_text)
+    # Layer 3: Previous sentiment injection
+    prev_sent_text = format_previous_sentiment_for_prompt(world, chapter_id)
+    if prev_sent_text:
+        immediate_parts.append(prev_sent_text)
     if immediate_parts:
         parts.append("\n" + "\n\n".join(immediate_parts))
 

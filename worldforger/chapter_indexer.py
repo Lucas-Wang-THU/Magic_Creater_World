@@ -69,15 +69,26 @@ def _get_local_model() -> "SentenceTransformer":
                 "或 MCW_EMBEDDING_BACKEND=local 强制从 Hub 下载。"
             )
         _apply_hf_env()
-        from sentence_transformers import SentenceTransformer
-
-        local_only = os.environ.get("MCW_EMBEDDING_LOCAL_FILES_ONLY", "").lower() in (
-            "1",
-            "true",
-            "yes",
+        user_local_only = os.environ.get("MCW_EMBEDDING_LOCAL_FILES_ONLY", "").lower() in (
+            "1", "true", "yes",
         )
-        _model = SentenceTransformer(_MODEL_NAME, local_files_only=local_only)
-        _embedding_dim = _model.get_sentence_embedding_dimension()
+        mode = _embedding_backend_mode()
+        force_local_only = user_local_only or (mode == "auto" and _model_cached(_MODEL_NAME))
+        # 必须在 import sentence_transformers 之前设置 HF_HUB_OFFLINE，
+        # 否则 huggingface_hub 在 import 时就会初始化在线客户端。
+        prev_offline = os.environ.get("HF_HUB_OFFLINE")
+        try:
+            if force_local_only:
+                os.environ["HF_HUB_OFFLINE"] = "1"
+            from sentence_transformers import SentenceTransformer
+
+            _model = SentenceTransformer(_MODEL_NAME, local_files_only=force_local_only)
+        finally:
+            if prev_offline is None:
+                os.environ.pop("HF_HUB_OFFLINE", None)
+            else:
+                os.environ["HF_HUB_OFFLINE"] = prev_offline
+        _embedding_dim = _model.get_embedding_dimension()
     return _model
 
 

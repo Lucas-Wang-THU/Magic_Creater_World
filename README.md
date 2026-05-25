@@ -198,7 +198,7 @@ sequenceDiagram
 | **历史** | 重大事件管理 | 时间轴 + 因果链导图 |
 | **经济** | 货币、市场、商路、贸易品 | 与地理/派系 id 对齐 |
 | **角色** | 主角团、重要配角、卡司 JSON | 人物关系网络 |
-| **故事** | 章节、宏大纲、节拍大纲、手稿 | 伏笔时间线 · RAG 语义检索 |
+| **故事** | 章节、宏大纲、节拍大纲、手稿 | 伏笔时间线 · RAG 语义检索 · KG 一致性审校 · 情感弧线 |
 
 ### 🤖 AI 对话能力
 
@@ -207,7 +207,7 @@ sequenceDiagram
 | **世界观构建对话** | 与架构师自由交流；快捷词条引导；Ctrl+Enter 发送 |
 | **人物生成对话** | 独立对话线程；可配合引导与结构化同步 |
 | **故事 Agent** | 工具调用：伏笔查询/埋设/回收、手稿生成、自动识别 markdown 代码块 |
-| **RAG 语义检索** | 本地向量索引（ChromaDB + BGE embedding），智能检索相关前文片段注入写作上下文 |
+| **RAG 语义检索** | 本地向量索引（ChromaDB + BGE embedding），智能检索相关前文片段注入写作上下文 |\n| **叙事知识图谱** | 轻量事件-实体-时间三元组，追踪角色状态演变和关键物品流转 |\n| **一致性审校** | 7 维度自动审校（位置/性格/物品/POV/伏笔/情感/时间线），非阻塞式章节后检查 |\n| **情感弧线追踪** | 逐章情感分析 + Mermaid 曲线可视化，确保跨章情感过渡自然 |
 | **创作模式** | 小说 / 游戏 / CoC / DnD，注入不同 system prompt 与词汇表 |
 | **一键生态生成** | 基于当前世界观上下文自动生成生态设定 |
 
@@ -448,7 +448,7 @@ worlds/
 | `DELETE` | `/api/worlds/{id}/snapshots` | 清空全部快照 |
 | `POST` | `/api/worlds/{id}/refresh/faction-relations` | 重算派系关系 |
 | `POST` | `/api/worlds/{id}/refresh/culture-relations` | 重算文化关系 |
-| `GET` | `/api/worlds/{id}/story/rag/stats` | RAG 索引统计与就绪状态 |
+| `GET` | `/api/worlds/{id}/story/rag/stats` | RAG 索引统计与就绪状态 |\n| `GET` | `/api/worlds/{id}/story/narrative-kg` | 叙事知识图谱（实体/事件/伏笔） |\n| `GET` | `/api/worlds/{id}/story/consistency-report/{chapter_id}` | 章节一致性审校报告 |\n| `GET` | `/api/worlds/{id}/story/sentiment-arc` | 情感弧线数据 + Mermaid 图表 |\n| `PATCH` | `/api/worlds/{id}/story/writing-defaults` | 切换写作增强开关（KG/审校/情感） |
 | `*` | `/api/worlds/{id}/story/*` | 故事 CRUD（章节/大纲/节拍/手稿/伏笔） |
 
 ---
@@ -479,6 +479,9 @@ flowchart LR
     C1[三 Agent 校对者流水线]
     C2[ID 感知增量合并]
     C3[RAG 语义检索]
+    C4[叙事知识图谱]
+    C5[一致性审校 Agent]
+    C6[情感弧线追踪]
   end
   A1 --> A2 --> B1 --> B2
 ```
