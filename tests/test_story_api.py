@@ -407,10 +407,11 @@ async def test_generate_manuscript_triggers_summary_card(mock_chat):
     ch = StoryChapter(id="ch_ms01", order=1, title="第一章")
     w.story.chapters.append(ch)
     w.characters.entities = [{"id": "char_01", "name": "主角", "cast_role": "protagonist_core"}]
-    # 禁用 Layer 3 钩子以隔离摘要卡片测试
+    # 禁用 Layer 3/4 钩子以隔离摘要卡片测试
     w.story.writing_defaults.enable_narrative_kg = False
     w.story.writing_defaults.enable_consistency_check = False
     w.story.writing_defaults.enable_sentiment_track = False
+    w.story.writing_defaults.enable_polisher = False
 
     # 第一次调用：正文生成
     # 第二次调用：摘要卡片生成（由 _try_generate_summary_card 触发）

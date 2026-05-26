@@ -67,6 +67,21 @@ def sentiment_path(world_id: str, chapter_id: str) -> Path:
     return sentiment_dir(world_id) / f"{chapter_id}.json"
 
 
+# ── Layer 4: Polished Manuscripts ─────────────────────────────────
+
+
+def polished_dir(world_id: str) -> Path:
+    return story_dir(world_id) / "polished"
+
+
+def polished_path(world_id: str, chapter_id: str) -> Path:
+    return polished_dir(world_id) / f"{chapter_id}.md"
+
+
+def polish_trace_path(world_id: str, chapter_id: str) -> Path:
+    return polished_dir(world_id) / f"{chapter_id}_trace.json"
+
+
 def summary_path(world_id: str, chapter_id: str) -> Path:
     return story_summaries_dir(world_id) / f"{chapter_id}.json"
 
@@ -114,6 +129,7 @@ def ensure_story_dirs(world_id: str) -> None:
     story_summaries_dir(world_id).mkdir(parents=True, exist_ok=True)
     consistency_dir(world_id).mkdir(parents=True, exist_ok=True)
     sentiment_dir(world_id).mkdir(parents=True, exist_ok=True)
+    polished_dir(world_id).mkdir(parents=True, exist_ok=True)
 
 
 def new_chapter_id() -> str:

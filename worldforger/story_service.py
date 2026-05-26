@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from worldforger.llm import chat_completion
 from worldforger.schemas import StoryChapter, StoryPerson, World
 from worldforger.story_prompts import (
@@ -220,26 +222,30 @@ async def generate_manuscript(
     if ch:
         ch.status = "drafting"
 
-    # ── 收尾：生成章节摘要卡片 ──
-    await _try_generate_summary_card(world, chapter_id, reply)
+    # ── 收尾：并行执行独立的后处理钩子 ──
+    # 摘要卡片、角色状态、RAG 索引、知识图谱、情感追踪互不依赖，并发执行以加速
+    post_hooks: list = [
+        _try_generate_summary_card(world, chapter_id, reply),
+        _try_update_runtime_states(world, chapter_id, reply),
+        _try_index_chapter(world, chapter_id, reply),
+    ]
 
-    # ── 收尾：更新角色运行时状态 ──
-    await _try_update_runtime_states(world, chapter_id, reply)
-
-    # ── 收尾：索引新章节到向量库 ──
-    await _try_index_chapter(world, chapter_id, reply)
-
-    # ── Layer 3：知识图谱提取 ──
     if world.story.writing_defaults.enable_narrative_kg:
-        await _try_extract_kg_events(world, chapter_id, reply)
+        post_hooks.append(_try_extract_kg_events(world, chapter_id, reply))
 
-    # ── Layer 3：一致性审校 ──
-    if world.story.writing_defaults.enable_consistency_check:
-        await _try_run_consistency_check(world, chapter_id, reply)
+    # 如果启用了润色 Loop，跳过独立的一致性审校（润色 Loop 内部会做，避免重复 LLM 调用）
+    if world.story.writing_defaults.enable_consistency_check and not world.story.writing_defaults.enable_polisher:
+        post_hooks.append(_try_run_consistency_check(world, chapter_id, reply))
 
-    # ── Layer 3：情感弧线追踪 ──
     if world.story.writing_defaults.enable_sentiment_track:
-        await _try_track_sentiment(world, chapter_id, reply)
+        post_hooks.append(_try_track_sentiment(world, chapter_id, reply))
+
+    if post_hooks:
+        await asyncio.gather(*post_hooks)
+
+    # ── Layer 4：审校 ↔ 润色 Loop（内部自带一致性审校，不再重复调用）──
+    if world.story.writing_defaults.enable_polisher:
+        await _run_polish_loop(world, chapter_id, reply)
 
     return reply
 
@@ -423,6 +429,189 @@ async def _try_track_sentiment(world: World, chapter_id: str, manuscript_text: s
         if ch:
             ch.sentiment_log = log
     except Exception:
+        pass
+
+
+# ── Layer 4：审校 ↔ 润色反馈闭环 ─────────────────────────────
+
+
+async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) -> None:
+    """Run the consistency-check ↔ polish feedback loop.
+
+    Iterates up to ``polish_max_rounds`` times.  Each round:
+      1. Run consistency check on the current text (or reuse the existing
+         report for round 1).
+      2. If verdict is clean or only info-level issues remain, exit.
+      3. Feed issues into the polisher and generate a polished version.
+      4. The polished text becomes the input for the next round.
+
+    On completion the polished manuscript is written to
+    ``story/polished/{chapter_id}.md`` and the chapter model is updated.
+    Failure at any point does **not** block the main generation flow.
+    """
+    import json as _json
+
+    try:
+        max_rounds = world.story.writing_defaults.polish_max_rounds
+        ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+
+        current_text = manuscript_text
+        all_issues_history: list[dict] = []
+        trace = {
+            "chapter_id": chapter_id,
+            "max_rounds": max_rounds,
+            "actual_rounds": 0,
+            "termination_reason": "",
+            "rounds": [],
+        }
+
+        for round_idx in range(1, max_rounds + 1):
+            round_record = {"round": round_idx, "issues_before": [], "issues_after": []}
+
+            # ── Step 1: Run consistency check ──
+            from worldforger.consistency_checker import run_consistency_check
+
+            report = await run_consistency_check(world, chapter_id, current_text)
+            round_record["verdict"] = report.verdict
+            round_record["total_issues"] = report.total_issues
+
+            # Classify issues for this round
+            current_issue_ids = {iss.issue_id for iss in report.issues} if report.issues else set()
+            prev_issue_ids = set()
+            for h in all_issues_history:
+                for iss in h.get("issues", []):
+                    prev_issue_ids.add(iss.get("issue_id", ""))
+
+            fixed_ids = prev_issue_ids - current_issue_ids
+            new_ids = current_issue_ids - prev_issue_ids
+            persistent_ids = current_issue_ids & prev_issue_ids
+
+            # Build classified issue lists
+            fixed_issues = []
+            persistent_issues = []
+            new_issues = []
+            if report.issues:
+                for iss in report.issues:
+                    iss_dict = iss.model_dump() if hasattr(iss, "model_dump") else {}
+                    if iss.issue_id in new_ids:
+                        iss_dict["_classification"] = "regression" if round_idx > 1 else "new"
+                        new_issues.append(iss_dict)
+                    elif iss.issue_id in persistent_ids:
+                        iss_dict["_classification"] = "persistent"
+                        persistent_issues.append(iss_dict)
+
+            # Reconstruct classified issues from history for "fixed" display
+            for h in all_issues_history:
+                for iss in h.get("issues", []):
+                    if iss.get("issue_id") in fixed_ids:
+                        iss["_classification"] = "fixed"
+                        fixed_issues.append(iss)
+
+            round_record["issues_before"] = all_issues_history[-1].get("issues", []) if all_issues_history else []
+            round_record["issues_after"] = [iss.model_dump() if hasattr(iss, "model_dump") else {} for iss in (report.issues or [])]
+            round_record["classification"] = {
+                "fixed": fixed_issues,
+                "persistent": persistent_issues,
+                "regression": new_issues,
+            }
+
+            trace["rounds"].append(round_record)
+
+            # ── Step 2: Check termination conditions ──
+            non_critical_issues = [
+                iss for iss in (report.issues or []) if iss.severity != "critical"
+            ]
+            if report.verdict == "clean" or report.total_issues == 0:
+                trace["termination_reason"] = "clean"
+                break
+            if all(iss.severity == "info" for iss in (report.issues or [])):
+                trace["termination_reason"] = "info_only"
+                break
+            if new_issues and all(
+                iss.get("severity") == "critical"
+                for iss in new_issues
+                if isinstance(iss, dict)
+            ):
+                trace["termination_reason"] = "critical_only_new"
+                break
+
+            # ── Step 3: No fixable issues → exit ──
+            if not non_critical_issues:
+                trace["termination_reason"] = "no_fixable_issues"
+                break
+
+            # ── Step 4: Build polisher input ──
+            from worldforger.story_prompts import (
+                build_polisher_user_payload,
+                format_consistency_issues_for_polisher,
+                polisher_system,
+            )
+
+            # Format regression issues separately for higher priority
+            regression_text = ""
+            if new_issues:
+                regression_lines = []
+                for iss in new_issues:
+                    sev = iss.get("severity", "warning")
+                    cat = iss.get("category", "")
+                    desc = iss.get("description", "")
+                    sug = iss.get("suggestion", "")
+                    regression_lines.append(f"  [REGRESSION-{sev}] {cat}: {desc}" + (f"（建议：{sug}）" if sug else ""))
+                regression_text = "\n".join(regression_lines)
+
+            issues_text = format_consistency_issues_for_polisher(report)
+
+            system = polisher_system()
+            user = build_polisher_user_payload(
+                world,
+                chapter_id,
+                current_text,
+                consistency_issues=issues_text,
+                polish_round=round_idx,
+                regression_issues=regression_text,
+            )
+
+            # ── Step 5: Call polisher LLM ──
+            polished_reply = await chat_completion(
+                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                temperature=0.35,
+                max_tokens=8192,
+            )
+
+            if polished_reply and polished_reply.strip():
+                current_text = polished_reply.strip()
+
+            # Store current issues for next round comparison
+            all_issues_history.append({
+                "round": round_idx,
+                "issues": [iss.model_dump() if hasattr(iss, "model_dump") else {} for iss in (report.issues or [])],
+            })
+
+            # ── Check max rounds after polish ──
+            if round_idx >= max_rounds:
+                trace["termination_reason"] = "max_rounds"
+                break
+
+        # ── After loop: persist polished result ──
+        trace["actual_rounds"] = len(trace["rounds"])
+        from worldforger.story_store import polished_path, polish_trace_path, write_text
+
+        write_text(polished_path(world.meta.id, chapter_id), current_text)
+
+        # Write trace
+        polish_trace_path(world.meta.id, chapter_id).write_text(
+            _json.dumps(trace, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+        # Update chapter model
+        polished_rel = f"story/polished/{chapter_id}.md"
+        if ch:
+            ch.polished_file = polished_rel
+            ch.polish_rounds = trace["actual_rounds"]
+            ch.polish_issue_tracking = trace
+
+    except Exception:
+        # Polish loop failure does not block the main generation flow
         pass
 
 

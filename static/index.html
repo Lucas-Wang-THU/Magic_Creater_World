@@ -1315,6 +1315,17 @@
                 </div>
                 <div id="storySentimentLogs" class="story-sentiment-logs"></div>
               </div>
+              <!-- 润色者 -->
+              <div class="story-audit-card" id="storyPolishCard">
+                <div class="story-audit-card-head">
+                  <span class="story-audit-card-icon ms" aria-hidden="true">auto_awesome</span>
+                  <span>润色者</span>
+                  <select id="storyPolishChapterSelect" class="story-audit-head-select" onchange="loadPolishedManuscript(this.value)"></select>
+                </div>
+                <div id="storyPolishView">
+                  <p class="muted tiny">请选择一个章节查看润色稿</p>
+                </div>
+              </div>
             </div>
             <div id="storyPaneWrite" class="story-pane hidden">
               <div class="row story-write-row">
@@ -1340,6 +1351,19 @@
                 >
                 <label class="muted lbl-ic"
                   ><input type="checkbox" id="storyToggleSentiment" checked /> 情感弧线追踪</label
+                >
+              </div>
+              <div class="row story-write-row">
+                <label class="muted lbl-ic"
+                  ><input type="checkbox" id="storyTogglePolisher" checked /> 润色者</label
+                >
+                <label class="muted"
+                  >最大轮数
+                  <select id="storyPolishMaxRounds" style="width: 3.5rem">
+                    <option value="1">1</option>
+                    <option value="2" selected>2</option>
+                    <option value="3">3</option>
+                  </select></label
                 >
               </div>
               <label class="muted tiny" for="storyNarratorVoice">文风 / 口吻说明</label>

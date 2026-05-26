@@ -843,3 +843,198 @@ def story_chat_system_prompt(
         f"\n【世界设定摘要】\n{compact_world_snippet(world, include_markdown=False)}"
     )
     return "\n".join(parts)
+
+
+# ═══════════════════════════════════════════════════════════════════
+# Layer 4: 润色者 Agent — 文风统一与去 AI 化
+# ═══════════════════════════════════════════════════════════════════
+
+
+def polisher_system() -> str:
+    return (
+        "你是「文字抛光学徒」——只抛光、不重写、不改变情节。\n"
+        "你的工具是：换词、调句序、补感官、断长句、加一个身体反应、合并碎片段落。\n"
+        "你不能做的是：增删情节、改变对话含义、添加新事件、修改角色行为。\n\n"
+        "【硬规则 — 必须逐条执行】\n"
+        "1. 破题多样化：每段开头不得与上一段开头使用相同句式结构；"
+        "禁止「于是/因此/就这样/紧接着」连用两段。\n"
+        "2. 去金句化：删除或重写所有模板化「总结金句」，用具体的、细微的描写替代概括性评价。"
+        "信任读者的理解力。\n"
+        "3. 情绪具象化（Show, don't tell）：将「他感到X」替换为身体反应+环境暗示+动作细节。"
+        "如「他很紧张」→「他的手指在桌沿上反复摩挲，指节泛白」。\n"
+        "4. 对话自然化：为至少 30% 的对话添加真实对话特征——打断、犹豫词（「呃」「嗯」「那个…」）、"
+        "话说一半、答非所问、沉默描写。\n"
+        "5. 感官补充：每 500 字至少出现一处非视觉感官（声音的方向/远近、气味的来源/浓淡、"
+        "温度的冷暖/变化、触感的粗糙/光滑/潮湿、身体的疲惫/疼痛/眩晕）。\n"
+        "6. 句式破形：连续 3 句以上使用相同的「主语+谓语+宾语」结构时，必须打破——"
+        "长句后接短句（3-5 字），陈述句后接反问或内心疑问，平铺直叙后接比喻或通感。\n"
+        "7. 文风锚定：参考已润色的前章，保持叙事语气、用词偏好、节奏感一致。"
+        "角色习惯使用的口头禅/句式不在此列（那是人物特征，应保留）。\n"
+        "8. 破折号节制：统计全文破折号（—）密度，超过每 1000 字 2 处时，"
+        "将多余的破折号改为逗号、句号或通过句式重构消除。保留的破折号只能是："
+        "真正的插入语补充、说话被打断、语义转折。禁止用破折号替代逗号制造「呼吸感」。\n"
+        "9. 段落合并：扫描全文，将相邻的内容相关的 1-2 句孤立短段合并为完整段落。"
+        "合并标准：(a)同场景同角色 (b)描写同一动作/同一环境 (c)因果关系紧密。"
+        "合并后每段应有 3-8 句，信息密度饱满。转场/时间跳跃/视角切换自然产生的新段落保留。\n\n"
+        "【禁止事项 — 违反即失败】\n"
+        "- 禁止新增情节事件\n"
+        "- 禁止删除或改变对话的语义内容（可以调整措辞和节奏）\n"
+        "- 禁止改变角色行动的结果\n"
+        "- 禁止添加原文没有的设定信息\n"
+        "- 禁止改动叙事人称（POV）\n"
+        "- 禁止修改专有名词（地名、人名的写法）\n"
+        "- 原文字数 X，润色后字数必须在 0.9X 到 1.1X 之间\n\n"
+        "【反面示例对照 — 请将 ❌ 改写为 ✅ 的风格】\n"
+        '❌ 「于是，他转身离开了那座城市。就这样，三年的等待画上了句号。」\n'
+        '✅ 「他转身。城门在身后闷响一声合拢。三年，就这样了。」\n'
+        '❌ 「他感到非常愤怒，心中充满了复仇的欲望。」\n'
+        '✅ 「后槽牙咬得太紧，太阳穴突突地跳。视野边缘有些发红。」\n'
+        '❌ 「"你说得对。"他说。"我知道。"她回答。」\n'
+        '✅ 「"你说得对。"他顿了顿，把茶杯转了一圈。"不过——""不过什么？""…算了。"」\n'
+        '❌ 破折号滥用：「他站起身——走到窗边——拉开窗帘——外面在下雨——他想起了那个下午。」\n'
+        '✅ 「他站起身，走到窗边拉开窗帘。外面在下雨。那个下午突然涌上心头。」\n'
+        '❌ 小段落碎片化（三段连续短段）：\n'
+        '「他推开门。」\n「房间里空无一人。」\n「桌上放着一封信。」\n'
+        '✅ 「他推开门，房间里空无一人。桌上放着一封信，信封上没有任何字迹，'
+        '但封蜡的印章让他呼吸骤停——那是十年前父亲失踪前用的图案。」\n\n'
+        "【输出格式】\n"
+        "返回完整润色后文稿（Markdown），在文末用「## 润色说明」列出每处改动及理由，格式：\n"
+        "- 第X段第Y句：「原文」→「润色后」— 理由（如「补充听觉感官」「打破连续三句SVO结构」「合并碎片短段」「移除冗余破折号」）\n"
+    )
+
+
+def build_polisher_user_payload(
+    world: World,
+    chapter_id: str,
+    manuscript_text: str,
+    *,
+    consistency_issues: str = "",
+    polish_round: int = 1,
+    regression_issues: str = "",
+) -> str:
+    """Assemble the user payload for the polisher LLM call."""
+    from worldforger.story_store import polished_path, read_text
+
+    st = world.story
+    ch = next((c for c in st.chapters if c.id == chapter_id), None)
+    chapter_title = ch.title if ch else chapter_id
+
+    parts = [f"【润色任务】请对以下章节进行文风润色与去 AI 化抛光（第 {polish_round} 轮）。"]
+
+    # 1. 叙事人称约束
+    narrator = narrator_block(world)
+    if narrator.strip():
+        parts.append(f"\n【叙事约束 — 请严格遵守】\n{narrator.strip()}")
+
+    # 2. 角色语言风格档案
+    char_voices = _build_char_voice_profile(world)
+    if char_voices.strip():
+        parts.append(f"\n【角色语言风格档案 — 对话润色参考】\n{char_voices.strip()}")
+
+    # 3. 前章润色稿参考（文风锚定）
+    style_refs = _build_style_reference(world, chapter_id)
+    if style_refs:
+        parts.append("\n【文风参考 — 已润色前章】")
+        parts.extend(style_refs)
+
+    # 4. 一致性审校报告（需要修复的问题）
+    if consistency_issues.strip():
+        parts.append(f"\n【需要修复的叙事问题 — 请在润色时修正】\n{consistency_issues.strip()}")
+        if regression_issues.strip():
+            parts.append(
+                f"\n【⚠️ 回归问题（上一轮润色引入的新 bug，最高优先级修复）】\n{regression_issues.strip()}"
+            )
+
+    # 5. 本章原稿
+    parts.append(f"\n【本章原稿 — {chapter_title}】\n{manuscript_text.strip()}")
+
+    return "\n".join(parts)
+
+
+def _build_char_voice_profile(world: World) -> str:
+    """Extract character voice profiles for dialogue polishing reference."""
+    chars = world.characters.entities if world.characters and world.characters.entities else []
+    if not chars:
+        return ""
+    lines = []
+    for c in chars[:8]:  # limit to 8 main characters
+        name = (c.get("name") or "").strip()
+        if not name:
+            continue
+        voice = (c.get("voice_notes") or "").strip()
+        personality = (c.get("personality") or "").strip()
+        if not voice and not personality:
+            continue
+        parts = [f"- {name}"]
+        if personality:
+            parts.append(f"性格：{personality[:120]}")
+        if voice:
+            parts.append(f"语言习惯：{voice[:120]}")
+        lines.append("；".join(parts))
+    return "\n".join(lines) if lines else ""
+
+
+def _build_style_reference(world: World, current_chapter_id: str) -> list[str]:
+    """Get polished excerpts from previous 1-2 chapters for style anchoring."""
+    from worldforger.story_store import polished_path, read_text
+
+    chapters = sorted(
+        [c for c in world.story.chapters if c.id != current_chapter_id],
+        key=lambda c: c.order,
+    )
+    refs = []
+    for c in reversed(chapters[-2:]):  # last 2 chapters before current
+        pp = polished_path(world.meta.id, c.id)
+        if not pp.is_file():
+            # fall back to original manuscript
+            from worldforger.story_store import manuscript_path
+
+            mp = manuscript_path(world.meta.id, c.id)
+            if mp.is_file():
+                txt = read_text(mp)
+                # take first 400 chars + a middle 400-char chunk
+                excerpt = txt[:400]
+                mid = len(txt) // 2
+                if mid > 400:
+                    excerpt += "\n…\n" + txt[mid : mid + 400]
+                refs.append(f"【{c.title or c.id} 参考片段（未润色原稿）】\n{excerpt}")
+            continue
+        txt = read_text(pp)
+        # Remove the polish notes section for style reference
+        notes_marker = "## 润色说明"
+        if notes_marker in txt:
+            txt = txt.split(notes_marker)[0].strip()
+        excerpt = txt[:400]
+        mid = len(txt) // 2
+        if mid > 400:
+            excerpt += "\n…\n" + txt[mid : mid + 400]
+        refs.append(f"【{c.title or c.id} 润色稿参考】\n{excerpt}")
+    return refs
+
+
+def format_consistency_issues_for_polisher(report) -> str:
+    """Format consistency issues as actionable items for the polisher.
+
+    Returns (issues_text, regression_text) tuple-like joined string.
+    Only includes warning and info issues; critical issues are noted but not for fixing.
+    """
+    if not report or not hasattr(report, "issues") or not report.issues:
+        return ""
+
+    fixable = []
+    critical_notes = []
+    for i, iss in enumerate(report.issues, 1):
+        if iss.severity == "critical":
+            critical_notes.append(f"  [仅标注-CRITICAL] {iss.category}: {iss.description}")
+        else:
+            suggestion = f"（建议：{iss.suggestion}）" if iss.suggestion else ""
+            fixable.append(f"  {i}. [{iss.category}] {iss.description} {suggestion}")
+
+    parts = []
+    if fixable:
+        parts.append("以下问题需在润色时修复：\n" + "\n".join(fixable))
+    if critical_notes:
+        parts.append(
+            "以下严重问题仅作标注，请勿自行修改（需用户手动处理）：\n" + "\n".join(critical_notes)
+        )
+    return "\n\n".join(parts)

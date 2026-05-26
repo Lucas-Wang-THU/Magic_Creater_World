@@ -212,6 +212,9 @@ class StoryWritingDefaultsPatchBody(BaseModel):
     enable_narrative_kg: bool | None = None
     enable_consistency_check: bool | None = None
     enable_sentiment_track: bool | None = None
+    # Layer 4
+    enable_polisher: bool | None = None
+    polish_max_rounds: int | None = Field(default=None, ge=1, le=3)
 
 
 class StoryGenerateManuscriptBody(BaseModel):
@@ -1203,7 +1206,7 @@ def api_get_sentiment_arc(world_id: str) -> dict[str, Any]:
 def api_patch_story_writing_defaults(
     world_id: str, body: StoryWritingDefaultsPatchBody
 ) -> dict[str, Any]:
-    """切换 Layer 3 功能的开关（enable_narrative_kg / enable_consistency_check / enable_sentiment_track）。"""
+    """切换 Layer 3 / Layer 4 功能的开关。"""
     try:
         w = load_world(world_id)
     except FileNotFoundError:
@@ -1219,12 +1222,66 @@ def api_patch_story_writing_defaults(
     if body.enable_sentiment_track is not None:
         wd.enable_sentiment_track = body.enable_sentiment_track
         changed = True
+    if body.enable_polisher is not None:
+        wd.enable_polisher = body.enable_polisher
+        changed = True
+    if body.polish_max_rounds is not None:
+        wd.polish_max_rounds = body.polish_max_rounds
+        changed = True
     if changed:
         w.bump_version()
         save_world(w, export_markdown=False)
     return {
         "writing_defaults": wd.model_dump(mode="json"),
         "changed": changed,
+    }
+
+
+# ── Layer 4: Polished Manuscript ────────────────────────────────────────
+
+
+@app.get("/api/worlds/{world_id}/story/manuscript/{chapter_id}/polished")
+def api_get_polished_manuscript(world_id: str, chapter_id: str) -> dict[str, Any]:
+    """获取某章的润色稿。"""
+    from worldforger.story_store import polished_path, read_text
+
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    pp = polished_path(world_id, chapter_id)
+    polished_text = read_text(pp)
+
+    ch = next((c for c in w.story.chapters if c.id == chapter_id), None)
+    return {
+        "chapter_id": chapter_id,
+        "polished_text": polished_text,
+        "polished_file": ch.polished_file if ch else "",
+        "polish_rounds": ch.polish_rounds if ch else 0,
+        "polish_issue_tracking": ch.polish_issue_tracking if ch else None,
+    }
+
+
+@app.get("/api/worlds/{world_id}/story/manuscript/{chapter_id}/polish-trace")
+def api_get_polish_trace(world_id: str, chapter_id: str) -> dict[str, Any]:
+    """获取某章的审校↔润色循环追踪记录。"""
+    import json as _json
+
+    from worldforger.story_store import polish_trace_path
+
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    tp = polish_trace_path(world_id, chapter_id)
+    if not tp.is_file():
+        return {"chapter_id": chapter_id, "trace": None}
+
+    return {
+        "chapter_id": chapter_id,
+        "trace": _json.loads(tp.read_text(encoding="utf-8")),
     }
 
 

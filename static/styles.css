@@ -6197,3 +6197,198 @@ textarea.json-editor-tiny {
 .story-chat-write-strip:focus-within {
   border-color: var(--accent);
 }
+
+/* ── Layer 4: 润色者面板 ────────────────────────────────────── */
+
+.story-polish-diff {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  padding: 10px 14px;
+  max-height: 60vh;
+  overflow: hidden;
+}
+
+.story-polish-col {
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fafbfc;
+}
+
+.story-polish-col-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 12px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  background: #f1f5f9;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.story-polish-col-head .ms {
+  font-size: 1rem;
+}
+
+.story-polish-col-body {
+  padding: 12px 14px;
+  font-size: 0.84rem;
+  line-height: 1.85;
+  color: #334155;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.story-polish-col-body del {
+  background: #fee2e2;
+  color: #991b1b;
+  text-decoration: line-through;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.story-polish-col-body ins {
+  background: #dcfce7;
+  color: #166534;
+  text-decoration: none;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* ── 润色 Loop 指示器 ─────────────────────────────────── */
+
+.story-polish-loop-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  margin: 0 14px 6px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.78rem;
+  color: #475569;
+}
+
+.story-polish-loop-dots {
+  display: flex;
+  gap: 6px;
+}
+
+.story-polish-loop-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #e2e8f0;
+  transition: background 0.2s;
+}
+
+.story-polish-loop-dot.active {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.2);
+}
+
+.story-polish-loop-dot.done {
+  background: #22c55e;
+}
+
+.story-polish-loop-reason {
+  margin-left: auto;
+  font-weight: 500;
+}
+
+.story-polish-loop-reason.clean { color: #16a34a; }
+.story-polish-loop-reason.info { color: #ca8a04; }
+.story-polish-loop-reason.warn { color: #ea580c; }
+
+/* ── 润色说明列表 ─────────────────────────────────── */
+
+.story-polish-notes {
+  padding: 8px 14px 12px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.story-polish-notes-title {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #475569;
+  margin-bottom: 6px;
+}
+
+.story-polish-note-item {
+  font-size: 0.76rem;
+  color: #64748b;
+  padding: 4px 8px;
+  margin-bottom: 3px;
+  border-left: 3px solid #e2e8f0;
+  border-radius: 0 4px 4px 0;
+  line-height: 1.5;
+}
+
+.story-polish-note-item:hover {
+  border-left-color: var(--accent);
+  background: #f8fafc;
+}
+
+/* ── Issue 追踪面板 ─────────────────────────────────── */
+
+.story-polish-issue-track {
+  padding: 8px 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.story-polish-issue-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  border-radius: 20px;
+  border: 1px solid;
+}
+
+.story-polish-issue-badge .ms {
+  font-size: 0.85rem;
+}
+
+.story-polish-issue-badge.fixed {
+  background: #dcfce7;
+  color: #166534;
+  border-color: #86efac;
+}
+
+.story-polish-issue-badge.persistent {
+  background: #fef9c3;
+  color: #854d0e;
+  border-color: #fde047;
+}
+
+.story-polish-issue-badge.regression {
+  background: #fee2e2;
+  color: #991b1b;
+  border-color: #fca5a5;
+}
+
+/* ── 润色空状态 ─────────────────────────────────── */
+
+.story-polish-empty {
+  text-align: center;
+  padding: 32px 16px;
+  color: #94a3b8;
+}
+
+.story-polish-empty .ms {
+  font-size: 2.5rem;
+  display: block;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}

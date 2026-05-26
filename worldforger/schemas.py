@@ -469,6 +469,9 @@ class StoryWritingDefaults(BaseModel):
     enable_narrative_kg: bool = True
     enable_consistency_check: bool = True
     enable_sentiment_track: bool = True
+    # Layer 4: Polisher
+    enable_polisher: bool = True
+    polish_max_rounds: int = Field(default=2, ge=1, le=3, description="审校↔润色最大循环轮数")
 
 
 class StoryOutlineMacro(BaseModel):
@@ -489,6 +492,10 @@ class StoryChapter(BaseModel):
     summary_card: ChapterSummaryCard | None = Field(default=None, description="本章收尾摘要卡片")
     consistency_report: ConsistencyReport | None = Field(default=None, description="一致性审校报告")
     sentiment_log: SentimentLog | None = Field(default=None, description="情感弧线日志")
+    # Layer 4: Polisher
+    polished_file: str = ""
+    polish_rounds: int = Field(default=0, description="实际执行的审校↔润色轮数")
+    polish_issue_tracking: dict | None = Field(default=None, description="跨轮 issue 追踪记录")
 
 
 class StoryForeshadowing(BaseModel):

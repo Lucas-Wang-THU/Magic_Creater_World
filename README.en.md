@@ -204,7 +204,7 @@ sequenceDiagram
 | **History** | Major event management | Timeline + causal chain diagram |
 | **Economy** | Currencies, markets, trade routes, goods | ID-aligned with Geography/Factions |
 | **Characters** | Protagonist core, supporting cast, cast JSON | Character relationship network |
-| **Story** | Chapters, macro outlines, beat outlines, manuscripts | Foreshadowing timeline · RAG semantic retrieval |
+| **Story** | Chapters, macro outlines, beat outlines, manuscripts | Foreshadowing timeline · RAG semantic retrieval · Narrative KG · Consistency audit · Sentiment arc · Polisher diff view |
 
 ### 🤖 AI Conversation Features
 
@@ -214,6 +214,10 @@ sequenceDiagram
 | **Character Generation** | Dedicated chat thread with optional guide and structure sync |
 | **Story Agent** | Tool calling: foreshadowing CRUD, manuscript generation, auto-detection of markdown code blocks |
 | **RAG Semantic Retrieval** | Local vector index (ChromaDB + BGE embedding), intelligently retrieves relevant prior fragments for writing context |
+| **Narrative Knowledge Graph** | Lightweight event-entity-time triples tracking character state evolution and key item flow |
+| **Consistency Auditor** | 7-dimension automatic audit (position / personality / items / POV / foreshadowing / emotional continuity / timeline), non-blocking post-chapter check |
+| **Sentiment Arc Tracker** | Per-chapter emotional tone analysis + Mermaid curve visualization for cross-chapter emotional coherence |
+| **Polisher Agent** | Consistency-audit ↔ polish feedback loop (up to N rounds), 9 hard rules for de-AI-ification (dash restraint / paragraph merging / sentence variation / show-don't-tell / etc.), original ↔ polished side-by-side diff comparison |
 | **Creative Modes** | Novel / Game / CoC / DnD — each injects different system prompts and terminology |
 | **One-click Ecology** | Auto-generate ecology settings from current world context |
 
@@ -455,6 +459,12 @@ worlds/
 | `POST` | `/api/worlds/{id}/refresh/faction-relations` | Recalculate faction relations |
 | `POST` | `/api/worlds/{id}/refresh/culture-relations` | Recalculate culture relations |
 | `GET` | `/api/worlds/{id}/story/rag/stats` | RAG index statistics & readiness |
+| `GET` | `/api/worlds/{id}/story/narrative-kg` | Narrative knowledge graph (entities / events / foreshadowing) |
+| `GET` | `/api/worlds/{id}/story/consistency-report/{chapter_id}` | Chapter consistency audit report |
+| `GET` | `/api/worlds/{id}/story/sentiment-arc` | Sentiment arc data + Mermaid chart |
+| `GET` | `/api/worlds/{id}/story/manuscript/{chapter_id}/polished` | Polished manuscript + metadata |
+| `GET` | `/api/worlds/{id}/story/manuscript/{chapter_id}/polish-trace` | Audit ↔ polish loop round tracing |
+| `PATCH` | `/api/worlds/{id}/story/writing-defaults` | Toggle writing enhancement switches (KG / audit / sentiment / polisher / max rounds) |
 | `*` | `/api/worlds/{id}/story/*` | Story CRUD (chapters, outlines, beats, manuscripts, foreshadowing) |
 
 ---
@@ -485,6 +495,11 @@ flowchart LR
     C1[3-Agent Proofreader Pipeline]
     C2[ID-Aware Incremental Merge]
     C3[RAG Semantic Retrieval]
+    C4[Narrative Knowledge Graph]
+    C5[Consistency Audit Agent]
+    C6[Sentiment Arc Tracker]
+    C7[Polisher Agent + Audit↔Polish Loop]
+    C8[Parallel Post-processing Optimization]
   end
   A1 --> A2 --> B1 --> B2
 ```
