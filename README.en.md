@@ -40,6 +40,17 @@
 
 ## Quick Start
 
+### Windows One-Click Setup (Recommended)
+
+```
+1. Double-click setup.bat   → Auto-detect environment, install deps, configure .env
+2. Double-click launch.bat  → Start server, browser opens automatically
+```
+
+> Optional: right-click `launch.bat` → Send to desktop → right-click shortcut → Properties → Change Icon → select `icon.ico` for one-click desktop launch.
+
+### Manual Setup
+
 ```bash
 # 1. Create virtual environment (recommended)
 python -m venv .venv
