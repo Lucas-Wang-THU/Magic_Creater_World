@@ -102,9 +102,9 @@ The app opens automatically at `http://127.0.0.1:8765`. Start building your worl
 | Path | Description |
 |:--|:--|
 | **Path 1 · Dialogue** | Natural language chat with the "World Architect"; optionally attach `world.md` as context |
-| **Path 2 · Structure Sync** | 3-Agent pipeline: **Synchronizer** extracts JSON from architect reply → **Proofreader** checks for missing new content → if gaps found, **Architect supplements** → Synchronizer extracts again → loop up to N rounds (default 3). Final merge uses **ID-aware incremental append** — existing entries updated, new entries appended, never overwritten. |
+| **Path 2 · Structure Sync** | 3-Agent pipeline: **Synchronizer** extracts JSON from architect reply → **Unified Proofreader** audits completeness AND directly outputs missing JSON in a single call (no architect round-trip) → **ID-aware incremental merge** — existing entries updated, new entries appended, never overwritten. Empty synchronizer output automatically skips proofreading. |
 
-The structure sync model defaults to the main chat model. Set `STRUCTURE_SYNC_MODEL` to use a different one. Proofreading rounds can be configured via `PROOFREADER_MAX_RETRIES` and adjusted in the UI (0 = skip proofreader).
+The structure sync model defaults to the main chat model. Set `STRUCTURE_SYNC_MODEL` to use a different one. The proofreader model can be set via `PROOFREADER_MODEL` (use a smaller model for speed). Proofreading rounds can be configured via `PROOFREADER_MAX_RETRIES` and adjusted in the UI (0 = skip proofreader).
 
 ---
 
@@ -352,6 +352,7 @@ Key variables:
 | `OPENAI_API_BASE` | API gateway URL | `https://llmapi.paratera.com/v1` |
 | `OPENAI_CHAT_MODEL` | Chat model name | `DeepSeek-V4-Flash` |
 | `STRUCTURE_SYNC_MODEL` | Optional: dedicated model for structure sync | Same as `OPENAI_CHAT_MODEL` |
+| `PROOFREADER_MODEL` | Optional: dedicated model for proofreader (use smaller model for speed) | Same as `STRUCTURE_SYNC_MODEL` |
 | `PROOFREADER_MAX_RETRIES` | Optional: max proofreader→architect supplement rounds (0=skip) | `3` |
 | `MCW_EMBEDDING_MODEL` | Optional: local embedding model name | `BAAI/bge-small-zh-v1.5` |
 | `MCW_EMBEDDING_BACKEND` | `auto` / `api` / `local`: `auto` skips HuggingFace if model not cached | `auto` |
@@ -511,6 +512,7 @@ flowchart LR
     C6[Sentiment Arc Tracker]
     C7[Polisher Agent + Audit↔Polish Loop]
     C8[Parallel Post-processing Optimization]
+    C9[Unified Proofreader + Parallel Beat Gen]
   end
   A1 --> A2 --> B1 --> B2
 ```

@@ -22,7 +22,7 @@
 - **GUI 优化**：章节摘要卡片（含角色状态变化、伏笔标签、结尾钩子）、角色运行时状态卡片（位置/情绪/目标）、章节状态指示点、字数标签、三栏故事工作台布局（章节导航 + 主面板 + 写作上下文侧栏含 RAG 状态）、动画与视觉打磨，全部完成。
 - **叙事连贯性第三层（深度增强）**：叙事知识图谱（Narrative KG）+ 7 维度一致性自动审校 + 情感弧线追踪 + Mermaid 曲线可视化，全部完成。
 - **叙事连贯性第四层（文字润色与去 AI 化）**：润色者 Agent（含 9 条硬规则 + 10 类 AI 痕迹反例）+ 审校↔润色反馈闭环（至多 N 轮，默认 2，GUI 可调）+ 原稿/润色稿分栏 diff 对比 + issue 跨轮追踪（已修复/持续中/回归），全部完成。
-- **性能优化**：并行执行独立后处理钩子（asyncio.gather）+ 跳过润色环中重复的一致性审校调用。单章生成墙钟时间节省约 40%。
+- **性能优化**：并行执行独立后处理钩子（asyncio.gather）+ 跳过润色环中重复的一致性审校调用 + 统一校对者（单次调用完成审查+补全，无需架构师往返）+ 空 patch 跳过校对 + `PROOFREADER_MODEL` 可配置（建议用小模型加速）+ 章节节拍并行生成（asyncio.gather）。单章生成墙钟时间节省约 40%；世界观构建校对回路从 3 次串行 LLM 调用减为 1 次。
 
 ---
 
@@ -1061,7 +1061,7 @@ Phase 1（2-3 周）──────────── Phase 2（2-3 周）─
 ## 架构速记（便于联调）
 
 - **第一路**：自然语言对话（`chat_completion` / `chat_completion_with_tools`）。
-- **第二路**：`sync_panels_from_dialogue` → 同步器 → 校对者（`_run_proofreader` → `verdict: ok|retry`）→（如 retry）架构师补充（`_run_architect_supplement`）→ 同步器再提取 → 循环至多 N 轮 → `parse_structure_json` → **`normalize_structure_patch_detailed`**（`normalize_structure_patch` 为其首元组）→ `merge_section_conservative` → `merge_array_by_id`（有 ID 数组增量追加）→ **各节 `model_validate`**；成功响应含 **`normalize_notes`**、**`proofreader_rounds`**、**`proofreader_issues`**。
+- **第二路**：`sync_panels_from_dialogue` → 同步器 → **统一校对者**（审查 + 直接输出 `supplement_patch` JSON，单次调用完成审查+补全）→ `parse_structure_json` → **`normalize_structure_patch_detailed`**（`normalize_structure_patch` 为其首元组）→ `merge_section_conservative` → `merge_array_by_id`（有 ID 数组增量追加）→ **各节 `model_validate`**；成功响应含 **`normalize_notes`**、**`proofreader_rounds`**、**`proofreader_issues`**。同步器空 patch 自动跳过校对。校对者模型由 `PROOFREADER_MODEL` 指定（留空则回退至 `STRUCTURE_SYNC_MODEL` 或 `OPENAI_CHAT_MODEL`）。
 - **情节 Agent**：`run_story_chat_agent` → 工具循环（`list_foreshadowing` / `apply_foreshadowing` / `generate_manuscript`）→ `auto_apply_story_artifacts_from_reply`。
 - **静态前端**：`/static/*`；API：`/api/*`；根路径不整站挂载静态，避免盖住 API。
 
@@ -1118,3 +1118,4 @@ Phase 1（2-3 周）──────────── Phase 2（2-3 周）─
   - GUI：故事工作台审校面板新增"润色者"卡片（章节选择 + 原稿/润色稿左右分栏对比视图 + 润色说明列表 + Loop 轮次指示器 + issue 追踪面板（🟢已修复/🟡持续中/🔴回归）+ 润色开关 + 最大轮数选择器）。
   - 性能优化：独立后处理钩子并行执行（`asyncio.gather`）+ 润色环启用时跳过独立一致性审校（避免重复 LLM 调用），单章生成墙钟时间节省约 40%。
   - 测试：38 个 Layer 4 单元与集成测试（`tests/test_layer4.py`），覆盖 7 个测试类——Schema（4）、Storage（5）、Prompts（10）、Loop（7）、API（7）、StyleReference（3）、Integration（2）。
+- [x] **校对者性能优化**：统一校对者（审查+补全合并为单次 LLM 调用，消除架构师→同步器往返）、`PROOFREADER_MODEL` 可配置（建议用小模型加速）、空 patch 跳过校对、章节节拍并行生成（`asyncio.gather`）。

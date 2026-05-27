@@ -188,8 +188,8 @@ async def test_all_stages_fail_raises_value_error():
 
     fp_response = '{"_format_error": true, "reason": "unrecoverable"}'
     sc_response = "also garbage <<<"
-
-    call_responses = [fp_response, sc_response]
+    # Stage 0.5 → Stage 1 → Stage 2: 3 LLM calls total
+    call_responses = [fp_response, sc_response, sc_response]
 
     async def mock_chat(*args, **kwargs):
         return call_responses.pop(0)

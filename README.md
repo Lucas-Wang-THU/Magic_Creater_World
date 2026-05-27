@@ -102,9 +102,9 @@ python run.py
 | 路径 | 说明 |
 |:--|:--|
 | **第一路 · 对话** | 自然语言与"世界观架构师"交流；可选附带 `world.md` 上下文 |
-| **第二路 · 结构同步** | 三 Agent 流水线：**同步器** 从架构师回复提取 JSON → **校对者** 检查是否遗漏新增内容 → 如有遗漏，**架构师补充** → 同步器再提取 → 循环至多 N 轮（默认 3）。最终按 **ID 增量合并**，已有条目更新、新条目追加，永不覆盖。 |
+| **第二路 · 结构同步** | 三 Agent 流水线：**同步器** 从架构师回复提取 JSON → **统一校对者** 审查完整性并直接补全遗漏 JSON（单次调用完成审查+补全，无需架构师往返）→ 按 **ID 增量合并**，已有条目更新、新条目追加，永不覆盖。同步器空输出时自动跳过校对。 |
 
-第二路模型默认同主对话，可用 `STRUCTURE_SYNC_MODEL` 单独指定。校对轮数可用 `PROOFREADER_MAX_RETRIES` 配置，UI 可手动调整（0=跳过校对者）。
+第二路模型默认同主对话，可用 `STRUCTURE_SYNC_MODEL` 单独指定。校对者模型可用 `PROOFREADER_MODEL` 指定（建议用小模型加速）。校对轮数可用 `PROOFREADER_MAX_RETRIES` 配置，UI 可手动调整（0=跳过校对者）。
 
 ---
 
@@ -342,6 +342,7 @@ copy .env.example .env
 | `OPENAI_API_BASE` | API 网关地址 | `https://llmapi.paratera.com/v1` |
 | `OPENAI_CHAT_MODEL` | 对话模型 | `DeepSeek-V4-Flash` |
 | `STRUCTURE_SYNC_MODEL` | 可选：结构化同步专用模型 | 同 `OPENAI_CHAT_MODEL` |
+| `PROOFREADER_MODEL` | 可选：校对者专用模型，建议用小模型加速 | 同 `STRUCTURE_SYNC_MODEL` |
 | `PROOFREADER_MAX_RETRIES` | 可选：校对者→架构师补充最大轮数（0=跳过校对者） | `3` |
 | `MCW_EMBEDDING_MODEL` | 可选：本地 embedding 模型名 | `BAAI/bge-small-zh-v1.5` |
 | `MCW_EMBEDDING_BACKEND` | `auto` / `api` / `local`：无本地缓存时 `auto` 不走 HuggingFace，直接 API | `auto` |
@@ -495,6 +496,7 @@ flowchart LR
     C6[情感弧线追踪]
     C7[润色者 Agent + 审校↔润色 Loop]
     C8[并行后处理优化]
+    C9[统一校对者 + 节拍并行生成]
   end
   A1 --> A2 --> B1 --> B2
 ```

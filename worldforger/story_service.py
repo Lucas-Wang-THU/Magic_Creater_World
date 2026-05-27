@@ -142,11 +142,11 @@ async def generate_chapter_beats(
     macro = read_text(macro_outline_path(world.meta.id))
     system = chapter_beats_system(world, creative_mode=mode_eff)
     ctx = compact_world_snippet(world, include_markdown=include_world_md)
-    out: dict[str, str] = {}
-    for cid in chapter_ids:
+
+    async def _gen_one_beat(cid: str) -> tuple[str, str]:
         ch = next((c for c in world.story.chapters if c.id == cid), None)
         if not ch:
-            continue
+            return cid, ""
         # 注入前一章摘要卡片（衔接检查用）
         prev_summary_block = ""
         prev_cards = summaries_before(world.meta.id, cid, 1, world)
@@ -171,8 +171,10 @@ async def generate_chapter_beats(
             max_tokens=4096,
         )
         write_text(beat_path(world.meta.id, cid), reply)
-        out[cid] = reply
-    return out
+        return cid, reply
+
+    results = await asyncio.gather(*[_gen_one_beat(cid) for cid in chapter_ids])
+    return {cid: reply for cid, reply in results if reply}
 
 
 async def generate_manuscript(
