@@ -237,6 +237,8 @@ def delete_world(world_id: str) -> None:
     """删除整个世界目录（world.json、大纲、会话等）。"""
     if not world_json_path(world_id).is_file():
         raise FileNotFoundError(world_id)
+    from worldforger import sqlite_store
+    sqlite_store.close_world(world_id)
     shutil.rmtree(world_root(world_id))
 
 

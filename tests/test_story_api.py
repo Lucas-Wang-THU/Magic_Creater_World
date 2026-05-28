@@ -445,7 +445,7 @@ async def test_generate_manuscript_triggers_summary_card(mock_chat):
         ),
     ]
 
-    reply = await generate_manuscript(
+    reply, hook_errors, _timing = await generate_manuscript(
         w,
         chapter_id="ch_ms01",
         prompt="写第一章",

@@ -25,6 +25,7 @@
 - [它能做什么](#它能做什么)
 - [界面导览](#界面导览)
 - [整体流程](#整体流程)
+- [写作多智能体协同](#写作多智能体协同)
 - [功能一览](#功能一览)
 - [产品地图](#产品地图工作台--worldjson)
 - [环境要求与安装](#环境要求与安装)
@@ -89,10 +90,12 @@ python run.py
 | 💬 **对话构建** | 与"世界观架构师"自然语言交流，4 种创作模式（小说 / 游戏 / CoC / DnD） |
 | 🧩 **结构化同步 + 校对者** | 三 Agent 流水线：架构师→同步器→校对者→补充循环，自动抽取 JSON 补丁，按 ID 增量合并进表单 |
 | 🗺️ **11 个世界观模块** | 地理 · 生态 · 境界 · 属性 · 物品 · 文化 · 派系 · 历史 · 经济 · 角色 · 故事 |
-| 📊 **关系可视化** | Mermaid 图表：关系网络、技能树、职业晋升图、时间线、因果链 |
+| 📊 **关系可视化** | vis.js 交互式人物关系网络（拖拽/缩放）；Mermaid 图表：技能树、职业晋升图、时间线、因果链 |
 | 🧠 **语义记忆 (RAG)** | 本地向量索引（ChromaDB），智能检索前文片段保持叙事连贯性 |
-| 🔍 **数据工具** | 全文搜索、引用一致性检查与修复、版本快照与 diff 回滚 |
-| 📤 **导出** | 自动生成 `world.md` 人类可读手册；大纲写入 `outlines/` |
+| 🔍 **数据工具** | 全文搜索、引用一致性检查与修复、world.json 版本快照与 diff 回滚、章节版本快照 |
+| 📤 **多格式导出** | 自动生成 `world.md`；EPUB / DOCX / Markdown 全书导出；大纲写入 `outlines/` |
+| 📈 **写作统计看板** | Chart.js 可视化：字数进度、章节完成度、伏笔状态、情感分布 |
+| ⏱️ **LLM 计时分析** | 每次生成展示各阶段 LLM 调用耗时分解，辅助定位性能瓶颈 |
 | 💾 **本地优先** | 所有数据在本地磁盘，无需云端服务 |
 
 </div>
@@ -193,6 +196,98 @@ sequenceDiagram
 
 ---
 
+## 写作多智能体协同
+
+故事写作模块采用**多智能体乐团（Multi-Agent Orchestra）**架构，由 10+ 个专职 Agent 协同完成从大纲到润色稿的全流程。各 Agent 职责单一、温度独立调优，并通过**并行后处理**和**可选反馈闭环**实现高效高质产出。
+
+### 智能体协同架构
+
+```mermaid
+flowchart TB
+  subgraph PreGen["📋 准备阶段"]
+    MACRO["<b>宏大纲 Agent</b><br/>temp=0.65 · max_tokens=8192<br/>基于世界设定生成全书情节大纲"]
+    BEATS["<b>节拍细纲 Agent</b><br/>temp=0.60 · 多章并行生成<br/>注入前章摘要确保跨章衔接"]
+  end
+
+  subgraph Inject["🧠 上下文自动注入（手稿生成前）"]
+    direction LR
+    RAG["RAG 语义检索<br/>ChromaDB 向量查询"]
+    KG_STATE["知识图谱状态<br/>角色位置·情绪·目标"]
+    SENT_HINT["情感基调提示<br/>上一章结尾情感"]
+    STRUCT["宏大纲 + 节拍细纲<br/>前 N 章手稿原文"]
+  end
+
+  subgraph Core["✍️ 核心生成"]
+    WRITER["<b>手稿生成 Agent</b><br/>temp=0.75 · max_tokens=8192<br/>综合全部上下文撰写正文<br/>支持流式输出 (SSE)"]
+  end
+
+  subgraph Parallel["⚡ 并行后处理钩子（asyncio.gather 并发）"]
+    direction TB
+    SUM["摘要卡片 Agent<br/>temp=0.2"]
+    STATE["角色状态 Agent<br/>temp=0.3"]
+    INDEX["RAG 索引 Agent<br/>ChromaDB 写入"]
+    KG_AGENT["KG 提取 Agent<br/>temp=0.2"]
+    AUDIT["一致性审校 Agent<br/>temp=0.3 · 7 维度"]
+    TONE["情感追踪 Agent<br/>temp=0.2"]
+  end
+
+  subgraph Polish["🔄 可选：审校 ↔ 润色反馈闭环"]
+    direction LR
+    P_CHECK["<b>一致性审校</b><br/>（闭环内复用）"]
+    POLISHER["<b>润色者 Agent</b><br/>temp=0.55 · 最多 N 轮<br/>9 条硬规则去 AI 化"]
+    P_CHECK -->|"发现问题"| POLISHER
+    POLISHER -->|"润色稿"| P_CHECK
+  end
+
+  subgraph Output["📦 输出产物"]
+    direction LR
+    O1["手稿正本<br/>manuscript/"]
+    O2["摘要卡片<br/>SQLite+JSON"]
+    O3["知识图谱<br/>narrative_kg.json"]
+    O4["审校报告<br/>consistency_reports/"]
+    O5["情感日志<br/>sentiment_logs/"]
+    O6["润色稿<br/>polished/"]
+    O7["版本快照<br/>snapshots/"]
+  end
+
+  MACRO --> BEATS
+  BEATS --> Core
+  Inject --> Core
+  Core --> Parallel
+  Parallel --> Polish
+  Polish -.->|"润色稿"| Output
+  Parallel -.-> Output
+  Core -.->|"手稿正本"| Output
+```
+
+### 智能体职责一览
+
+| 阶段 | Agent | 温度 | 职责 |
+|:--|:--|:--|:--|
+| **准备** | 宏大纲 Agent | 0.65 | 根据用户提示与世界设定生成全书宏观情节大纲 |
+| **准备** | 节拍细纲 Agent | 0.60 | 按章撰写详细节拍，多章可并行生成；注入前章摘要确保衔接 |
+| **注入** | RAG 语义检索 | — | ChromaDB 向量相似度查询，自动注入相关前文片段 |
+| **注入** | 叙事知识图谱 | — | 提供角色当前状态（位置/情绪/目标）和关键物品流转 |
+| **注入** | 情感基调提示 | — | 传递上一章结尾情感基调，指导本章开篇情绪过渡 |
+| **核心** | 手稿生成 Agent | 0.75 | 综合全部上下文撰写正文，支持 SSE 流式输出 |
+| **后处理** | 摘要卡片 Agent | 0.2 | 提取章节摘要（主要事件/出场人物/伏笔操作/结尾钩子） |
+| **后处理** | 角色状态 Agent | 0.3 | 从正文提取各角色运行时状态变化并持久化 |
+| **后处理** | RAG 索引 Agent | — | 将新章写入 ChromaDB 向量索引供后续检索 |
+| **后处理** | KG 提取 Agent | 0.2 | 提取实体-事件-伏笔三元组，更新叙事知识图谱 |
+| **后处理** | 一致性审校 Agent | 0.3 | 7 维度自动审查：位置/性格/物品状态/POV/伏笔/情感连续/时间线 |
+| **后处理** | 情感追踪 Agent | 0.2 | 章节分段情感分析，判定各段基调和整体情感弧线 |
+| **闭环** | 润色者 Agent | 0.55 | 与审校形成反馈闭环（最多 N 轮）；9 条硬规则去 AI 化：破折号节制、段落合并、句式破形、情绪具象化、对话节奏、冗余修剪、三遍精炼、描写锚定感官、信息密度分层 |
+
+### 关键设计原则
+
+- **非阻塞钩子**：所有后处理钩子由 `try/except Exception: pass` 包裹，任一 Agent 失败不影响手稿产出
+- **并行加速**：摘要卡片、角色状态、RAG 索引、KG 提取、一致性审校、情感追踪 6 个独立钩子通过 `asyncio.gather` 并发执行
+- **闭环隔离**：润色者在所有并行钩子完成后**串行**执行，避免与独立的一致性审校冲突
+- **温度差异化**：创造性任务（手稿 0.75、润色 0.55）使用较高温度；抽取式任务（摘要 0.2、KG 0.2、情感 0.2）使用低温确保稳定输出
+- **上下文窗口分层**：手稿生成仅注入前一章摘要 + 前 N 章手稿片段 + RAG 检索片段，避免上下文膨胀
+
+---
+
 ## 功能一览
 
 ### 🌍 世界观模块（11 个）
@@ -208,8 +303,8 @@ sequenceDiagram
 | **派系** | 组织总览、单卡简介 | 全局关系图（缩放+拖拽） |
 | **历史** | 重大事件管理 | 时间轴 + 因果链导图 |
 | **经济** | 货币、市场、商路、贸易品 | 与地理/派系 id 对齐 |
-| **角色** | 主角团、重要配角、卡司 JSON | 人物关系网络 |
-| **故事** | 章节、宏大纲、节拍大纲、手稿 | 伏笔时间线 · RAG 语义检索 · KG 一致性审校 · 情感弧线 |
+| **角色** | 主角团、重要配角、卡司 JSON | vis.js 交互式人物关系网络（拖拽/缩放） |
+| **故事** | 章节、宏大纲、节拍大纲、手稿 | 伏笔时间线 · RAG 语义检索 · KG 一致性审校 · 情感弧线 · 章节快照 · EPUB/DOCX 导出 · 统计看板 |
 
 ### 🤖 AI 对话能力
 
@@ -230,6 +325,10 @@ sequenceDiagram
 | **引用一致性检查** | 跨模块 id 引用校验（区域、派系等） |
 | **自动修复** | 保守修复引用问题，支持 `dry_run` 预览 |
 | **版本快照** | 每次保存自动快照；diff 查看；一键回滚；单个快照删除 |
+| **章节版本快照** | 手稿保存时自动创建版本快照（最多 10 个），支持版本间行级 diff 对比 |
+| **多格式导出** | 一键导出 EPUB（电子书）/ DOCX（Word）/ Markdown 全书，自动处理中文文件名 |
+| **写作统计看板** | Chart.js 可视化仪表盘：总字数、章节进度、伏笔状态分布、情感基调分布 |
+| **LLM 计时面板** | 手稿生成后展示各阶段 LLM 调用耗时柱状图（大纲/节拍/手稿/摘要/KG/情感） |
 | **RAG 索引就绪指示** | 情节工作台顶栏状态点 + 侧边上下文面板（前章摘要 / 角色状态 / 索引统计） |
 | **world.md 导出** | 从 JSON 自动生成人类可读手册 |
 
@@ -312,6 +411,8 @@ pip install -r requirements.txt
 | `httpx` | 异步 HTTP 客户端 |
 | `chromadb` | 本地向量数据库（RAG 语义检索） |
 | `sentence-transformers` | 本地文本 embedding（BAAI/bge-small-zh-v1.5） |
+| `ebooklib` | EPUB 电子书生成 |
+| `python-docx` | DOCX Word 文档生成 |
 | `pytest` | 测试框架 |
 
 若使用 Conda 环境，可指定解释器路径：
@@ -416,9 +517,14 @@ worlds/
     ├── outlines/           ← 人物 / 情节大纲导出
     ├── story/               ← 章节手稿、摘要卡片、RAG 索引
     │   ├── macro_outline.md
-    │   ├── ch_xxx_manuscript.md
-    │   ├── ch_xxx_summary_card.json
-    │   └── rag_index/        ← ChromaDB 向量索引
+    │   ├── beats/             ← 节拍大纲
+    │   ├── manuscript/        ← 手稿正本
+    │   ├── summaries/         ← 章节摘要卡片
+    │   ├── polished/          ← 润色后文稿
+    │   ├── snapshots/         ← 章节版本快照
+    │   ├── consistency_reports/  ← 一致性审校报告
+    │   ├── sentiment_logs/    ← 情感日志
+    │   └── rag_index/         ← ChromaDB 向量索引
     ├── sessions/           ← 对话片段日志（可选）
     └── snapshots/          ← 版本快照
         ├── v001.json
@@ -460,7 +566,7 @@ worlds/
 | `DELETE` | `/api/worlds/{id}/snapshots` | 清空全部快照 |
 | `POST` | `/api/worlds/{id}/refresh/faction-relations` | 重算派系关系 |
 | `POST` | `/api/worlds/{id}/refresh/culture-relations` | 重算文化关系 |
-| `GET` | `/api/worlds/{id}/story/rag/stats` | RAG 索引统计与就绪状态 |\n| `GET` | `/api/worlds/{id}/story/narrative-kg` | 叙事知识图谱（实体/事件/伏笔） |\n| `GET` | `/api/worlds/{id}/story/consistency-report/{chapter_id}` | 章节一致性审校报告 |\n| `GET` | `/api/worlds/{id}/story/sentiment-arc` | 情感弧线数据 + Mermaid 图表 |\n| `GET` | `/api/worlds/{id}/story/manuscript/{chapter_id}/polished` | 润色后文稿 + 元数据 |\n| `GET` | `/api/worlds/{id}/story/manuscript/{chapter_id}/polish-trace` | 审校↔润色 Loop 轮次追踪 |\n| `PATCH` | `/api/worlds/{id}/story/writing-defaults` | 切换写作增强开关（KG/审校/情感/润色/最大轮数） |
+| `GET` | `/api/worlds/{id}/story/rag/stats` | RAG 索引统计与就绪状态 |\n| `GET` | `/api/worlds/{id}/story/narrative-kg` | 叙事知识图谱（实体/事件/伏笔） |\n| `GET` | `/api/worlds/{id}/story/consistency-report/{chapter_id}` | 章节一致性审校报告 |\n| `GET` | `/api/worlds/{id}/story/sentiment-arc` | 情感弧线数据 + Mermaid 图表 |\n| `GET` | `/api/worlds/{id}/story/manuscript/{chapter_id}/polished` | 润色后文稿 + 元数据 |\n| `GET` | `/api/worlds/{id}/story/manuscript/{chapter_id}/polish-trace` | 审校↔润色 Loop 轮次追踪 |\n| `GET` | `/api/worlds/{id}/story/chapters/{chapter_id}/snapshots` | 章节版本快照列表 |\n| `GET` | `/api/worlds/{id}/story/chapters/{chapter_id}/snapshots/{version}` | 读取特定章节快照版本 |\n| `GET` | `/api/worlds/{id}/story/chapters/{chapter_id}/snapshots/diff` | 章节快照行级 diff 对比 |\n| `GET` | `/api/worlds/{id}/story/export` | 全书导出（epub/docx/md） |\n| `GET` | `/api/worlds/{id}/story/stats` | 写作统计（字数/进度/伏笔/情感分布） |\n| `PATCH` | `/api/worlds/{id}/story/writing-defaults` | 切换写作增强开关（KG/审校/情感/润色/最大轮数） |
 | `*` | `/api/worlds/{id}/story/*` | 故事 CRUD（章节/大纲/节拍/手稿/伏笔） |
 
 ---
@@ -497,6 +603,11 @@ flowchart LR
     C7[润色者 Agent + 审校↔润色 Loop]
     C8[并行后处理优化]
     C9[统一校对者 + 节拍并行生成]
+    C10[章节版本快照 + Diff]
+    C11[vis.js 人物关系网络]
+    C12[EPUB/DOCX 多格式导出]
+    C13[写作统计看板]
+    C14[LLM 计时分析面板]
   end
   A1 --> A2 --> B1 --> B2
 ```

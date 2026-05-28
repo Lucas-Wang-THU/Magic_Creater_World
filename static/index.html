@@ -12,6 +12,9 @@
     />
     <link rel="stylesheet" href="/static/styles.css" />
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.6/dist/vis-network.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/vis-network@9.1.6/dist/vis-network.min.css" rel="stylesheet" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   </head>
   <body>
     <header class="app-header">
@@ -143,6 +146,9 @@
         </button>
         <button type="button" data-view="storyAudit" title="一致性审校与情感弧线">
           <span class="ms nav-ic" aria-hidden="true">verified</span>审校
+        </button>
+        <button type="button" data-view="storyStats" title="写作统计仪表盘：字数、进度、伏笔、情感">
+          <span class="ms nav-ic" aria-hidden="true">monitoring</span>统计
         </button>
         <div class="nav-label">数据</div>
         <button type="button" data-view="search" title="world.json 与 world.md 全文检索">
@@ -366,6 +372,23 @@
                       >前 <input type="number" id="storyChatAttachPrev" min="0" max="5" value="3" style="width: 3rem" /> 章</label
                     >
                   </div>
+                  <div class="row story-write-row">
+                    <label class="muted lbl-ic"
+                      ><input type="checkbox" id="storyChatTogglePolisher" checked /> 润色者</label
+                    >
+                    <label class="muted"
+                      >最大轮数
+                      <select id="storyChatPolishMaxRounds" style="width: 3.5rem">
+                        <option value="1">1</option>
+                        <option value="2" selected>2</option>
+                        <option value="3">3</option>
+                      </select></label
+                    >
+                  </div>
+                  <div class="story-budget-bar" id="storyChatBudgetBar" style="display:none">
+                    <span class="story-budget-total" id="storyChatBudgetTotal"></span>
+                    <span class="story-budget-detail" id="storyChatBudgetDetail"></span>
+                  </div>
                   <label class="muted tiny" for="storyChatWritingPrompt">写作要求（撰写本章时与最近一条用户消息合并）</label>
                   <textarea id="storyChatWritingPrompt" rows="2" placeholder="例如：本章重点回收某伏笔，结尾留悬念…"></textarea>
                   
@@ -377,6 +400,7 @@
                       <span class="ms" aria-hidden="true">article</span>打开章节文稿
                     </button>
                   </div>
+                  <div id="timingBreakdownChat" class="timing-panel-wrap" style="display:none"></div>
                 </div>
                 <select id="storyChatChapterSelect" hidden aria-hidden="true" tabindex="-1"></select>
                 <div class="chips" id="storyPromptChips"></div>
@@ -1271,7 +1295,10 @@
                   </div>
                   <label class="muted tiny">文稿 Markdown</label>
                   <textarea id="storyManuscriptEdit" class="story-editor" rows="14"></textarea>
-                  <button type="button" class="primary btn-ic" id="btnStorySaveManuscript">保存文稿</button>
+                  <div class="row">
+                    <button type="button" class="primary btn-ic" id="btnStorySaveManuscript">保存文稿</button>
+                    <button type="button" class="ghost btn-ic" id="btnChapterVersionHistory"><span class="ms" aria-hidden="true">history</span>版本历史</button>
+                  </div>
                 </div>
                 <div class="story-wb-preview-col">
                   <h3 class="story-preview-h3">预览</h3>
@@ -1298,7 +1325,7 @@
                 <div class="story-audit-card-head">
                   <span class="story-audit-card-icon ms" aria-hidden="true">fact_check</span>
                   <span>一致性审校</span>
-                  <select id="storyAuditChapterSelect" class="story-audit-head-select" onchange="renderConsistencyReport(this.value)"></select>
+                  <select id="storyAuditChapterSelect" class="story-audit-head-select" onchange="selectStoryChapter(this.value,'audit')"></select>
                 </div>
                 <div id="storyAuditConsistency" class="story-audit-consistency">
                   <p class="muted tiny">请选择一个章节查看审校报告</p>
@@ -1320,7 +1347,7 @@
                 <div class="story-audit-card-head">
                   <span class="story-audit-card-icon ms" aria-hidden="true">auto_awesome</span>
                   <span>润色者</span>
-                  <select id="storyPolishChapterSelect" class="story-audit-head-select" onchange="loadPolishedManuscript(this.value)"></select>
+                  <select id="storyPolishChapterSelect" class="story-audit-head-select" onchange="selectStoryChapter(this.value,'audit')"></select>
                 </div>
                 <div id="storyPolishView">
                   <p class="muted tiny">请选择一个章节查看润色稿</p>
@@ -1366,6 +1393,10 @@
                   </select></label
                 >
               </div>
+              <div class="story-budget-bar" id="storyBudgetBar" style="display:none">
+                <span class="story-budget-total" id="storyBudgetTotal"></span>
+                <span class="story-budget-detail" id="storyBudgetDetail"></span>
+              </div>
               <label class="muted tiny" for="storyNarratorVoice">文风 / 口吻说明</label>
               <textarea id="storyNarratorVoice" rows="2"></textarea>
               <label class="muted tiny">目标章节</label>
@@ -1382,7 +1413,9 @@
               </div>
               <p class="muted tiny">精修页：调整人称与口吻后保存；撰写本章请在顶栏「情节构建」，或直接在此用下方按钮（会合并最近一条情节对话用户消息）。</p>
               <button type="button" class="primary btn-ic" id="btnStoryGenManuscript">AI 撰写本章文稿</button>
+              <div id="timingBreakdownWrite" class="timing-panel-wrap" style="display:none"></div>
             </div>
+            <div id="storyPaneStats" class="story-pane hidden"></div>
 
               </div>
               <aside class="story-wb-context" id="storyWbContext" aria-label="写作上下文">
@@ -1497,6 +1530,14 @@
             <button type="button" class="ghost btn-ic" id="btnExportMd">
               <span class="ms" aria-hidden="true">file_export</span>重新导出 world.md
             </button>
+            <div class="export-story-group" style="margin-top:12px">
+              <span class="muted tiny" style="display:block;margin-bottom:6px">导出小说文稿</span>
+              <div class="row">
+                <button type="button" class="ghost btn-ic export-format-btn" data-format="md"><span class="ms" aria-hidden="true">description</span>Markdown</button>
+                <button type="button" class="ghost btn-ic export-format-btn" data-format="epub"><span class="ms" aria-hidden="true">menu_book</span>EPUB</button>
+                <button type="button" class="ghost btn-ic export-format-btn" data-format="docx"><span class="ms" aria-hidden="true">article</span>DOCX</button>
+              </div>
+            </div>
 
             <div class="files-root-block" style="margin-top: 18px">
               <div class="files-root-head">
@@ -1528,6 +1569,6 @@
       src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"
       crossorigin="anonymous"
     ></script>
-    <script src="/static/app.js"></script>
+    <script type="module" src="/static/app.js"></script>
   </body>
 </html>

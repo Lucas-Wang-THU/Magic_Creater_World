@@ -1,44 +1,7 @@
-const $ = (id) => document.getElementById(id);
-
-const state = {
-  world: null,
-  messages: [],
-  /** 人物生成页独立对话线程（POST …/character-chat） */
-  charMessages: [],
-  /** 情节构建页独立对话线程（POST …/story-chat） */
-  storyMessages: [],
-  dirty: false,
-  activeView: "chat",
-  storySubView: "overview",
-  storyOutlineSub: "macro",
-  activeStoryNav: "storyOverview",
-  storyActiveChapterId: "",
-  storyUnitLabel: "章",
-  /** 情节 AI 生成/对话进行中的 UI 状态；null 表示未在进行 */
-  storyGen: null,
-  /** 境界页子页：system | trees | professions */
-  powerSubView: "system",
-  /** 生态页子页：overview | biomes | species */
-  ecologySubView: "overview",
-  /** 地理页子页：overview（总览/气候/地图）| regions（大陆/区域+关系图） */
-  geoSubView: "overview",
-  /** 各世界观子页是否允许编辑表单（默认开启） */
-  worldviewEditMode: {
-    geo: true,
-    ecology: true,
-    powers: true,
-    attributes: true,
-    items: true,
-    cultures: true,
-    factions: true,
-    history: true,
-    economy: true,
-    charProtagonists: true,
-    charSupporting: true,
-  },
-};
-
-const API = "";
+import { $, toast, setDirty, api } from "./js/utils.js";
+import { state } from "./js/state.js";
+import { initP2Enhancements, showTimingBreakdown, renderStoryStats, renderCharacterNetworkFromData } from "./js/p2-enhancements.js";
+// $, toast, api, setDirty, state, renderStoryStats, showTimingBreakdown, renderCharacterNetwork are now provided by the modules above.
 
 /** 切换世界时清空搜索 UI，避免命中仍显示上一世界 */
 let _searchPanelWorldId = null;
@@ -74,6 +37,7 @@ const STORY_NAV_VIEWS = {
   storyForeshadow: "foreshadow",
   storyWrite: "write",
   storyAudit: "audit",
+  storyStats: "stats",
 };
 
 const STORY_NAV_LABELS = {
@@ -83,6 +47,7 @@ const STORY_NAV_LABELS = {
   storyForeshadow: "伏笔",
   storyWrite: "写作",
   storyAudit: "审校",
+  storyStats: "统计",
 };
 
 const STORY_SUB_TO_NAV = {
@@ -92,15 +57,19 @@ const STORY_SUB_TO_NAV = {
   foreshadow: "storyForeshadow",
   write: "storyWrite",
   audit: "storyAudit",
+  stats: "storyStats",
 };
 
 function isStoryPanelView(name) {
-  return name === "story" || name in STORY_NAV_VIEWS;
+  return name === "story" || name === "storyStats" || name in STORY_NAV_VIEWS;
 }
 
 function resolveStoryPanelRoute(name) {
   if (name === "outlines") {
     return { panel: "story", storySubView: "outline", storyOutlineSub: "auxiliary", activeStoryNav: "storyOutline" };
+  }
+  if (name === "storyStats") {
+    return { panel: "story", storySubView: "stats", activeStoryNav: "storyStats" };
   }
   if (name in STORY_NAV_VIEWS) {
     return {
@@ -251,12 +220,7 @@ function ensureWorldviewEditModeToolbars() {
   applyAllWorldviewEditModes();
 }
 
-function toast(msg) {
-  const t = $("toast");
-  t.textContent = msg;
-  t.classList.add("show");
-  setTimeout(() => t.classList.remove("show"), 2800);
-}
+// toast() is imported from ./js/utils.js and exposed on window by main.js
 
 const GENRE_MODE_HINTS = {
   "": "未选择时：对话仍用通用架构师；若世界已保存载体，则对话/同步/大纲会沿用该载体。",
@@ -297,34 +261,7 @@ function updateCultureHint() {
   el.textContent = `${CULTURE_MODULE_HINT} ${CULTURE_GENRE_HINTS[g] ?? CULTURE_GENRE_HINTS[""]}`;
 }
 
-async function api(path, opts = {}) {
-  const r = await fetch(API + path, {
-    headers: { "Content-Type": "application/json", ...(opts.headers || {}) },
-    ...opts,
-  });
-  const text = await r.text();
-  let data;
-  try {
-    data = text ? JSON.parse(text) : {};
-  } catch {
-    data = { _raw: text };
-  }
-  if (!r.ok) {
-    const detail = data.detail ?? data._raw ?? r.statusText;
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
-  }
-  return data;
-}
-
-function setDirty(v) {
-  state.dirty = v;
-  const el = $("saveStatus");
-  if (!el) return;
-  const icon = v ? "edit_note" : "cloud_done";
-  const label = v ? "有未保存更改" : "已同步";
-  el.innerHTML = `<span class="ms status-ic" aria-hidden="true">${icon}</span>${label}`;
-  el.classList.toggle("dirty", v);
-}
+// api() and setDirty() are imported from ./js/utils.js and exposed on window by main.js
 
 function syncScopeForRequest() {
   if (!$("syncScopeToView")?.checked) return "all";
@@ -762,7 +699,8 @@ function refreshCharRelationNetworkViz() {
     const nEdge = countCharacterGraphEdges(parsed.entities, parsed.relations);
     stats.textContent = `${nEnt} 个实体 · ${nEdge} 条可绘制关系边（端点均存在于 entities）`;
   }
-  void drawMermaidHost(host, buildCharacterRelationMermaid(parsed.entities, parsed.relations));
+  // P2-10: Use interactive vis.js network instead of static Mermaid
+  renderCharacterNetworkFromData(parsed.entities, parsed.relations, "charRelationNetworkHost");
 }
 
 /** 从当前表单刷新主角团 / 配角卡片；在「人物关系网络」页时刷新关系图 */
@@ -1144,12 +1082,7 @@ function htmlProseBlock(title, text, emptyHint, variant) {
   </section>`;
 }
 
-function escapeAttr(s) {
-  return String(s ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;");
-}
+// escapeAttr is already defined above (line ~309) — skip duplicate for ES module compatibility
 
 /** 物品档位卡片内：可编辑字段（与 collectItemGradesFromViz 的 data-item-field 对应） */
 function htmlItemGradeEditableField(fieldKey, title, value, placeholder, variant) {
@@ -3336,6 +3269,10 @@ function resetStoryGenerationUi() {
     if (!strip) continue;
     strip.hidden = true;
     strip.classList.remove("thinking-strip--visible");
+    const stepsEl = strip.querySelector(".thinking-steps");
+    if (stepsEl) stepsEl.remove();
+    const lab = strip.querySelector(".thinking-label");
+    if (lab) lab.textContent = "AI 正在思考…";
   }
   for (const [navId, hintId] of STORY_GEN_ASIDE_ALL) {
     const nav = $(navId);
@@ -3447,6 +3384,57 @@ function beginStoryGeneration(phase, opts = {}) {
 function endStoryGeneration(opts = {}) {
   if (opts.token != null && state.storyGen && opts.token !== state.storyGen.token) return;
   resetStoryGenerationUi();
+}
+
+function showGenerationStep(evt) {
+  const stripId =
+    state.activeView === "storyChat" ? "storyChatThinking" : "storyWbThinking";
+  const strip = $(stripId);
+  if (!strip || strip.hidden) return;
+  const lab = strip.querySelector(".thinking-label");
+  if (lab && evt.label) lab.textContent = evt.label;
+
+  const total = evt.total || 3;
+  const index = evt.index || 1;
+  const phase = evt.phase;
+
+  let stepsEl = strip.querySelector(".thinking-steps");
+  if (!stepsEl) {
+    stepsEl = document.createElement("div");
+    stepsEl.className = "thinking-steps";
+    strip.appendChild(stepsEl);
+  }
+
+  const LABELS_BY_TOTAL = {
+    3: ["撰写", "审校", "完成"],
+    4: ["撰写", "审校", "润色", "完成"],
+  };
+  const stepLabels = LABELS_BY_TOTAL[total] || LABELS_BY_TOTAL[3];
+
+  let html = "";
+  for (let i = 1; i <= total; i++) {
+    let cls = "thinking-step-dot";
+    if (i < index || phase === "done") {
+      cls += " thinking-step-dot--done";
+    } else if (i === index) {
+      cls += " thinking-step-dot--active";
+    }
+    html += `<span class="${cls}" title="${stepLabels[i - 1]}"></span>`;
+    if (i < total) {
+      const sepDone = i < index || phase === "done";
+      html += `<span class="thinking-step-sep${sepDone ? " thinking-step-sep--done" : ""}"></span>`;
+    }
+  }
+  html += `<span class="thinking-step-label-text">${stepLabels[index - 1] || ""}</span>`;
+  stepsEl.innerHTML = html;
+
+  if (phase === "done") {
+    setTimeout(() => {
+      const s = strip.querySelector(".thinking-steps");
+      if (s) s.remove();
+      if (lab) lab.textContent = "AI 正在思考…";
+    }, 2500);
+  }
 }
 
 function setThinking(phase, opts = {}) {
@@ -4032,6 +4020,9 @@ function storyMetaToForm() {
   if ($("storyToggleSentiment")) $("storyToggleSentiment").checked = wd.enable_sentiment_track !== false;
   if ($("storyTogglePolisher")) $("storyTogglePolisher").checked = wd.enable_polisher !== false;
   if ($("storyPolishMaxRounds")) $("storyPolishMaxRounds").value = String(wd.polish_max_rounds ?? 2);
+  if ($("storyChatTogglePolisher")) $("storyChatTogglePolisher").checked = wd.enable_polisher !== false;
+  if ($("storyChatPolishMaxRounds")) $("storyChatPolishMaxRounds").value = String(wd.polish_max_rounds ?? 2);
+  void refreshUsageStats();
   refreshStoryNarratorSelect(n.character_id || "");
   refreshStoryChapterSelects();
   syncStoryChatWritingControlsFromForm();
@@ -4266,6 +4257,7 @@ function setStorySubView(name) {
     foreshadow: "storyPaneForeshadow",
     write: "storyPaneWrite",
     audit: "storyPaneAudit",
+    stats: "storyPaneStats",
   };
   for (const [key, pid] of Object.entries(panes)) {
     $(pid)?.classList.toggle("hidden", key !== name);
@@ -4273,6 +4265,7 @@ function setStorySubView(name) {
   if (name === "outline") setStoryOutlineSub(state.storyOutlineSub || "macro");
   if (name === "chapter") void loadStoryManuscript();
   if (name === "write") renderRuntimeStates();
+  if (name === "stats") void renderStoryStats();
   if (name === "audit") {
     // Sync audit chapter select to active chapter
     const auditSel = $("storyAuditChapterSelect");
@@ -4798,10 +4791,78 @@ function extractPolishNotes(polishedText) {
 	return notesHtml;
 }
 
-async function savePolishToggle() {
+async function _saveWritingDefaultsFromForm() {
+  if (!state.world?.meta?.id) return;
+  const body = {
+    enable_narrative_kg: $("storyToggleKG")?.checked,
+    enable_consistency_check: $("storyToggleConsistency")?.checked,
+    enable_sentiment_track: $("storyToggleSentiment")?.checked,
+    enable_polisher: $("storyTogglePolisher")?.checked ?? $("storyChatTogglePolisher")?.checked,
+    polish_max_rounds: parseInt(
+      $("storyPolishMaxRounds")?.value || $("storyChatPolishMaxRounds")?.value || "2", 10
+    ),
+  };
+  try {
+    const res = await api(`/api/worlds/${state.world.meta.id}/story/writing-defaults`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+    if (res.changed && state.world?.story?.writing_defaults) {
+      Object.assign(state.world.story.writing_defaults, body);
+    }
+  } catch (e) {
+    console.warn("保存写作设置失败", e);
+  }
+}
+
+async function refreshUsageStats() {
+  if (!state.world?.meta?.id) return;
+  try {
+    const res = await api(`/api/worlds/${state.world.meta.id}/story/usage-stats`);
+    const hooks = res.hooks || [];
+    const total = res.estimated_total_per_chapter || 0;
+    const chCount = res.chapter_count || 0;
+    const projTotal = res.estimated_project_total || 0;
+
+    const formatTokens = (n) => {
+      if (n >= 10000) return `${(n / 1000).toFixed(0)}k`;
+      if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
+      return String(n);
+    };
+
+    const totalText = `预估本章 ~${formatTokens(total)} tokens`;
+    const enabledHooks = hooks.filter(h => h.enabled);
+    const detailParts = enabledHooks.map(h => `${h.label} ${formatTokens(h.estimated_tokens)}`);
+    const detailText = detailParts.join(' · ');
+    const projText = chCount > 0 ? `（${chCount} 章合计 ~${formatTokens(projTotal)} tokens）` : '';
+
+    for (const [barId, totalId, detailId] of [
+      ['storyBudgetBar', 'storyBudgetTotal', 'storyBudgetDetail'],
+      ['storyChatBudgetBar', 'storyChatBudgetTotal', 'storyChatBudgetDetail'],
+    ]) {
+      const bar = $(barId);
+      const totalEl = $(totalId);
+      const detailEl = $(detailId);
+      if (bar) bar.style.display = 'flex';
+      if (totalEl) totalEl.textContent = `${totalText} ${projText}`;
+      if (detailEl) detailEl.textContent = detailText;
+    }
+  } catch (_) {
+    // Budget fetch is non-critical
+  }
+}
+
+async function savePolishToggle(sourceId) {
 	if (!state.world?.meta?.id) return;
-	const enabled = $("storyTogglePolisher")?.checked;
-	const maxRounds = parseInt($("storyPolishMaxRounds")?.value || "2", 10);
+	// Read from the control that triggered the change; fall back to either set
+	const fromChat = sourceId && sourceId.startsWith("storyChat");
+	const enabled = fromChat
+		? ($("storyChatTogglePolisher")?.checked ?? true)
+		: ($("storyTogglePolisher")?.checked ?? true);
+	const maxRounds = parseInt(
+		(fromChat ? $("storyChatPolishMaxRounds")?.value : $("storyPolishMaxRounds")?.value) || "2",
+		10
+	);
 	try {
 		const res = await api(`/api/worlds/${state.world.meta.id}/story/writing-defaults`, {
 			method: "PATCH",
@@ -4811,9 +4872,18 @@ async function savePolishToggle() {
 			state.world.story.writing_defaults.enable_polisher = enabled;
 			state.world.story.writing_defaults.polish_max_rounds = maxRounds;
 		}
+		// Keep both UI locations in sync
+		if (fromChat) {
+			if ($("storyTogglePolisher")) $("storyTogglePolisher").checked = enabled;
+			if ($("storyPolishMaxRounds")) $("storyPolishMaxRounds").value = String(maxRounds);
+		} else {
+			if ($("storyChatTogglePolisher")) $("storyChatTogglePolisher").checked = enabled;
+			if ($("storyChatPolishMaxRounds")) $("storyChatPolishMaxRounds").value = String(maxRounds);
+		}
 	} catch (e) {
 		console.warn("保存润色设置失败", e);
 	}
+	void refreshUsageStats();
 }
 	function refreshStoryContextPanel() {
 	  const prevBody = $("ctxPrevSummaryBody");
@@ -5137,8 +5207,18 @@ function initStoryPanelBindings() {
   });
 
   // Layer 4: Polisher toggle & max rounds
-  $("storyTogglePolisher")?.addEventListener("change", () => void savePolishToggle());
-  $("storyPolishMaxRounds")?.addEventListener("change", () => void savePolishToggle());
+  $("storyTogglePolisher")?.addEventListener("change", () => void savePolishToggle("storyTogglePolisher"));
+  $("storyPolishMaxRounds")?.addEventListener("change", () => void savePolishToggle("storyPolishMaxRounds"));
+  $("storyChatTogglePolisher")?.addEventListener("change", () => void savePolishToggle("storyChatTogglePolisher"));
+  $("storyChatPolishMaxRounds")?.addEventListener("change", () => void savePolishToggle("storyChatPolishMaxRounds"));
+  // Toggle checkboxes: save to backend + refresh budget estimate
+  for (const id of ["storyToggleKG", "storyToggleConsistency", "storyToggleSentiment",
+                     "storyTogglePolisher", "storyPolishMaxRounds"]) {
+    $(id)?.addEventListener("change", () => {
+      void _saveWritingDefaultsFromForm();
+      void refreshUsageStats();
+    });
+  }
 
 }
 
@@ -5624,42 +5704,134 @@ async function generateStoryManuscriptFromUI(opts = {}) {
     chapterIds: [cid],
     previewIds: ["storyManuscriptPreview"],
   });
+  const useStream = opts.stream !== false;
   try {
-    const res = await api(`/api/worlds/${state.world.meta.id}/story/generate/manuscript`, {
-      method: "POST",
-      body: JSON.stringify({
-        chapter_id: cid,
-        prompt,
-        last_user_message: lastUser,
-        person: wp.person,
-        character_id: wp.character_id,
-        attach_prev_chapters: wp.attach_prev_chapters,
-        creative_mode: $("genreMode")?.value || null,
-        persist: true,
-      }),
-    });
-    state.world = res.world;
-    storyMetaToForm();
-    state.storyActiveChapterId = cid;
-    for (const selId of [
-      "storyBeatChapterSelect",
-      "storyMsChapterSelect",
-      "storyWriteChapterSelect",
-      "storyChatChapterSelect",
-    ]) {
-      const el = $(selId);
-      if (el) el.value = cid;
+    const requestBody = {
+      chapter_id: cid,
+      prompt,
+      last_user_message: lastUser,
+      person: wp.person,
+      character_id: wp.character_id,
+      attach_prev_chapters: wp.attach_prev_chapters,
+      creative_mode: $("genreMode")?.value || null,
+      persist: true,
+    };
+
+    if (useStream) {
+      // ── Streaming path ──
+      const resp = await fetch(
+        `/api/worlds/${state.world.meta.id}/story/generate/manuscript/stream`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        }
+      );
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(errText || `HTTP ${resp.status}`);
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "";
+      let buffer = "";
+      const previewEl = $("storyManuscriptPreview");
+      const editEl = $("storyManuscriptEdit");
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === "step") {
+              showGenerationStep(event);
+            } else if (event.type === "text") {
+              fullText += event.content;
+              if (editEl) editEl.value = fullText;
+              if (previewEl) {
+                updateStoryMarkdownPreview(
+                  "storyManuscriptPreview",
+                  fullText,
+                  $("storyAuthorView")?.checked ?? true
+                );
+              }
+            } else if (event.type === "hook_errors") {
+              for (const err of event.errors || []) {
+                toast(`⚠️ ${err}`);
+              }
+            } else if (event.type === "done") {
+              state.world = event.world;
+              if (event.timing_breakdown && Array.isArray(event.timing_breakdown)) {
+                const timingContainerId = useChat ? "timingBreakdownChat" : "timingBreakdownWrite";
+                showTimingBreakdown(event.timing_breakdown, timingContainerId);
+              }
+            } else if (event.type === "error") {
+              throw new Error(event.message || "stream error");
+            }
+          } catch (parseErr) {
+            // SSE parsing error — skip malformed events
+          }
+        }
+      }
+
+      storyMetaToForm();
+      state.storyActiveChapterId = cid;
+      for (const selId of [
+        "storyBeatChapterSelect",
+        "storyMsChapterSelect",
+        "storyWriteChapterSelect",
+        "storyChatChapterSelect",
+      ]) {
+        const el = $(selId);
+        if (el) el.value = cid;
+      }
+      if ($("storyMsChapterSelect")) $("storyMsChapterSelect").value = cid;
+      setDirty(false);
+      toast(`文稿已生成（约 ${fullText.length} 字）`);
+      if (opts.navigate !== false) switchView("storyChapter");
+    } else {
+      // ── Non-streaming path (fallback) ──
+      const res = await api(`/api/worlds/${state.world.meta.id}/story/generate/manuscript`, {
+        method: "POST",
+        body: JSON.stringify(requestBody),
+      });
+      state.world = res.world;
+      storyMetaToForm();
+      state.storyActiveChapterId = cid;
+      for (const selId of [
+        "storyBeatChapterSelect",
+        "storyMsChapterSelect",
+        "storyWriteChapterSelect",
+        "storyChatChapterSelect",
+      ]) {
+        const el = $(selId);
+        if (el) el.value = cid;
+      }
+      if ($("storyMsChapterSelect")) $("storyMsChapterSelect").value = cid;
+      if ($("storyManuscriptEdit")) $("storyManuscriptEdit").value = res.reply || "";
+      updateStoryMarkdownPreview(
+        "storyManuscriptPreview",
+        res.reply || "",
+        $("storyAuthorView")?.checked ?? true
+      );
+      setDirty(false);
+      toast(`文稿已生成（约 ${res.reply?.length ?? 0} 字）`);
+      if (res.hook_errors && res.hook_errors.length > 0) {
+        for (const err of res.hook_errors) {
+          toast(`⚠️ ${err}`);
+        }
+      }
+      if (res.timing_breakdown && Array.isArray(res.timing_breakdown)) {
+        const timingContainerId = useChat ? "timingBreakdownChat" : "timingBreakdownWrite";
+        showTimingBreakdown(res.timing_breakdown, timingContainerId);
+      }
+      if (opts.navigate !== false) switchView("storyChapter");
     }
-    if ($("storyMsChapterSelect")) $("storyMsChapterSelect").value = cid;
-    if ($("storyManuscriptEdit")) $("storyManuscriptEdit").value = res.reply || "";
-    updateStoryMarkdownPreview(
-      "storyManuscriptPreview",
-      res.reply || "",
-      $("storyAuthorView")?.checked ?? true
-    );
-    setDirty(false);
-    toast(`文稿已生成（约 ${res.reply?.length ?? 0} 字）`);
-    if (opts.navigate !== false) switchView("storyChapter");
   } catch (e) {
     toast("生成失败：" + e.message);
   } finally {
@@ -6037,6 +6209,7 @@ async function selectStoryChapter(chapterId, subView) {
     "storyWriteChapterSelect",
     "storyChatChapterSelect",
     "storyPolishChapterSelect",
+    "storyAuditChapterSelect",
   ]) {
     const el = $(selId);
     if (el) el.value = chapterId;
@@ -6053,9 +6226,19 @@ async function selectStoryChapter(chapterId, subView) {
     void loadStoryManuscript();
   } else if (subView === "write") {
     await switchView("storyWrite");
+  } else if (subView === "audit") {
+    setStorySubView("audit");
+    void refreshSentimentArc();
+    void renderConsistencyReport(chapterId);
+    void loadPolishedManuscript(chapterId);
   } else if (subView) setStorySubView(subView);
   else if (state.storySubView === "outline" && state.storyOutlineSub === "beats") void loadStoryBeat();
   else if (state.storySubView === "chapter") void loadStoryManuscript();
+  else if (state.storySubView === "audit") {
+    void refreshSentimentArc();
+    void renderConsistencyReport(chapterId);
+    void loadPolishedManuscript(chapterId);
+  }
 }
 
 function refreshFilesView() {
@@ -6792,7 +6975,7 @@ async function init() {
     const btn = $("btnQuitApp");
     if (btn) btn.disabled = true;
     try {
-      const r = await fetch(API + "/api/shutdown", {
+      const r = await fetch("/api/shutdown", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: "{}",
@@ -7717,4 +7900,11 @@ function escapeHtml(s) {
     .replaceAll(">", "&gt;");
 }
 
+// Expose functions referenced by HTML onchange handlers for module compatibility
+window.loadStoryBeat = loadStoryBeat;
+window.renderConsistencyReport = renderConsistencyReport;
+window.loadPolishedManuscript = loadPolishedManuscript;
+window.selectStoryChapter = selectStoryChapter;
+
 init().catch((e) => toast("初始化失败：" + e.message));
+initP2Enhancements();

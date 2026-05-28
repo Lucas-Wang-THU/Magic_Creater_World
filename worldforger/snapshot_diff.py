@@ -22,6 +22,24 @@ def line_diff_json(
     """
     la = json.dumps(left, ensure_ascii=False, indent=2).splitlines()
     lb = json.dumps(right, ensure_ascii=False, indent=2).splitlines()
+    return _line_diff_impl(la, lb, max_lines)
+
+
+def line_diff_text(
+    left: str,
+    right: str,
+    *,
+    max_lines: int = 1600,
+) -> tuple[list[DiffLine], bool]:
+    """对两段纯文本 / Markdown 做行级 ndiff。"""
+    la = left.splitlines()
+    lb = right.splitlines()
+    return _line_diff_impl(la, lb, max_lines)
+
+
+def _line_diff_impl(
+    la: list[str], lb: list[str], max_lines: int
+) -> tuple[list[DiffLine], bool]:
     out: list[DiffLine] = []
     truncated = False
     for line in difflib.ndiff(la, lb):

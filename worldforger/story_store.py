@@ -130,6 +130,9 @@ def ensure_story_dirs(world_id: str) -> None:
     consistency_dir(world_id).mkdir(parents=True, exist_ok=True)
     sentiment_dir(world_id).mkdir(parents=True, exist_ok=True)
     polished_dir(world_id).mkdir(parents=True, exist_ok=True)
+    # Initialize SQLite tables (idempotent)
+    from worldforger import sqlite_store
+    sqlite_store._get_conn(world_id)  # triggers _ensure_tables
 
 
 def new_chapter_id() -> str:
@@ -220,22 +223,42 @@ def import_legacy_plot_outline(world: World) -> bool:
 
 
 def read_summary_card(world_id: str, chapter_id: str) -> dict | None:
-    """读取章节摘要卡片 JSON，不存在则返回 None。"""
+    """读取章节摘要卡片，SQLite 优先，回退到 JSON 文件并自动迁移。"""
+    from worldforger import sqlite_store
+
+    result = sqlite_store.read_summary_card(world_id, chapter_id)
+    if result is not None:
+        return result
+    # Fallback: read from legacy JSON file and migrate
     import json as _json
 
     p = summary_path(world_id, chapter_id)
     if not p.is_file():
         return None
     try:
-        return _json.loads(read_text(p))
+        data = _json.loads(read_text(p))
     except _json.JSONDecodeError:
         return None
+    # Auto-migrate to SQLite
+    try:
+        sqlite_store.write_summary_card(world_id, chapter_id, data)
+    except Exception:
+        pass
+    return data
 
 
 def write_summary_card(world_id: str, chapter_id: str, data: dict) -> None:
-    """写入章节摘要卡片 JSON。"""
+    """写入章节摘要卡片（SQLite + JSON 双写）。"""
     import json as _json
 
+    from worldforger import sqlite_store
+
+    # Write to SQLite (primary)
+    try:
+        sqlite_store.write_summary_card(world_id, chapter_id, data)
+    except Exception:
+        pass
+    # Also write JSON file for backward compatibility
     write_text(summary_path(world_id, chapter_id), _json.dumps(data, ensure_ascii=False, indent=2))
 
 
@@ -315,20 +338,39 @@ def write_narrative_kg(world_id: str, data: dict) -> None:
 
 
 def read_consistency_report(world_id: str, chapter_id: str) -> dict | None:
+    """读取一致性审校报告，SQLite 优先，回退到 JSON 文件并自动迁移。"""
+    from worldforger import sqlite_store
+
+    result = sqlite_store.read_consistency_report(world_id, chapter_id)
+    if result is not None:
+        return result
+    # Fallback: legacy JSON file
     import json as _json
 
     p = consistency_path(world_id, chapter_id)
     if not p.is_file():
         return None
     try:
-        return _json.loads(read_text(p))
+        data = _json.loads(read_text(p))
     except _json.JSONDecodeError:
         return None
+    try:
+        sqlite_store.write_consistency_report(world_id, chapter_id, data)
+    except Exception:
+        pass
+    return data
 
 
 def write_consistency_report(world_id: str, chapter_id: str, data: dict) -> None:
+    """写入一致性审校报告（SQLite + JSON 双写）。"""
     import json as _json
 
+    from worldforger import sqlite_store
+
+    try:
+        sqlite_store.write_consistency_report(world_id, chapter_id, data)
+    except Exception:
+        pass
     write_text(consistency_path(world_id, chapter_id), _json.dumps(data, ensure_ascii=False, indent=2))
 
 
@@ -336,18 +378,108 @@ def write_consistency_report(world_id: str, chapter_id: str, data: dict) -> None
 
 
 def read_sentiment_log(world_id: str, chapter_id: str) -> dict | None:
+    """读取情感日志，SQLite 优先，回退到 JSON 文件并自动迁移。"""
+    from worldforger import sqlite_store
+
+    result = sqlite_store.read_sentiment_log(world_id, chapter_id)
+    if result is not None:
+        return result
+    # Fallback: legacy JSON file
     import json as _json
 
     p = sentiment_path(world_id, chapter_id)
     if not p.is_file():
         return None
     try:
-        return _json.loads(read_text(p))
+        data = _json.loads(read_text(p))
     except _json.JSONDecodeError:
         return None
+    try:
+        sqlite_store.write_sentiment_log(world_id, chapter_id, data)
+    except Exception:
+        pass
+    return data
 
 
 def write_sentiment_log(world_id: str, chapter_id: str, data: dict) -> None:
+    """写入情感日志（SQLite + JSON 双写）。"""
     import json as _json
 
+    from worldforger import sqlite_store
+
+    try:
+        sqlite_store.write_sentiment_log(world_id, chapter_id, data)
+    except Exception:
+        pass
     write_text(sentiment_path(world_id, chapter_id), _json.dumps(data, ensure_ascii=False, indent=2))
+
+
+# ── P2-9: Chapter Version Snapshots ──────────────────────────────────
+
+MAX_CHAPTER_SNAPSHOTS = 10
+
+
+def chapter_snapshots_dir(world_id: str, chapter_id: str) -> Path:
+    return story_dir(world_id) / "snapshots" / chapter_id
+
+
+def chapter_snapshot_path(world_id: str, chapter_id: str, version: int) -> Path:
+    return chapter_snapshots_dir(world_id, chapter_id) / f"v{version}.md"
+
+
+def save_chapter_snapshot(world_id: str, chapter_id: str) -> int | None:
+    """Save current manuscript as a new snapshot version. Returns version number or None."""
+    src = manuscript_path(world_id, chapter_id)
+    if not src.is_file():
+        return None
+    text = read_text(src)
+    if not text.strip():
+        return None
+    snap_dir = chapter_snapshots_dir(world_id, chapter_id)
+    snap_dir.mkdir(parents=True, exist_ok=True)
+    existing = sorted(
+        [int(p.stem[1:]) for p in snap_dir.glob("v*.md") if p.stem[1:].isdigit()]
+    )
+    next_v = max(existing) + 1 if existing else 1
+    # Skip if identical to the latest snapshot
+    if existing:
+        latest = read_text(chapter_snapshot_path(world_id, chapter_id, existing[-1]))
+        if latest.strip() == text.strip():
+            return None
+    # Enforce max snapshots
+    while len(existing) >= MAX_CHAPTER_SNAPSHOTS:
+        oldest = existing.pop(0)
+        try:
+            chapter_snapshot_path(world_id, chapter_id, oldest).unlink()
+        except OSError:
+            pass
+    write_text(chapter_snapshot_path(world_id, chapter_id, next_v), text)
+    return next_v
+
+
+def list_chapter_snapshots(world_id: str, chapter_id: str) -> list[dict]:
+    """List all snapshots for a chapter with metadata."""
+    snap_dir = chapter_snapshots_dir(world_id, chapter_id)
+    if not snap_dir.is_dir():
+        return []
+    result: list[dict] = []
+    for p in sorted(snap_dir.glob("v*.md"), key=lambda x: int(x.stem[1:]) if x.stem[1:].isdigit() else 0):
+        if not p.stem[1:].isdigit():
+            continue
+        v = int(p.stem[1:])
+        stat = p.stat()
+        result.append({
+            "version": v,
+            "size_bytes": stat.st_size,
+            "modified_at": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            "word_count": count_words(read_text(p)),
+        })
+    return result
+
+
+def read_chapter_snapshot(world_id: str, chapter_id: str, version: int) -> str:
+    """Read a specific snapshot version."""
+    p = chapter_snapshot_path(world_id, chapter_id, version)
+    if not p.is_file():
+        raise FileNotFoundError(f"snapshot v{version} not found for chapter {chapter_id}")
+    return read_text(p)

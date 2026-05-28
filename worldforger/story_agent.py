@@ -175,7 +175,7 @@ async def run_story_chat_agent(
                 else world.story.writing_defaults.attach_prev_chapters
             )
             try:
-                text = await generate_manuscript(
+                text, _hook_errors = await generate_manuscript(
                     world,
                     chapter_id=cid,
                     prompt=prompt,

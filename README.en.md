@@ -25,6 +25,7 @@
 - [What It Does](#what-it-does)
 - [UI Overview](#ui-overview)
 - [Overall Workflow](#overall-workflow)
+- [Story Writing Multi-Agent Orchestra](#story-writing-multi-agent-orchestra)
 - [Feature Tour](#feature-tour)
 - [Product Map (Workbench ↔ world.json)](#product-map-workbench--worldjson)
 - [Requirements & Installation](#requirements--installation)
@@ -89,10 +90,12 @@ The app opens automatically at `http://127.0.0.1:8765`. Start building your worl
 | 💬 **Conversational Building** | Chat with a "World Architect" LLM agent in natural language across 4 creative modes (Novel / Game / CoC / DnD) |
 | 🧩 **Structure Sync + Proofreader** | 3-Agent pipeline: Architect→Synchronizer→Proofreader→Supplement loop, auto-extracting JSON patches with ID-aware incremental merge into forms |
 | 🗺️ **11 World Modules** | Geography · Ecology · Power System · Attributes · Items · Cultures · Factions · History · Economy · Characters · Story |
-| 📊 **Relationship Visualization** | Mermaid diagrams: relationship networks, skill trees, profession graphs, timelines, causal chains |
+| 📊 **Relationship Visualization** | vis.js interactive character relationship network (drag/zoom); Mermaid diagrams: skill trees, profession graphs, timelines, causal chains |
 | 🧠 **Semantic Memory (RAG)** | Local vector index (ChromaDB) with semantic retrieval of prior narrative fragments for coherence |
-| 🔍 **Data Tools** | Full-text search, reference consistency linting & auto-fix, version snapshots with diff & rollback |
-| 📤 **Export** | Auto-generated `world.md` human-readable handbook; outlines written to `outlines/` |
+| 🔍 **Data Tools** | Full-text search, reference consistency linting & auto-fix, world.json version snapshots with diff & rollback, chapter version snapshots |
+| 📤 **Multi-format Export** | Auto-generated `world.md`; EPUB / DOCX / Markdown full-book export; outlines written to `outlines/` |
+| 📈 **Writing Stats Dashboard** | Chart.js visualization: word count progress, chapter completion, foreshadowing status, sentiment distribution |
+| ⏱️ **LLM Timing Analysis** | Per-generation timing breakdown showing LLM call duration for each stage (outline/beats/manuscript/summary/KG/sentiment) |
 | 💾 **Local-First** | All data lives on your disk — no cloud service required |
 
 </div>
@@ -199,6 +202,98 @@ sequenceDiagram
 
 ---
 
+## Story Writing Multi-Agent Orchestra
+
+The story writing module uses a **Multi-Agent Orchestra** architecture, where 10+ specialized agents collaborate to take a chapter from outline to polished manuscript. Each agent has a single responsibility and independently tuned temperature, achieving high efficiency and quality through **parallel post-processing** and an **optional feedback loop**.
+
+### Agent Collaboration Architecture
+
+```mermaid
+flowchart TB
+  subgraph PreGen["📋 Preparation Phase"]
+    MACRO["<b>Macro Outline Agent</b><br/>temp=0.65 · max_tokens=8192<br/>Generates full plot outline from world setting"]
+    BEATS["<b>Beat Generation Agent</b><br/>temp=0.60 · parallel across chapters<br/>Injects previous chapter summary for continuity"]
+  end
+
+  subgraph Inject["🧠 Context Auto-Injection (before manuscript generation)"]
+    direction LR
+    RAG["RAG Semantic Retrieval<br/>ChromaDB vector similarity search"]
+    KG_STATE["Narrative KG State<br/>Character location · emotion · goal"]
+    SENT_HINT["Sentiment Hint<br/>Previous chapter ending tone"]
+    STRUCT["Macro Outline + Beat Outline<br/>Previous N chapters' manuscript"]
+  end
+
+  subgraph Core["✍️ Core Generation"]
+    WRITER["<b>Manuscript Generation Agent</b><br/>temp=0.75 · max_tokens=8192<br/>Composes full text from all context<br/>Supports SSE streaming"]
+  end
+
+  subgraph Parallel["⚡ Parallel Post-Processing Hooks (asyncio.gather)"]
+    direction TB
+    SUM["Summary Card Agent<br/>temp=0.2"]
+    STATE["Runtime State Agent<br/>temp=0.3"]
+    INDEX["RAG Index Agent<br/>ChromaDB write"]
+    KG_AGENT["KG Extraction Agent<br/>temp=0.2"]
+    AUDIT["Consistency Auditor<br/>temp=0.3 · 7 dimensions"]
+    TONE["Sentiment Tracker<br/>temp=0.2"]
+  end
+
+  subgraph Polish["🔄 Optional: Audit ↔ Polish Feedback Loop"]
+    direction LR
+    P_CHECK["<b>Consistency Audit</b><br/>(reused within loop)"]
+    POLISHER["<b>Polisher Agent</b><br/>temp=0.55 · up to N rounds<br/>9 hard rules for de-AI-ification"]
+    P_CHECK -->|"issues found"| POLISHER
+    POLISHER -->|"polished text"| P_CHECK
+  end
+
+  subgraph Output["📦 Output Artifacts"]
+    direction LR
+    O1["Manuscript<br/>manuscript/"]
+    O2["Summary Card<br/>SQLite+JSON"]
+    O3["Knowledge Graph<br/>narrative_kg.json"]
+    O4["Audit Report<br/>consistency_reports/"]
+    O5["Sentiment Log<br/>sentiment_logs/"]
+    O6["Polished MS<br/>polished/"]
+    O7["Snapshots<br/>snapshots/"]
+  end
+
+  MACRO --> BEATS
+  BEATS --> Core
+  Inject --> Core
+  Core --> Parallel
+  Parallel --> Polish
+  Polish -.->|"polished"| Output
+  Parallel -.-> Output
+  Core -.->|"manuscript"| Output
+```
+
+### Agent Responsibilities
+
+| Phase | Agent | Temp | Responsibility |
+|:--|:--|:--|:--|
+| **Prep** | Macro Outline Agent | 0.65 | Generate full plot outline from user prompt and world setting |
+| **Prep** | Beat Generation Agent | 0.60 | Write detailed beats per chapter; parallel generation with previous-chapter summary injection for continuity |
+| **Inject** | RAG Semantic Retrieval | — | ChromaDB vector similarity search; auto-inject relevant prior fragments |
+| **Inject** | Narrative KG | — | Provide character current state (location / emotion / goal) and key item flow |
+| **Inject** | Sentiment Hint | — | Pass previous chapter ending tone to guide opening emotional transition |
+| **Core** | Manuscript Generation Agent | 0.75 | Compose full chapter text from all assembled context; supports SSE streaming |
+| **Post** | Summary Card Agent | 0.2 | Extract chapter summary (events / characters / foreshadowing / ending hook) |
+| **Post** | Runtime State Agent | 0.3 | Extract and persist per-character runtime state changes from manuscript |
+| **Post** | RAG Index Agent | — | Write new chapter into ChromaDB vector index for future retrieval |
+| **Post** | KG Extraction Agent | 0.2 | Extract entity-event-foreshadowing triples; update narrative knowledge graph |
+| **Post** | Consistency Auditor | 0.3 | 7-dimension automatic audit: position / personality / item state / POV / foreshadowing / emotional continuity / timeline |
+| **Post** | Sentiment Tracker | 0.2 | Per-segment emotional tone analysis; generate sentiment arc |
+| **Loop** | Polisher Agent | 0.55 | Feedback loop with consistency audit (up to N rounds); 9 hard rules for de-AI-ification: dash restraint, paragraph merging, sentence variation, concrete emotion, dialogue rhythm, redundancy pruning, triple-pass refinement, sensory-anchored description, layered information density |
+
+### Key Design Principles
+
+- **Non-blocking Hooks**: All post-processing hooks are wrapped in `try/except Exception: pass` — any single agent failure never blocks manuscript output
+- **Parallel Acceleration**: Summary card, runtime state, RAG indexing, KG extraction, consistency audit, and sentiment tracking — 6 independent hooks run concurrently via `asyncio.gather`
+- **Loop Isolation**: The polisher runs **sequentially** after all parallel hooks complete, avoiding conflicts with the standalone consistency audit
+- **Temperature Differentiation**: Creative tasks (manuscript 0.75, polisher 0.55) use higher temperature; extraction tasks (summary 0.2, KG 0.2, sentiment 0.2) use low temperature for stable, deterministic output
+- **Context Window Layering**: Manuscript generation only injects previous chapter summary + prior N chapters' excerpts + RAG-retrieved fragments, preventing context bloat
+
+---
+
 ## Feature Tour
 
 ### 🌍 World Modules (11)
@@ -214,8 +309,8 @@ sequenceDiagram
 | **Factions** | Organization overview, single-card profiles | Global relationship graph (zoomable + pannable) |
 | **History** | Major event management | Timeline + causal chain diagram |
 | **Economy** | Currencies, markets, trade routes, goods | ID-aligned with Geography/Factions |
-| **Characters** | Protagonist core, supporting cast, cast JSON | Character relationship network |
-| **Story** | Chapters, macro outlines, beat outlines, manuscripts | Foreshadowing timeline · RAG semantic retrieval · Narrative KG · Consistency audit · Sentiment arc · Polisher diff view |
+| **Characters** | Protagonist core, supporting cast, cast JSON | vis.js interactive character relationship network (drag/zoom) |
+| **Story** | Chapters, macro outlines, beat outlines, manuscripts | Foreshadowing timeline · RAG semantic retrieval · Narrative KG · Consistency audit · Sentiment arc · Chapter snapshots · EPUB/DOCX export · Stats dashboard |
 
 ### 🤖 AI Conversation Features
 
@@ -240,6 +335,10 @@ sequenceDiagram
 | **Reference Linter** | Cross-module ID reference validation (regions, factions, etc.) |
 | **Auto-fix** | Conservative reference repair with `dry_run` preview |
 | **Version Snapshots** | Auto-snapshot on every save; line-level diff viewer; one-click rollback; per-snapshot delete |
+| **Chapter Version Snapshots** | Auto-snapshot on manuscript save (max 10 versions); line-level diff between any two versions |
+| **Multi-format Export** | One-click export to EPUB (e-book) / DOCX (Word) / Markdown with proper Chinese filename handling |
+| **Writing Stats Dashboard** | Chart.js dashboard: total word count, chapter progress, foreshadowing status distribution, sentiment tone distribution |
+| **LLM Timing Panel** | Per-stage LLM call duration bar chart displayed after manuscript generation (outline/beats/manuscript/summary/KG/sentiment) |
 | **RAG Index Readiness Indicator** | Story workbench header status dot + sidebar context panel (prev-chapter summary / character states / index stats) |
 | **world.md Export** | Auto-generate human-readable handbook from JSON |
 
@@ -322,6 +421,8 @@ Dependency overview:
 | `httpx` | Async HTTP client |
 | `chromadb` | Local vector database (RAG semantic retrieval) |
 | `sentence-transformers` | Local text embedding (BAAI/bge-small-zh-v1.5) |
+| `ebooklib` | EPUB e-book generation |
+| `python-docx` | DOCX Word document generation |
 | `pytest` | Test framework |
 
 For Conda environments, specify your interpreter path:
@@ -426,9 +527,14 @@ worlds/
     ├── outlines/           ← Character & plot outline exports
     ├── story/               ← Chapter manuscripts, summary cards, RAG index
     │   ├── macro_outline.md
-    │   ├── ch_xxx_manuscript.md
-    │   ├── ch_xxx_summary_card.json
-    │   └── rag_index/        ← ChromaDB vector index
+    │   ├── beats/             ← Beat outlines
+    │   ├── manuscript/        ← Manuscript originals
+    │   ├── summaries/         ← Chapter summary cards
+    │   ├── polished/          ← Polished manuscripts
+    │   ├── snapshots/         ← Chapter version snapshots
+    │   ├── consistency_reports/  ← Consistency audit reports
+    │   ├── sentiment_logs/    ← Sentiment logs
+    │   └── rag_index/         ← ChromaDB vector index
     ├── sessions/           ← Chat session logs (optional)
     └── snapshots/          ← Version snapshots
         ├── v001.json
@@ -476,6 +582,11 @@ worlds/
 | `GET` | `/api/worlds/{id}/story/sentiment-arc` | Sentiment arc data + Mermaid chart |
 | `GET` | `/api/worlds/{id}/story/manuscript/{chapter_id}/polished` | Polished manuscript + metadata |
 | `GET` | `/api/worlds/{id}/story/manuscript/{chapter_id}/polish-trace` | Audit ↔ polish loop round tracing |
+| `GET` | `/api/worlds/{id}/story/chapters/{chapter_id}/snapshots` | List chapter version snapshots |
+| `GET` | `/api/worlds/{id}/story/chapters/{chapter_id}/snapshots/{version}` | Read specific chapter snapshot version |
+| `GET` | `/api/worlds/{id}/story/chapters/{chapter_id}/snapshots/diff` | Line-level diff between chapter snapshots |
+| `GET` | `/api/worlds/{id}/story/export` | Export full book (epub/docx/md) |
+| `GET` | `/api/worlds/{id}/story/stats` | Writing statistics (word count / progress / foreshadowing / sentiment) |
 | `PATCH` | `/api/worlds/{id}/story/writing-defaults` | Toggle writing enhancement switches (KG / audit / sentiment / polisher / max rounds) |
 | `*` | `/api/worlds/{id}/story/*` | Story CRUD (chapters, outlines, beats, manuscripts, foreshadowing) |
 
@@ -513,6 +624,11 @@ flowchart LR
     C7[Polisher Agent + Audit↔Polish Loop]
     C8[Parallel Post-processing Optimization]
     C9[Unified Proofreader + Parallel Beat Gen]
+    C10[Chapter Version Snapshots + Diff]
+    C11[vis.js Character Network]
+    C12[EPUB/DOCX Multi-format Export]
+    C13[Writing Stats Dashboard]
+    C14[LLM Timing Analysis Panel]
   end
   A1 --> A2 --> B1 --> B2
 ```

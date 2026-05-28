@@ -211,6 +211,126 @@ def parse_structure_json(raw: str) -> dict[str, Any]:
     raise ValueError(f"no json object in model output (tried {len(attempts)} repair strategies)")
 
 
+def _salvage_partial_json(text: str) -> dict[str, Any]:
+    """Attempt to salvage a truncated JSON object by auto-closing unclosed braces/brackets.
+
+    When the LLM output is truncated mid-JSON (e.g. at max_tokens limit), this tries
+    progressively more aggressive repairs to recover whatever valid data we can.
+    """
+    t = _strip_code_fence(text)
+    start = t.find("{")
+    if start == -1:
+        raise ValueError("no JSON object start found in truncated output")
+    segment = t[start:]
+
+    # Strategy 1: auto-close unclosed braces and brackets
+    repaired = _auto_close_json(segment)
+    for attempt in [repaired, _strip_trailing_commas(repaired), _fix_missing_commas(repaired)]:
+        try:
+            result = json.loads(attempt)
+            print("[MCW-SYNC] Salvage: auto-closed truncated JSON successfully")
+            return result
+        except json.JSONDecodeError:
+            continue
+
+    # Strategy 2: truncation mid-string — try closing the last string then auto-close
+    if segment.rstrip()[-1:] not in ("}", "]", '"'):
+        repaired2 = _auto_close_json(segment.rstrip() + '"')
+        try:
+            result = json.loads(repaired2)
+            print("[MCW-SYNC] Salvage: closed mid-string truncation successfully")
+            return result
+        except json.JSONDecodeError:
+            pass
+
+    # Strategy 3: remove likely-incomplete last key-value pair and try again
+    repaired3 = _auto_close_json(_trim_incomplete_entry(segment))
+    for attempt in [repaired3, _strip_trailing_commas(repaired3)]:
+        try:
+            result = json.loads(attempt)
+            print("[MCW-SYNC] Salvage: trimmed incomplete trailing entry successfully")
+            return result
+        except json.JSONDecodeError:
+            continue
+
+    # Strategy 4: per-key extraction as last resort
+    result = _extract_top_level_keys(segment)
+    if result:
+        print("[MCW-SYNC] Salvage: recovered via per-key extraction from truncated output")
+        return result
+
+    raise ValueError("all salvage strategies failed on truncated output")
+
+
+def _auto_close_json(text: str) -> str:
+    """Count open/close braces and brackets, append missing closers."""
+    depth_brace = 0
+    depth_bracket = 0
+    in_string = False
+    escape = False
+    for ch in text:
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"' and not in_string:
+            in_string = True
+        elif ch == '"' and in_string:
+            in_string = False
+        elif in_string:
+            continue
+        elif ch == "{":
+            depth_brace += 1
+        elif ch == "}":
+            depth_brace -= 1
+        elif ch == "[":
+            depth_bracket += 1
+        elif ch == "]":
+            depth_bracket -= 1
+    closers = "]" * max(0, depth_bracket) + "}" * max(0, depth_brace)
+    return text.rstrip() + closers
+
+
+def _trim_incomplete_entry(text: str) -> str:
+    """Remove a trailing incomplete JSON key or key-value pair (likely truncated)."""
+    # Remove trailing comma and whitespace first
+    t = text.rstrip().rstrip(",").rstrip()
+    # Find last complete entry: look for the last comma or { that precedes a complete value
+    # Strategy: find the last "key": that is followed by an incomplete value
+    # We remove everything after the last safely-identifiable complete key-value boundary
+    # Simply: find last comma that's at a reasonable depth, and trim after it
+    in_string = False
+    escape = False
+    depth = 0
+    last_safe_comma = -1
+    for i, ch in enumerate(t):
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"' and not in_string:
+            in_string = True
+        elif ch == '"' and in_string:
+            in_string = False
+        elif in_string:
+            continue
+        elif ch in ("{", "["):
+            depth += 1
+        elif ch in ("}", "]"):
+            depth -= 1
+        elif ch == "," and depth == 0:
+            last_safe_comma = i
+    if last_safe_comma > 0:
+        return t[:last_safe_comma]
+    # If no safe comma, just return the opening brace — we'll get an empty dict
+    brace_idx = t.find("{")
+    return t[:brace_idx + 1] if brace_idx != -1 else "{}"
+
+
 def _strip_json_comments(text: str) -> str:
     """Remove // line comments from JSON text."""
     import re as _re
@@ -304,12 +424,17 @@ def apply_structure_patch(
 ) -> tuple[World, list[str], list[str], dict[str, list[str]]]:
     """Merge patch into world. Returns (new_world, updated_keys, merge_warnings, normalize_notes)."""
     from worldforger.panel_merge import merge_section_conservative
+    from worldforger.patch_validator import validate_patch_constraints
     from worldforger.structure_normalize import normalize_structure_patch_detailed
 
     patch, normalize_notes = normalize_structure_patch_detailed(patch)
+    # Code-level constraint validation — safety net below the prompt layer
+    constraint_warnings = validate_patch_constraints(patch)
+    for w in constraint_warnings:
+        print(f"[MCW-VALIDATE] {w}")
     data = world.model_dump(mode="json")
     updated: list[str] = []
-    warnings: list[str] = []
+    warnings: list[str] = list(constraint_warnings)  # start with constraint violations
     allowed = {
         "geography": GeographySection,
         "ecology": EcologySection,
@@ -387,7 +512,7 @@ async def _run_format_proofreader(
         ],
         model=_structure_model_name(),
         temperature=0.0,
-        max_tokens=16384,
+        max_tokens=32768,
     )
     print(f"[MCW-SYNC] Format proofreader raw output length: {len(raw)} chars")
     try:
@@ -438,7 +563,7 @@ async def _run_synchronizer_self_correct(
         ],
         model=_structure_model_name(),
         temperature=0.0,
-        max_tokens=16384,
+        max_tokens=32768,
     )
     print(f"[MCW-SYNC] Synchronizer self-correct output length: {len(raw)} chars")
     try:
@@ -488,7 +613,7 @@ async def _run_json_enforce_retry(
         ],
         model=_structure_model_name(),
         temperature=0.0,
-        max_tokens=16384,
+        max_tokens=32768,
     )
     print(f"[MCW-SYNC] JSON-enforce retry output length: {len(raw)} chars")
     print(f"[MCW-SYNC] JSON-enforce retry preview (first 300): {raw[:300]}")
@@ -602,7 +727,7 @@ async def _run_synchronizer(
         ],
         model=_structure_model_name(),
         temperature=0.15,
-        max_tokens=16384,
+        max_tokens=32768,
     )
     return parse_structure_json(raw)
 
@@ -653,7 +778,7 @@ async def sync_panels_from_dialogue(
             ],
             model=_structure_model_name(),
             temperature=0.15,
-            max_tokens=16384,
+            max_tokens=32768,
         )
         print(f"[MCW-SYNC] Synchronizer raw output length: {len(raw)} chars")
         print(f"[MCW-SYNC] Synchronizer raw preview (first 500): {raw[:500]}")
@@ -661,35 +786,43 @@ async def sync_panels_from_dialogue(
         fence_stripped = _strip_code_fence(raw)
         if not fence_stripped.rstrip().endswith("}"):
             print(f"[MCW-SYNC] Output appears truncated (ends with '{raw.rstrip()[-80:]}')")
-            raise ValueError(
-                "synchronizer output appears truncated (no closing '}' after stripping fences); "
-                f"length={len(raw)}, last 100 chars: {raw[-100:]}"
-            )
-        try:
-            raw_patch = parse_structure_json(raw)
-            print(f"[MCW-SYNC] Parsed patch keys: {list(raw_patch.keys())}")
-            print(f"[MCW-SYNC] Patch sizes: {{{', '.join(f'{k}: {_json_size(raw_patch[k])}' for k in raw_patch)}}}")
-        except ValueError as init_parse_err:
-            print(f"[MCW-SYNC] Initial parse failed: {init_parse_err}, entering format recovery")
             try:
-                raw_patch = await _try_parse_with_format_recovery(
-                    raw, world_json=world_json, system=system,
-                    assistant_reply=assistant_reply,
+                raw_patch = _salvage_partial_json(raw)
+                print(
+                    f"[MCW-SYNC] Salvaged partial JSON from truncated output, "
+                    f"keys: {list(raw_patch.keys())}"
                 )
-                format_proofreader_used = True
-                format_stages.append("format_recovery")
-                print(f"[MCW-SYNC] Format recovery result keys: {list(raw_patch.keys())}")
-            except ValueError as recovery_err:
-                print(f"[MCW-SYNC] Format recovery also failed: {recovery_err}")
-                print(f"[MCW-SYNC] === SYNCHRONIZER RAW OUTPUT (first 2000 chars) ===")
-                print(raw[:2000])
-                print(f"[MCW-SYNC] === SYNCHRONIZER RAW OUTPUT (last 500 chars) ===")
-                print(raw[-500:])
-                print(f"[MCW-SYNC] === END RAW OUTPUT ===")
+            except ValueError as salvage_err:
                 raise ValueError(
-                    f"parse_structure_json failed ({init_parse_err}); "
-                    f"format recovery also failed ({recovery_err})"
-                ) from recovery_err
+                    "synchronizer output appears truncated (no closing '}' after stripping fences); "
+                    f"length={len(raw)}, last 100 chars: {raw[-100:]}"
+                ) from salvage_err
+        else:
+            try:
+                raw_patch = parse_structure_json(raw)
+            except ValueError as init_parse_err:
+                print(f"[MCW-SYNC] Initial parse failed: {init_parse_err}, entering format recovery")
+                try:
+                    raw_patch = await _try_parse_with_format_recovery(
+                        raw, world_json=world_json, system=system,
+                        assistant_reply=assistant_reply,
+                    )
+                    format_proofreader_used = True
+                    format_stages.append("format_recovery")
+                    print(f"[MCW-SYNC] Format recovery result keys: {list(raw_patch.keys())}")
+                except ValueError as recovery_err:
+                    print(f"[MCW-SYNC] Format recovery also failed: {recovery_err}")
+                    print(f"[MCW-SYNC] === SYNCHRONIZER RAW OUTPUT (first 2000 chars) ===")
+                    print(raw[:2000])
+                    print(f"[MCW-SYNC] === SYNCHRONIZER RAW OUTPUT (last 500 chars) ===")
+                    print(raw[-500:])
+                    print(f"[MCW-SYNC] === END RAW OUTPUT ===")
+                    raise ValueError(
+                        f"parse_structure_json failed ({init_parse_err}); "
+                        f"format recovery also failed ({recovery_err})"
+                    ) from recovery_err
+        print(f"[MCW-SYNC] Parsed patch keys: {list(raw_patch.keys())}")
+        print(f"[MCW-SYNC] Patch sizes: {{{', '.join(f'{k}: {_json_size(raw_patch[k])}' for k in raw_patch)}}}")
         if not isinstance(raw_patch, dict):
             raise ValueError("parsed root is not an object")
         structure_output_keys = list(raw_patch.keys())

@@ -1,0 +1,32 @@
+/** Global application state (single source of truth). */
+
+export const state = {
+  world: null,
+  messages: [],
+  charMessages: [],
+  storyMessages: [],
+  dirty: false,
+  activeView: "chat",
+  storySubView: "overview",
+  storyOutlineSub: "macro",
+  activeStoryNav: "storyOverview",
+  storyActiveChapterId: "",
+  storyUnitLabel: "章",
+  storyGen: null,
+  powerSubView: "system",
+  ecologySubView: "overview",
+  geoSubView: "overview",
+  worldviewEditMode: {
+    geo: true,
+    ecology: true,
+    powers: true,
+    attributes: true,
+    items: true,
+    cultures: true,
+    factions: true,
+    history: true,
+    economy: true,
+    charProtagonists: true,
+    charSupporting: true,
+  },
+};

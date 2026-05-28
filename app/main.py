@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, field_validator
 from starlette.requests import Request
@@ -40,6 +40,7 @@ from worldforger.story_service import (
     generate_chapter_beats,
     generate_macro_outline,
     generate_manuscript,
+    generate_manuscript_stream,
     remove_chapter,
     try_import_legacy,
 )
@@ -479,6 +480,62 @@ def api_export_md(world_id: str) -> dict[str, str]:
         raise HTTPException(status_code=404, detail="world not found")
     save_world(w, export_markdown=True)
     return {"ok": "true", "path": str(world_json_path(world_id).with_name("world.md"))}
+
+
+# ── P2-11: Story Export (EPUB / DOCX / MD) ──────────────────────────
+
+
+@app.get("/api/worlds/{world_id}/story/export")
+def api_story_export(world_id: str, format: str = "md") -> Response:
+    """导出小说为 EPUB / DOCX / Markdown 格式。"""
+    from urllib.parse import quote
+
+    from worldforger.export_format import export_docx, export_epub, export_markdown
+
+    fmt = (format or "md").strip().lower()
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    # Build safe ASCII fallback + RFC 5987 encoded filename
+    raw_name = w.meta.name or "story"
+    safe_ascii = "".join(c if c.isascii() and c.isalnum() or c in " _-." else "_" for c in raw_name).strip() or "story"
+    encoded = quote(raw_name, safe="")
+
+    if fmt == "epub":
+        try:
+            content = export_epub(w)
+        except ImportError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+        return Response(
+            content=content,
+            media_type="application/epub+zip",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{safe_ascii}.epub\"; filename*=UTF-8''{encoded}.epub"
+            },
+        )
+    elif fmt == "docx":
+        try:
+            content = export_docx(w)
+        except ImportError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{safe_ascii}.docx\"; filename*=UTF-8''{encoded}.docx"
+            },
+        )
+    else:
+        content = export_markdown(w)
+        return Response(
+            content=content,
+            media_type="text/markdown; charset=utf-8",
+            headers={
+                "Content-Disposition": f"attachment; filename=\"{safe_ascii}.md\"; filename*=UTF-8''{encoded}.md"
+            },
+        )
 
 
 def _json_for_diff(world_id: str, ref: str) -> dict[str, Any]:
@@ -1016,9 +1073,12 @@ def api_put_chapter_manuscript(
         raise HTTPException(status_code=404, detail="chapter not found")
     write_text(manuscript_path(world_id, chapter_id), body.content)
     n = sync_chapter_word_count(w, chapter_id)
+    # P2-9: Auto-save version snapshot
+    from worldforger.story_store import save_chapter_snapshot
+    snap_v = save_chapter_snapshot(world_id, chapter_id)
     w.bump_version()
     save_world(w, export_markdown=False)
-    return {"ok": True, "word_count": n}
+    return {"ok": True, "word_count": n, "snapshot_version": snap_v}
 
 
 @app.post("/api/worlds/{world_id}/story/chapters")
@@ -1039,6 +1099,59 @@ def api_delete_story_chapter(world_id: str, chapter_id: str) -> dict[str, Any]:
     w.bump_version()
     save_world(w, export_markdown=False)
     return {"ok": True, "world": w.model_dump(mode="json")}
+
+
+# ── P2-9: Chapter Version Snapshots ──────────────────────────────────
+
+
+@app.get("/api/worlds/{world_id}/story/chapters/{chapter_id}/snapshots")
+def api_list_chapter_snapshots(world_id: str, chapter_id: str) -> dict[str, Any]:
+    """列出某章的所有版本快照。"""
+    from worldforger.story_store import list_chapter_snapshots
+    _story_world_or_404(world_id)
+    return {"snapshots": list_chapter_snapshots(world_id, chapter_id)}
+
+
+@app.get("/api/worlds/{world_id}/story/chapters/{chapter_id}/snapshots/{version}")
+def api_get_chapter_snapshot(world_id: str, chapter_id: str, version: int) -> dict[str, Any]:
+    """获取某章某个版本的快照内容。"""
+    from worldforger.story_store import read_chapter_snapshot
+    _story_world_or_404(world_id)
+    try:
+        content = read_chapter_snapshot(world_id, chapter_id, version)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="snapshot not found") from None
+    return {"version": version, "content": content}
+
+
+@app.get("/api/worlds/{world_id}/story/chapters/{chapter_id}/snapshots/diff")
+def api_chapter_snapshot_diff(
+    world_id: str, chapter_id: str, left: str = "", right: str = ""
+) -> dict[str, Any]:
+    """对比章节两个版本之间的差异（left/right 为版本号或 'current'）。"""
+    from worldforger.snapshot_diff import line_diff_text
+    from worldforger.story_store import manuscript_path, read_chapter_snapshot, read_text
+
+    _story_world_or_404(world_id)
+
+    def _resolve(ref: str) -> str:
+        r = ref.strip()
+        if r == "current" or r == "":
+            return read_text(manuscript_path(world_id, chapter_id))
+        if r.isdigit():
+            return read_chapter_snapshot(world_id, chapter_id, int(r))
+        raise HTTPException(status_code=400, detail=f"invalid version ref: {ref!r}")
+
+    try:
+        left_text = _resolve(left)
+        right_text = _resolve(right)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except HTTPException:
+        raise
+
+    lines, truncated = line_diff_text(left_text, right_text)
+    return {"left": left, "right": right, "lines": lines, "truncated": truncated}
 
 
 @app.post("/api/worlds/{world_id}/story/generate/macro-outline")
@@ -1098,7 +1211,7 @@ async def api_story_generate_manuscript(
     prompt_parts = [p for p in (body.last_user_message.strip(), body.prompt.strip()) if p]
     prompt_eff = "\n\n".join(prompt_parts) or "请撰写本章正文。"
     try:
-        reply = await generate_manuscript(
+        reply, hook_errors, timing_breakdown = await generate_manuscript(
             w,
             chapter_id=body.chapter_id,
             prompt=prompt_eff,
@@ -1112,7 +1225,54 @@ async def api_story_generate_manuscript(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
     _maybe_persist_story(world_id, w, persist=body.persist)
-    return {"reply": reply, "world": w.model_dump(mode="json")}
+    return {"reply": reply, "hook_errors": hook_errors, "world": w.model_dump(mode="json"), "timing_breakdown": timing_breakdown}
+
+
+@app.post("/api/worlds/{world_id}/story/generate/manuscript/stream")
+async def api_story_generate_manuscript_stream(world_id: str, body: StoryGenerateManuscriptBody) -> StreamingResponse:
+    """Stream manuscript generation via Server-Sent Events.
+
+    Events emitted:
+      - ``data: {"type":"text","content":"..."}`` — token chunks
+      - ``data: {"type":"hook_errors","errors":["..."]}`` — post-processing issues
+      - ``data: {"type":"done","world":{...}}`` — completion with updated world
+    """
+    import json as _json
+
+    w = _story_world_or_404(world_id)
+    if not any(c.id == body.chapter_id for c in w.story.chapters):
+        raise HTTPException(status_code=404, detail="chapter not found in story.chapters")
+    attach = (
+        body.attach_prev_chapters
+        if body.attach_prev_chapters is not None
+        else w.story.writing_defaults.attach_prev_chapters
+    )
+    prompt_parts = [p for p in (body.last_user_message.strip(), body.prompt.strip()) if p]
+    prompt_eff = "\n\n".join(prompt_parts) or "请撰写本章正文。"
+
+    async def event_stream():
+        try:
+            async for event in generate_manuscript_stream(
+                w,
+                chapter_id=body.chapter_id,
+                prompt=prompt_eff,
+                creative_mode=body.creative_mode,
+                person=body.person,
+                attach_prev_chapters=attach,
+                include_world_md=body.include_markdown_context,
+            ):
+                yield f"data: {_json.dumps(event, ensure_ascii=False)}\n\n"
+        except Exception as e:
+            yield f"data: {_json.dumps({'type': 'error', 'message': str(e)}, ensure_ascii=False)}\n\n"
+        finally:
+            if body.persist:
+                _maybe_persist_story(world_id, w, persist=True)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/worlds/{world_id}/story/rag/stats")
@@ -1196,6 +1356,98 @@ def api_get_sentiment_arc(world_id: str) -> dict[str, Any]:
     return {
         "sentiment_logs": [log.model_dump(mode="json") for log in logs],
         "chart_data": chart_data,
+    }
+
+
+# ── P1-6: Usage Stats ───────────────────────────────────────────────
+
+
+@app.get("/api/worlds/{world_id}/story/usage-stats")
+def api_get_usage_stats(world_id: str) -> dict[str, Any]:
+    """返回每章各类 LLM 调用的估算 token 消耗和总预算。"""
+    from worldforger.story_service import compute_usage_stats
+
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    return compute_usage_stats(w)
+
+
+# ── P2-12: Writing Statistics Dashboard ──────────────────────────────
+
+
+@app.get("/api/worlds/{world_id}/story/stats")
+def api_get_story_stats(world_id: str) -> dict[str, Any]:
+    """聚合写作统计数据：字数、进度、伏笔、情感分布。"""
+    from worldforger.story_store import (
+        count_words,
+        manuscript_path,
+        read_sentiment_log,
+        read_text,
+        sorted_chapters,
+    )
+
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    chapters = sorted_chapters(w)
+    wid = world_id
+
+    # Per-chapter stats
+    chapter_stats: list[dict] = []
+    total_words = 0
+    for ch in chapters:
+        ms = read_text(manuscript_path(wid, ch.id))
+        wc = ch.word_count or count_words(ms)
+        total_words += wc
+        chapter_stats.append({
+            "id": ch.id,
+            "title": ch.title,
+            "order": ch.order,
+            "word_count": wc,
+            "status": ch.status or "outline",
+        })
+
+    # Foreshadowing stats
+    foreshadowing = {
+        "total": len(w.story.foreshadowing),
+        "open": sum(1 for f in w.story.foreshadowing if f.status == "planted"),
+        "resolved": sum(1 for f in w.story.foreshadowing if f.status == "resolved"),
+        "abandoned": sum(1 for f in w.story.foreshadowing if f.status == "abandoned"),
+    }
+
+    # Sentiment distribution across all chapters
+    sentiment_dist: dict[str, int] = {}
+    sentiment_logs = []
+    for ch in chapters:
+        log = read_sentiment_log(wid, ch.id)
+        if log:
+            sentiment_logs.append(log)
+            tone = log.get("overall_tone", "")
+            if tone:
+                sentiment_dist[tone] = sentiment_dist.get(tone, 0) + 1
+
+    # Completion ratio
+    locked = sum(1 for c in chapters if c.status == "locked")
+    completed = sum(1 for c in chapters if c.status == "completed")
+    drafting = sum(1 for c in chapters if c.status == "drafting")
+
+    return {
+        "total_words": total_words,
+        "chapter_count": len(chapters),
+        "chapter_progress": chapter_stats,
+        "completion": {
+            "locked": locked,
+            "completed": completed,
+            "drafting": drafting,
+            "outline": len(chapters) - locked - completed - drafting,
+        },
+        "foreshadowing": foreshadowing,
+        "sentiment_distribution": sentiment_dist,
+        "sentiment_logs": sentiment_logs,
     }
 
 

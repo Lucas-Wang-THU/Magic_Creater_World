@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 
-from worldforger.llm import chat_completion
+from worldforger.llm import chat_completion, chat_completion_stream, drain_timing_log
 from worldforger.schemas import StoryChapter, StoryPerson, World
 from worldforger.story_prompts import (
     build_chapter_summary_user_payload,
@@ -114,6 +115,7 @@ async def generate_macro_outline(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
         temperature=0.65,
         max_tokens=8192,
+        timing_label="macro_outline",
     )
     wid = world.meta.id
     ensure_story_dirs(wid)
@@ -169,6 +171,7 @@ async def generate_chapter_beats(
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.6,
             max_tokens=4096,
+            timing_label=f"chapter_beat:{cid}",
         )
         write_text(beat_path(world.meta.id, cid), reply)
         return cid, reply
@@ -213,10 +216,13 @@ async def generate_manuscript(
         rag_chunks=rag_chunks if rag_chunks else None,
         person=person_eff,
     )
+    # Drain timing log before manuscript generation to get a clean slate
+    drain_timing_log()
     reply = await chat_completion(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
         temperature=0.75,
         max_tokens=8192,
+        timing_label="manuscript_generation",
     )
     write_text(manuscript_path(world.meta.id, chapter_id), reply)
     sync_chapter_word_count(world, chapter_id)
@@ -242,14 +248,111 @@ async def generate_manuscript(
     if world.story.writing_defaults.enable_sentiment_track:
         post_hooks.append(_try_track_sentiment(world, chapter_id, reply))
 
+    hook_errors: list[str] = []
     if post_hooks:
-        await asyncio.gather(*post_hooks)
+        results = await asyncio.gather(*post_hooks)
+        hook_errors = [r for r in results if r]
 
     # ── Layer 4：审校 ↔ 润色 Loop（内部自带一致性审校，不再重复调用）──
     if world.story.writing_defaults.enable_polisher:
         await _run_polish_loop(world, chapter_id, reply)
 
-    return reply
+    timing_breakdown = drain_timing_log()
+    return reply, hook_errors, timing_breakdown
+
+
+async def generate_manuscript_stream(
+    world: World,
+    *,
+    chapter_id: str,
+    prompt: str,
+    creative_mode: str | None = None,
+    person: StoryPerson | None = None,
+    attach_prev_chapters: int = 0,
+    include_world_md: bool | None = None,
+) -> AsyncIterator[dict]:
+    """Stream manuscript generation token-by-token.
+
+    Yields dicts of shape ``{"type": "text", "content": "..."}`` for each
+    token chunk, then ``{"type": "hook_errors", "errors": [...]}`` after
+    post-processing, and finally ``{"type": "done", "world": {...}}``.
+    """
+    mode_eff = creative_mode or world.meta.creative_mode
+    wd = world.story.writing_defaults
+    inc_md = include_world_md if include_world_md is not None else wd.include_world_md
+    prev_n = max(0, min(5, attach_prev_chapters))
+    person_eff = person or world.story.narrator.person
+    macro = read_text(macro_outline_path(world.meta.id)) if wd.include_macro_outline else ""
+    beat = read_text(beat_path(world.meta.id, chapter_id)) if wd.include_chapter_beats else ""
+    prev: list[tuple[str, str]] = []
+    for pch in chapters_before(world, chapter_id, prev_n):
+        prev.append((pch.id, read_text(manuscript_path(world.meta.id, pch.id))))
+
+    rag_chunks = await _try_retrieve_rag_chunks(world, chapter_id, beat)
+
+    system = manuscript_system(world, creative_mode=mode_eff, person=person_eff)
+    user = build_manuscript_user_payload(
+        world,
+        chapter_id=chapter_id,
+        macro_outline=macro,
+        beat_text=beat,
+        prev_manuscripts=prev,
+        user_hint=prompt,
+        include_world_md=inc_md,
+        rag_chunks=rag_chunks if rag_chunks else None,
+        person=person_eff,
+    )
+
+    # ── Stream the manuscript ──
+    drain_timing_log()
+    yield {"type": "step", "phase": "manuscript", "label": "正在撰写文稿…", "index": 1, "total": 3}
+    full_text_parts: list[str] = []
+    async for token in chat_completion_stream(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        temperature=0.75,
+        max_tokens=8192,
+        timing_label="manuscript_generation",
+    ):
+        full_text_parts.append(token)
+        yield {"type": "text", "content": token}
+
+    reply = "".join(full_text_parts)
+    write_text(manuscript_path(world.meta.id, chapter_id), reply)
+    sync_chapter_word_count(world, chapter_id)
+    ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+    if ch:
+        ch.status = "drafting"
+
+    # ── Post-processing hooks (same as generate_manuscript) ──
+    total_steps = 3 + (1 if world.story.writing_defaults.enable_polisher else 0)
+    post_hooks: list = [
+        _try_generate_summary_card(world, chapter_id, reply),
+        _try_update_runtime_states(world, chapter_id, reply),
+        _try_index_chapter(world, chapter_id, reply),
+    ]
+    if world.story.writing_defaults.enable_narrative_kg:
+        post_hooks.append(_try_extract_kg_events(world, chapter_id, reply))
+    if world.story.writing_defaults.enable_consistency_check and not world.story.writing_defaults.enable_polisher:
+        post_hooks.append(_try_run_consistency_check(world, chapter_id, reply))
+    if world.story.writing_defaults.enable_sentiment_track:
+        post_hooks.append(_try_track_sentiment(world, chapter_id, reply))
+
+    hook_errors: list[str] = []
+    if post_hooks:
+        yield {"type": "step", "phase": "posthooks", "label": "正在执行后处理（摘要/状态/审校/情感分析）…", "index": 2, "total": total_steps}
+        results = await asyncio.gather(*post_hooks)
+        hook_errors = [r for r in results if r]
+
+    if hook_errors:
+        yield {"type": "hook_errors", "errors": hook_errors}
+
+    if world.story.writing_defaults.enable_polisher:
+        yield {"type": "step", "phase": "polish", "label": "正在润色文稿…", "index": 3, "total": total_steps}
+        await _run_polish_loop(world, chapter_id, reply)
+
+    timing_breakdown = drain_timing_log()
+    yield {"type": "step", "phase": "done", "label": "生成完成", "index": total_steps, "total": total_steps}
+    yield {"type": "done", "world": world.model_dump(mode="json"), "timing_breakdown": timing_breakdown}
 
 
 def try_import_legacy(world: World) -> bool:
@@ -259,8 +362,8 @@ def try_import_legacy(world: World) -> bool:
 # ── 收尾：章节摘要卡片 ──────────────────────────────────────
 
 
-async def _try_generate_summary_card(world: World, chapter_id: str, manuscript_text: str) -> None:
-    """正文生成后，调用轻量 LLM 生成章节摘要卡片。失败不阻塞。"""
+async def _try_generate_summary_card(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """正文生成后，调用轻量 LLM 生成章节摘要卡片。失败不阻塞，返回错误描述。"""
     import json as _json
 
     try:
@@ -272,11 +375,12 @@ async def _try_generate_summary_card(world: World, chapter_id: str, manuscript_t
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.4,
             max_tokens=2048,
+            timing_label="summary_card",
         )
         # 尝试解析 JSON
         data = _json.loads(reply.strip())
         if not isinstance(data, dict):
-            return
+            return "摘要卡片：LLM 返回非 JSON 格式"
         data["chapter_id"] = chapter_id
         ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
         if ch:
@@ -289,16 +393,16 @@ async def _try_generate_summary_card(world: World, chapter_id: str, manuscript_t
             except Exception:
                 pass
         write_summary_card(world.meta.id, chapter_id, data)
-    except Exception:
-        # 摘要生成失败不影响主流程
-        pass
+        return ""
+    except Exception as e:
+        return f"摘要卡片：{e}"
 
 
 # ── 收尾：角色运行时状态提取 ─────────────────────────────────
 
 
-async def _try_update_runtime_states(world: World, chapter_id: str, manuscript_text: str) -> None:
-    """正文生成后，从正文提取各角色运行时状态变化。失败不阻塞。"""
+async def _try_update_runtime_states(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """正文生成后，从正文提取各角色运行时状态变化。失败不阻塞，返回错误描述。"""
     import json as _json
 
     try:
@@ -308,16 +412,17 @@ async def _try_update_runtime_states(world: World, chapter_id: str, manuscript_t
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.3,
             max_tokens=2048,
+            timing_label="runtime_state_update",
         )
         data = _json.loads(reply.strip())
         if not isinstance(data, dict):
-            return
+            return "角色状态：LLM 返回非 JSON 格式"
         for char_id, updates in data.items():
             if isinstance(updates, dict):
                 update_character_runtime_state(world, str(char_id), updates, chapter_id)
-    except Exception:
-        # 状态提取失败不影响主流程
-        pass
+        return ""
+    except Exception as e:
+        return f"角色状态：{e}"
 
 
 # ── RAG：检索与索引 ──────────────────────────────────────────
@@ -344,8 +449,8 @@ async def _try_retrieve_rag_chunks(world: World, chapter_id: str, beat_text: str
         return []
 
 
-async def _try_index_chapter(world: World, chapter_id: str, manuscript_text: str) -> None:
-    """将新生成的章节索引到向量库。失败不阻塞。"""
+async def _try_index_chapter(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """将新生成的章节索引到向量库。失败不阻塞，返回错误描述。"""
     try:
         from worldforger.chapter_indexer import ChapterIndexer
 
@@ -357,15 +462,16 @@ async def _try_index_chapter(world: World, chapter_id: str, manuscript_text: str
             "chapter_order": ch.order if ch else 0,
             "chapter_title": ch.title if ch else "",
         })
-    except Exception:
-        pass
+        return ""
+    except Exception as e:
+        return f"RAG 索引：{e}"
 
 
 # ── 收尾：叙事知识图谱提取 ─────────────────────────────────
 
 
-async def _try_extract_kg_events(world: World, chapter_id: str, manuscript_text: str) -> None:
-    """正文生成后，从正文提取 KG 实体和事件。失败不阻塞。"""
+async def _try_extract_kg_events(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """正文生成后，从正文提取 KG 实体和事件。失败不阻塞，返回错误描述。"""
     import json as _json
 
     try:
@@ -379,35 +485,38 @@ async def _try_extract_kg_events(world: World, chapter_id: str, manuscript_text:
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.2,
             max_tokens=2048,
+            timing_label="kg_extraction",
         )
         data = _json.loads(reply.strip())
         if not isinstance(data, dict):
-            return
+            return "KG 抽取：LLM 返回非 JSON 格式"
         mgr = NarrativeKGManager(world.meta.id)
         kg = mgr.merge_extraction(data)
         world.story.narrative_kg = kg
-    except Exception:
-        pass
+        return ""
+    except Exception as e:
+        return f"KG 抽取：{e}"
 
 
 # ── 收尾：一致性审校 ──────────────────────────────────────
 
 
-async def _try_run_consistency_check(world: World, chapter_id: str, manuscript_text: str) -> None:
-    """正文生成后，运行 7 维度一致性审校。失败不阻塞。"""
+async def _try_run_consistency_check(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """正文生成后，运行 7 维度一致性审校。失败不阻塞，返回错误描述。"""
     try:
         from worldforger.consistency_checker import run_consistency_check
 
         await run_consistency_check(world, chapter_id, manuscript_text)
-    except Exception:
-        pass
+        return ""
+    except Exception as e:
+        return f"一致性审校：{e}"
 
 
 # ── 收尾：情感弧线追踪 ─────────────────────────────────────
 
 
-async def _try_track_sentiment(world: World, chapter_id: str, manuscript_text: str) -> None:
-    """正文生成后，分析情感弧线并保存。失败不阻塞。"""
+async def _try_track_sentiment(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """正文生成后，分析情感弧线并保存。失败不阻塞，返回错误描述。"""
     import json as _json
 
     try:
@@ -422,16 +531,18 @@ async def _try_track_sentiment(world: World, chapter_id: str, manuscript_text: s
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.2,
             max_tokens=1024,
+            timing_label="sentiment_track",
         )
         log = _parse_sentiment(reply.strip(), chapter_id, ch.title if ch else "")
         if not log:
-            return
+            return "情感追踪：LLM 返回无效格式"
         tracker = SentimentTracker(world.meta.id)
         tracker.save_log(log)
         if ch:
             ch.sentiment_log = log
-    except Exception:
-        pass
+        return ""
+    except Exception as e:
+        return f"情感追踪：{e}"
 
 
 # ── Layer 4：审校 ↔ 润色反馈闭环 ─────────────────────────────
@@ -578,6 +689,7 @@ async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) 
                 [{"role": "system", "content": system}, {"role": "user", "content": user}],
                 temperature=0.35,
                 max_tokens=8192,
+                timing_label=f"polish_round:{round_idx}",
             )
 
             if polished_reply and polished_reply.strip():
@@ -639,3 +751,117 @@ def _extract_foreshadowing_ids(world: World, chapter_id: str) -> list[str]:
         if f.planted_chapter_id == chapter_id or f.payoff_chapter_id == chapter_id:
             ids.append(f.id)
     return ids
+
+
+# ── P1-6: Usage Stats ────────────────────────────────────────────
+
+# Conservative token estimates per hook (input + output combined).
+_HOOK_TOKEN_ESTIMATES: dict[str, int] = {
+    "manuscript_generation": 8000,
+    "summary_card": 500,
+    "runtime_state_update": 300,
+    "rag_index": 200,
+    "kg_extraction": 800,
+    "consistency_check": 1200,
+    "sentiment_track": 400,
+    "polish_loop_per_round": 3000,
+}
+
+_HOOK_LABELS_ZH: dict[str, str] = {
+    "manuscript_generation": "文稿生成",
+    "summary_card": "摘要卡片",
+    "runtime_state_update": "运行时状态",
+    "rag_index": "RAG 索引",
+    "kg_extraction": "知识图谱提取",
+    "consistency_check": "一致性审校",
+    "sentiment_track": "情感弧线追踪",
+    "polish_loop_per_round": "润色环（每轮）",
+}
+
+_HOOK_RECOMMENDED: set[str] = {
+    "summary_card", "runtime_state_update", "rag_index",
+}
+
+
+def compute_usage_stats(world: World) -> dict:
+    """Compute estimated token usage per chapter based on enabled hooks.
+
+    Returns a dict suitable for JSON serialization, with per-hook breakdown
+    and a total estimate.
+    """
+    wd = world.story.writing_defaults
+    hooks: list[dict] = []
+
+    hooks.append({
+        "key": "manuscript_generation",
+        "label": _HOOK_LABELS_ZH["manuscript_generation"],
+        "estimated_tokens": _HOOK_TOKEN_ESTIMATES["manuscript_generation"],
+        "enabled": True,
+        "always_on": True,
+        "recommended": False,
+    })
+
+    for key in ("summary_card", "runtime_state_update", "rag_index"):
+        hooks.append({
+            "key": key,
+            "label": _HOOK_LABELS_ZH[key],
+            "estimated_tokens": _HOOK_TOKEN_ESTIMATES[key],
+            "enabled": True,
+            "always_on": True,
+            "recommended": True,
+        })
+
+    # KG
+    kg_enabled = wd.enable_narrative_kg
+    hooks.append({
+        "key": "kg_extraction",
+        "label": _HOOK_LABELS_ZH["kg_extraction"],
+        "estimated_tokens": _HOOK_TOKEN_ESTIMATES["kg_extraction"],
+        "enabled": kg_enabled,
+        "always_on": False,
+        "recommended": False,
+    })
+
+    # Consistency check
+    cc_enabled = wd.enable_consistency_check
+    hooks.append({
+        "key": "consistency_check",
+        "label": _HOOK_LABELS_ZH["consistency_check"],
+        "estimated_tokens": _HOOK_TOKEN_ESTIMATES["consistency_check"],
+        "enabled": cc_enabled,
+        "always_on": False,
+        "recommended": False,
+    })
+
+    # Sentiment
+    st_enabled = wd.enable_sentiment_track
+    hooks.append({
+        "key": "sentiment_track",
+        "label": _HOOK_LABELS_ZH["sentiment_track"],
+        "estimated_tokens": _HOOK_TOKEN_ESTIMATES["sentiment_track"],
+        "enabled": st_enabled,
+        "always_on": False,
+        "recommended": False,
+    })
+
+    # Polisher
+    pol_enabled = wd.enable_polisher
+    pol_rounds = max(1, wd.polish_max_rounds)
+    hooks.append({
+        "key": "polish_loop",
+        "label": f"{_HOOK_LABELS_ZH['polish_loop_per_round']} × {pol_rounds}",
+        "estimated_tokens": _HOOK_TOKEN_ESTIMATES["polish_loop_per_round"] * pol_rounds,
+        "enabled": pol_enabled,
+        "always_on": False,
+        "recommended": False,
+    })
+
+    total = sum(h["estimated_tokens"] for h in hooks if h["enabled"])
+    chapter_count = len(world.story.chapters)
+
+    return {
+        "hooks": hooks,
+        "estimated_total_per_chapter": total,
+        "chapter_count": chapter_count,
+        "estimated_project_total": total * max(1, chapter_count),
+    }

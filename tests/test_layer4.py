@@ -621,7 +621,7 @@ class TestPolishIntegration:
             mock_runtime.return_value = None
             mock_index.return_value = None
 
-            await generate_manuscript(
+            _reply, _hook_errors, _timing = await generate_manuscript(
                 sample_world,
                 chapter_id="ch_2",
                 prompt="写下一章",
@@ -649,7 +649,7 @@ class TestPolishIntegration:
         ):
             mock_llm.return_value = "生成的正文内容"
 
-            await generate_manuscript(
+            _reply, _hook_errors, _timing = await generate_manuscript(
                 sample_world,
                 chapter_id="ch_2",
                 prompt="写下一章",
