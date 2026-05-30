@@ -1,6 +1,6 @@
 import { $, toast, setDirty, api } from "./js/utils.js";
 import { state } from "./js/state.js";
-import { initP2Enhancements, showTimingBreakdown, renderStoryStats, renderCharacterNetworkFromData } from "./js/p2-enhancements.js";
+import { initP2Enhancements, showTimingBreakdown, renderStoryStats, renderCharacterNetworkFromData, renderFactionGlobalNetwork, renderCultureGlobalNetwork, renderSingleFactionNetwork, renderSingleCultureNetwork } from "./js/p2-enhancements.js";
 // $, toast, api, setDirty, state, renderStoryStats, showTimingBreakdown, renderCharacterNetwork are now provided by the modules above.
 
 /** 切换世界时清空搜索 UI，避免命中仍显示上一世界 */
@@ -875,51 +875,6 @@ function mermaidEscape(s) {
     .slice(0, 56);
 }
 
-function buildFactionMermaid(entities) {
-  if (!entities?.length) return mermaidFactionInit() + 'flowchart TB\n  empty["（无派系）"]';
-  const lines = [
-    "flowchart LR",
-    "  classDef fvN fill:#f0f4f8,color:#1e293b,stroke:#94a3b8",
-  ];
-  entities.forEach((e, i) => {
-    lines.push(`  N${i}["${mermaidEscape(e.name || e.id)}"]`);
-  });
-  entities.forEach((e, i) => {
-    (e.relations || []).forEach((r) => {
-      const j = entities.findIndex((x) => x.id === r.target_id);
-      if (j < 0 || j === i) return;
-      const lab = mermaidEscape(`${r.type || "关联"}${r.notes ? " · " + r.notes : ""}`);
-      lines.push(`  N${i} -->|"${lab}"| N${j}`);
-    });
-  });
-  const cls = entities.map((_, i) => `N${i}`).join(",");
-  if (cls) lines.push(`  class ${cls} fvN`);
-  return mermaidFactionInit() + lines.join("\n");
-}
-
-function buildCultureMermaid(entities) {
-  if (!entities?.length) return mermaidFactionInit() + 'flowchart TB\n  empty["（无文化/宗教条目）"]';
-  const lines = [
-    "flowchart LR",
-    "  classDef cvN fill:#f5f0f8,color:#1e293b,stroke:#94a3b8",
-  ];
-  entities.forEach((e, i) => {
-    const k = e.kind === "religion" ? "宗" : e.kind === "syncretic" ? "融" : "文";
-    const lab = mermaidEscape(`${k}·${e.name || e.id}`);
-    lines.push(`  K${i}["${lab}"]`);
-  });
-  entities.forEach((e, i) => {
-    (e.relations || []).forEach((r) => {
-      const j = entities.findIndex((x) => x.id === r.target_id);
-      if (j < 0 || j === i) return;
-      const lab = mermaidEscape(`${r.type || "关联"}${r.notes ? " · " + r.notes : ""}`);
-      lines.push(`  K${i} -->|"${lab}"| K${j}`);
-    });
-  });
-  const cls = entities.map((_, i) => `K${i}`).join(",");
-  if (cls) lines.push(`  class ${cls} cvN`);
-  return mermaidFactionInit() + lines.join("\n");
-}
 
 /** 职业晋升：相邻境界相同 professions[].id 视为同线晋升；跨多境为虚线 */
 function buildProfessionPromotionMermaid(tiers, ps) {
@@ -2315,44 +2270,6 @@ function uid(prefix) {
   return prefix + Math.random().toString(36).slice(2, 10);
 }
 
-function buildSingleFactionMermaid(entity, allEntities) {
-  const self = mermaidEscape((entity.name || entity.id || "派系").slice(0, 28));
-  const lines = [
-    "flowchart TB",
-    "  classDef fvRoot fill:#3d5a80,color:#fff,stroke:#2c4a6e,stroke-width:2px",
-    "  classDef fvPeer fill:#f0f4f8,color:#1e293b,stroke:#94a3b8",
-    "  classDef fvExt fill:#fffbeb,color:#92400e,stroke:#f59e0b,stroke-dasharray:4 3",
-    "  classDef fvHint fill:#f8fafc,color:#94a3b8,stroke:#e2e8f0",
-    `  root["${self}"]`,
-  ];
-  let n = 0;
-  (entity.relations || []).forEach((rel) => {
-    const tid = rel?.target_id;
-    if (!tid || tid === entity.id) return;
-    const target = (allEntities || []).find((x) => x.id === tid);
-    const isKnown = !!target;
-    const rawLabel = isKnown
-      ? target.name || target.id || tid
-      : `${tid}（未建档）`;
-    const label = mermaidEscape(String(rawLabel).slice(0, 30));
-    const edgeRaw = `${rel.type || "关联"}${rel.notes ? " · " + rel.notes : ""}`.trim();
-    const edge = mermaidEscape(edgeRaw.slice(0, 40));
-    lines.push(`  T${n}["${label}"]`);
-    lines.push(
-      isKnown ? `  root -->|"${edge}"| T${n}` : `  root -.->|"${edge}"| T${n}`
-    );
-    lines.push(`  class T${n} ${isKnown ? "fvPeer" : "fvExt"}`);
-    n += 1;
-  });
-  lines.push("  class root fvRoot");
-  if (n === 0) {
-    lines.push('  hint["暂无对外关系"]');
-    lines.push("  class hint fvHint");
-    lines.push("  root --- hint");
-  }
-  return mermaidFactionInit() + lines.join("\n");
-}
-
 function gidGeo(i) {
   return `g${i}`;
 }
@@ -2929,19 +2846,7 @@ function renderFactionCards(entities) {
             <span>关系网络</span>
             <span class="faction-viz-badge">${relCount} 条</span>
           </div>
-          <div class="mermaid-zoom-wrap faction-card-zoom" data-mermaid-zoom>
-            <div class="mermaid-zoom-toolbar" role="toolbar" aria-label="关系图缩放">
-              <button type="button" class="ghost btn-sm mzoom-out" title="缩小">−</button>
-              <span class="mzoom-pct muted tiny">100%</span>
-              <button type="button" class="ghost btn-sm mzoom-in" title="放大">+</button>
-              <button type="button" class="ghost btn-sm mzoom-reset" title="重置缩放与平移">重置</button>
-            </div>
-            <div class="mermaid-zoom-viewport faction-card-zoom-viewport">
-              <div class="mermaid-zoom-surface">
-                <div class="faction-viz-host mermaid-host" role="img" aria-label="派系关系示意"></div>
-              </div>
-            </div>
-          </div>
+          <div class="faction-viz-host" role="img" aria-label="派系关系示意"></div>
         </div>
         <div class="faction-fields">
           <div class="row-tight">
@@ -2967,7 +2872,7 @@ function renderFactionCards(entities) {
     syncFactionCardBrief(card, e);
     root.appendChild(card);
     const host = card.querySelector(".faction-viz-host");
-    void drawMermaidHost(host, buildSingleFactionMermaid(list[idx], list));
+    if (host) renderSingleFactionNetwork(list[idx], list, host);
   });
   const fj = $("factionsJson");
   if (fj) fj.value = JSON.stringify(list, null, 2);
@@ -3060,8 +2965,11 @@ function refreshAllFactionViz() {
       badge.textContent = `${n} 条`;
     }
     const host = card.querySelector(".faction-viz-host");
-    if (host && e) void drawMermaidHost(host, buildSingleFactionMermaid(e, all));
+    if (host && e) renderSingleFactionNetwork(e, all, host);
   });
+  // Also refresh the global network
+  const globalHost = $("vizFactionHost");
+  if (globalHost) renderFactionGlobalNetwork(all, "vizFactionHost");
   refreshFactionChatViz();
   applyAllWorldviewEditModes();
 }
@@ -3083,11 +2991,19 @@ function renderCultureCards(entities) {
     const sites = (e.sacred_sites || []).join("\n");
     const kf = (e.key_figures || []).join("\n");
     const kind = ["culture", "religion", "syncretic"].includes(e.kind) ? e.kind : "culture";
+    const relCount = (e.relations || []).filter((r) => r?.target_id && r.target_id !== e.id).length;
     card.innerHTML = `
       <div class="faction-card-stack">
         <div class="faction-card-toolbar">
           <p class="faction-viz-legend muted tiny">relations 的 target_id 指向另一文化实体 id</p>
           <button type="button" class="ghost btn-icon remove-culture" title="移除此条目">×</button>
+        </div>
+        <div class="faction-viz-wrap culture-viz-wrap">
+          <div class="faction-viz-caption">
+            <span>关系网络</span>
+            <span class="faction-viz-badge">${relCount} 条</span>
+          </div>
+          <div class="culture-viz-host" role="img" aria-label="文化关系示意"></div>
         </div>
         <div class="faction-fields">
           <div class="row-tight">
@@ -3123,6 +3039,8 @@ function renderCultureCards(entities) {
     card.querySelector(".culture-figures").value = kf;
     card.querySelector(".culture-relations-json").value = relJson;
     root.appendChild(card);
+    const host = card.querySelector(".culture-viz-host");
+    if (host) renderSingleCultureNetwork(e, list, host);
   });
   const cj = $("culturesJson");
   if (cj) cj.value = JSON.stringify(list, null, 2);
@@ -3183,7 +3101,22 @@ function refreshCultureGlobalViz() {
   const entities = collectCulturesFromDom();
   const cj = $("culturesJson");
   if (cj) cj.value = JSON.stringify(entities, null, 2);
-  void drawMermaidHost(host, buildCultureMermaid(entities));
+  renderCultureGlobalNetwork(entities, "vizCulturesHost");
+  // Also refresh per-card culture networks
+  const root = $("cultureCards");
+  if (root) {
+    [...root.querySelectorAll(".culture-card")].forEach((card, idx) => {
+      const e = entities[idx];
+      if (!e) return;
+      const cardHost = card.querySelector(".culture-viz-host");
+      if (cardHost) renderSingleCultureNetwork(e, entities, cardHost);
+      const badge = card.querySelector(".faction-viz-badge");
+      if (badge) {
+        const n = (e.relations || []).filter((r) => r?.target_id && r.target_id !== e.id).length;
+        badge.textContent = `${n} 条`;
+      }
+    });
+  }
 }
 
 function renderStatStrip(w) {
@@ -3728,15 +3661,16 @@ function refreshContextPanel() {
   renderAttributePanel(w);
 
   refreshGeoNetworkViz();
-  void drawMermaidHost(fac, buildFactionMermaid(w.factions?.entities));
+  if (fac) renderFactionGlobalNetwork(w.factions?.entities, "vizFactionHost");
   const cultHost = $("vizCulturesHost");
-  if (cultHost) void drawMermaidHost(cultHost, buildCultureMermaid(w.cultures?.entities || []));
+  if (cultHost) renderCultureGlobalNetwork(w.cultures?.entities || [], "vizCulturesHost");
   const ev = w.history?.events || [];
   renderHistoryMajorTimeline(ev);
   void drawMermaidHost(his, buildHistoryMermaid(ev));
 
   if (rawEl) rawEl.textContent = JSON.stringify(w, null, 2);
   void refreshSnapshotPanel();
+  void refreshTokenUsagePanel();
   applyAllWorldviewEditModes();
 }
 
@@ -4649,30 +4583,35 @@ async function loadPolishedManuscript(chapterId) {
 
 		let html = "";
 
-		// Loop indicator
-		if (trace && trace.max_rounds) {
-			html += buildPolishLoopIndicator(trace);
-		}
-
-		// Issue tracking badges
-		if (trace && trace.rounds && trace.rounds.length) {
-			html += buildPolishIssueTracking(trace);
-		}
-
-		// Diff view
-		if (originalText) {
-			html += buildPolishDiffView(originalText, polishedText);
-		} else {
-			html += '<div class="story-polish-col" style="margin:10px 14px">';
-			html += '<div class="story-polish-col-head"><span class="ms" aria-hidden="true">auto_awesome</span>润色稿（共 ' + rounds + ' 轮）</div>';
-			html += '<div class="story-polish-col-body">' + escapeHtml(polishedText) + '</div>';
+		// ── Card 1: Loop indicator + issue badges ──
+		if ((trace && trace.max_rounds) || (trace && trace.rounds && trace.rounds.length)) {
+			html += '<div class="story-audit-card">';
+			if (trace && trace.max_rounds) {
+				html += buildPolishLoopIndicator(trace);
+			}
+			if (trace && trace.rounds && trace.rounds.length) {
+				html += buildPolishIssueTracking(trace);
+			}
 			html += '</div>';
 		}
 
-		// Polish notes
+		// ── Card 2: Diff view (original | polished) ──
+		html += '<div class="story-audit-card story-polish-diff-card">';
+		html += '<div class="story-audit-card-head"><span class="story-audit-card-icon ms" aria-hidden="true">difference</span><span>原稿 vs 润色稿</span><span class="muted tiny" style="margin-left:12px">共 ' + rounds + ' 轮润色</span></div>';
+		if (originalText) {
+			html += buildPolishDiffView(originalText, polishedText);
+		} else {
+			html += '<div class="story-polish-single-col"><div class="story-polish-col-body">' + escapeHtml(polishedText) + '</div></div>';
+		}
+		html += '</div>';
+
+		// ── Card 3: Polish notes (separate card below diff) ──
 		const notesHtml = extractPolishNotes(polishedText);
 		if (notesHtml) {
+			html += '<div class="story-audit-card story-polish-notes-card">';
+			html += '<div class="story-audit-card-head"><span class="story-audit-card-icon ms" aria-hidden="true">lightbulb</span><span>润色说明</span></div>';
 			html += notesHtml;
+			html += '</div>';
 		}
 
 		view.innerHTML = html;
@@ -4781,7 +4720,7 @@ function extractPolishNotes(polishedText) {
 	const lines = notesSection.split("\n").filter(l => l.trim() && l.trim() !== marker);
 	if (!lines.length) return "";
 
-	let notesHtml = '<div class="story-polish-notes"><div class="story-polish-notes-title">润色说明</div>';
+	let notesHtml = '<div class="story-polish-notes-body">';
 	for (const line of lines) {
 		const trimmed = line.trim();
 		if (!trimmed) continue;
@@ -5735,6 +5674,7 @@ async function generateStoryManuscriptFromUI(opts = {}) {
       const decoder = new TextDecoder();
       let fullText = "";
       let buffer = "";
+      let polishRounds = 0;
       const previewEl = $("storyManuscriptPreview");
       const editEl = $("storyManuscriptEdit");
 
@@ -5766,9 +5706,22 @@ async function generateStoryManuscriptFromUI(opts = {}) {
               }
             } else if (event.type === "done") {
               state.world = event.world;
+              polishRounds = event.polish_rounds || 0;
               if (event.timing_breakdown && Array.isArray(event.timing_breakdown)) {
                 const timingContainerId = useChat ? "timingBreakdownChat" : "timingBreakdownWrite";
                 showTimingBreakdown(event.timing_breakdown, timingContainerId);
+              }
+              // Replace streamed text with polished version when available
+              if (event.polished_text) {
+                fullText = event.polished_text;
+                if (editEl) editEl.value = fullText;
+                if (previewEl) {
+                  updateStoryMarkdownPreview(
+                    "storyManuscriptPreview",
+                    fullText,
+                    $("storyAuthorView")?.checked ?? true
+                  );
+                }
               }
             } else if (event.type === "error") {
               throw new Error(event.message || "stream error");
@@ -5792,7 +5745,8 @@ async function generateStoryManuscriptFromUI(opts = {}) {
       }
       if ($("storyMsChapterSelect")) $("storyMsChapterSelect").value = cid;
       setDirty(false);
-      toast(`文稿已生成（约 ${fullText.length} 字）`);
+      const polishMsg = polishRounds > 0 ? `，已润色 ${polishRounds} 轮` : "";
+      toast(`文稿已生成（约 ${fullText.length} 字${polishMsg}）`);
       if (opts.navigate !== false) switchView("storyChapter");
     } else {
       // ── Non-streaming path (fallback) ──
@@ -5820,7 +5774,9 @@ async function generateStoryManuscriptFromUI(opts = {}) {
         $("storyAuthorView")?.checked ?? true
       );
       setDirty(false);
-      toast(`文稿已生成（约 ${res.reply?.length ?? 0} 字）`);
+      const pRounds = res.polish_rounds || 0;
+      const pMsg = pRounds > 0 ? `，已润色 ${pRounds} 轮` : "";
+      toast(`文稿已生成（约 ${res.reply?.length ?? 0} 字${pMsg}）`);
       if (res.hook_errors && res.hook_errors.length > 0) {
         for (const err of res.hook_errors) {
           toast(`⚠️ ${err}`);
@@ -7905,6 +7861,83 @@ window.loadStoryBeat = loadStoryBeat;
 window.renderConsistencyReport = renderConsistencyReport;
 window.loadPolishedManuscript = loadPolishedManuscript;
 window.selectStoryChapter = selectStoryChapter;
+
+// ── Token Usage Panel ──────────────────────────────────────────
+
+async function refreshTokenUsagePanel() {
+  if (!state.world?.meta?.id) return;
+  const totalEl = $("ctxTokenTotal");
+  const body = $("ctxTokenBody");
+  if (!body) return;
+
+  try {
+    const data = await api(`/api/worlds/${state.world.meta.id}/token-usage`);
+    const t = data.total || {};
+    const s = data.session || {};
+    const p = data.persisted || {};
+
+    if (totalEl) {
+      totalEl.textContent = `${(t.total_tokens || 0).toLocaleString()} tokens`;
+    }
+
+    // Show persisted by_label (cumulative) or session by_label as fallback
+    const persistedLabels = p.by_label || {};
+    const byLabel = Object.keys(persistedLabels).length > 0 ? persistedLabels : (s.by_label || {});
+    const labelRows = Object.keys(byLabel).length > 0
+      ? Object.entries(byLabel).map(([label, counts]) => {
+          const l = label.length > 28 ? label.slice(0, 28) + "…" : label;
+          return `<div class="ctx-token-row ctx-token-row--label">
+            <span title="${escapeHtml(label)}">${escapeHtml(l)}</span>
+            <span>${(counts.total_tokens || 0).toLocaleString()}</span>
+          </div>`;
+        }).join("")
+      : "";
+
+    const pct = t.total_tokens > 0
+      ? Math.round(t.prompt_tokens / t.total_tokens * 100)
+      : 50;
+
+    const chapters = p.by_chapter || {};
+    const chRows = Object.keys(chapters).length > 0
+      ? Object.entries(chapters).slice(-5).reverse().map(([chId, chData]) => {
+          const ch = state.world?.story?.chapters?.find(c => c.id === chId);
+          const chTitle = ch?.title || chId;
+          return `<div class="ctx-token-row ctx-token-row--ch">
+            <span>${escapeHtml(String(chTitle).slice(0, 24))}</span>
+            <span>${(chData.total_tokens || 0).toLocaleString()}</span>
+          </div>`;
+        }).join("")
+      : "";
+
+    body.innerHTML = `
+      <div class="ctx-token-grid">
+        <div class="ctx-token-row">
+          <span>Prompt</span>
+          <span>${(t.prompt_tokens || 0).toLocaleString()}</span>
+        </div>
+        <div class="ctx-token-row">
+          <span>Completion</span>
+          <span>${(t.completion_tokens || 0).toLocaleString()}</span>
+        </div>
+        <div class="ctx-token-row ctx-token-row--total">
+          <span>合计</span>
+          <span>${(t.total_tokens || 0).toLocaleString()}</span>
+        </div>
+      </div>
+      <div class="ctx-token-bar">
+        <div class="ctx-token-bar-prompt" style="width:${pct}%"></div>
+        <div class="ctx-token-bar-compl" style="width:${100-pct}%"></div>
+      </div>
+      <p class="muted tiny" style="margin-top:6px">
+        当前会话：${(s.total_tokens || 0).toLocaleString()} tokens
+      </p>
+      ${labelRows ? `<div class="ctx-token-section-title">按任务</div><div class="ctx-token-grid">${labelRows}</div>` : ""}
+      ${chRows ? `<div class="ctx-token-section-title">按章节</div><div class="ctx-token-grid">${chRows}</div>` : ""}
+    `;
+  } catch (_) {
+    if (body) body.innerHTML = `<p class="muted tiny">加载失败</p>`;
+  }
+}
 
 init().catch((e) => toast("初始化失败：" + e.message));
 initP2Enhancements();

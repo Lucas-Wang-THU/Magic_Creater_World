@@ -315,7 +315,7 @@ class TestPolishLoop:
             assert ch.polish_issue_tracking is not None
 
     @pytest.mark.asyncio
-    async def test_loop_skips_when_clean(self, sample_world):
+    async def test_loop_always_polishes_even_when_clean(self, sample_world):
         from worldforger.story_service import _run_polish_loop
 
         mock_report = ConsistencyReport(
@@ -329,12 +329,15 @@ class TestPolishLoop:
             patch("worldforger.story_service.chat_completion") as mock_llm,
         ):
             mock_check.return_value = mock_report
+            mock_llm.return_value = "去AI味后的正文\n\n## 润色说明\n- 已达到发表标准，仅做了去AI味处理"
 
-            await _run_polish_loop(sample_world, "ch_2", "原始正文")
+            result = await _run_polish_loop(sample_world, "ch_2", "原始正文")
 
-            # Only 1 check, no polish needed
+            # Always runs at least 1 polish round (self-judgment: 去AI味)
             assert mock_check.call_count == 1
-            mock_llm.assert_not_called()
+            assert mock_llm.call_count == 1
+            # Returns polished text, not original
+            assert "去AI味" in result
 
     @pytest.mark.asyncio
     async def test_loop_stops_at_max_rounds(self, sample_world):
@@ -474,7 +477,12 @@ class TestPolishLoop:
             patch("worldforger.story_service.chat_completion") as mock_llm,
         ):
             mock_check.side_effect = [mock_report_r1, mock_report_r2, mock_report_r3]
-            mock_llm.return_value = "润色后"
+            # Distinct return values per round to avoid sim=1.0 convergence
+            mock_llm.side_effect = [
+                "润色后-第1轮",
+                "润色后-第2轮有改动",
+                "润色后-第3轮微调",
+            ]
 
             await _run_polish_loop(sample_world, "ch_2", "正文")
 

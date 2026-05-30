@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 import uuid
 from datetime import datetime, timezone
@@ -82,6 +83,85 @@ def polish_trace_path(world_id: str, chapter_id: str) -> Path:
     return polished_dir(world_id) / f"{chapter_id}_trace.json"
 
 
+def token_usage_path(world_id: str) -> Path:
+    return story_dir(world_id) / "token_usage.json"
+
+
+def read_token_usage(world_id: str) -> dict:
+    """Read persisted token usage, returning {} if missing or corrupted."""
+    p = token_usage_path(world_id)
+    if not p.is_file():
+        return {}
+    try:
+        data = read_json_file(p)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def write_token_usage(world_id: str, data: dict) -> None:
+    """Persist token usage dict to disk."""
+    write_json_file(token_usage_path(world_id), data)
+
+
+def accumulate_token_usage(world_id: str, chapter_id: str, label_usage: dict) -> None:
+    """Merge per-chapter token usage into the world-level token_usage.json.
+
+    *label_usage* should be a dict of ``{label: {prompt_tokens, completion_tokens, total_tokens}}``.
+    """
+    saved = read_token_usage(world_id)
+    by_chapter = saved.get("by_chapter", {})
+    if not isinstance(by_chapter, dict):
+        by_chapter = {}
+    by_label = saved.get("by_label", {})
+    if not isinstance(by_label, dict):
+        by_label = {}
+
+    # ── Accumulate into chapter entry ──
+    ch_entry = by_chapter.get(chapter_id, {})
+    if not isinstance(ch_entry, dict):
+        ch_entry = {}
+    ch_labels = ch_entry.get("labels", {})
+    if not isinstance(ch_labels, dict):
+        ch_labels = {}
+
+    for label, counts in (label_usage or {}).items():
+        existing = ch_labels.get(label, {})
+        if not isinstance(existing, dict):
+            existing = {}
+        for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            existing[k] = existing.get(k, 0) + counts.get(k, 0)
+        ch_labels[label] = existing
+        # Also aggregate into world-level by_label
+        bl = by_label.get(label, {})
+        if not isinstance(bl, dict):
+            bl = {}
+        for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            bl[k] = bl.get(k, 0) + counts.get(k, 0)
+        by_label[label] = bl
+
+    ch_entry["labels"] = ch_labels
+    ch_pt = sum(v.get("prompt_tokens", 0) for v in ch_labels.values())
+    ch_ct = sum(v.get("completion_tokens", 0) for v in ch_labels.values())
+    ch_entry["prompt_tokens"] = ch_pt
+    ch_entry["completion_tokens"] = ch_ct
+    ch_entry["total_tokens"] = ch_pt + ch_ct
+    by_chapter[chapter_id] = ch_entry
+
+    # Recompute world totals
+    total_pt = sum(c.get("prompt_tokens", 0) for c in by_chapter.values())
+    total_ct = sum(c.get("completion_tokens", 0) for c in by_chapter.values())
+
+    write_token_usage(world_id, {
+        "prompt_tokens": total_pt,
+        "completion_tokens": total_ct,
+        "total_tokens": total_pt + total_ct,
+        "by_chapter": by_chapter,
+        "by_label": by_label,
+        "last_session": label_usage,
+    })
+
+
 def summary_path(world_id: str, chapter_id: str) -> Path:
     return story_summaries_dir(world_id) / f"{chapter_id}.json"
 
@@ -148,6 +228,17 @@ def read_text(path: Path) -> str:
 def write_text(path: Path, content: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
+
+
+def read_json_file(path: Path) -> dict | list | None:
+    if not path.is_file():
+        return None
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def write_json_file(path: Path, data: dict | list) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def count_words(text: str) -> int:

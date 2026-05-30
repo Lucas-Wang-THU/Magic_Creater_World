@@ -907,32 +907,22 @@
             <p class="muted tiny culture-hint" id="cultureHintPanel" aria-live="polite"></p>
             <div class="inpanel-viz">
               <p class="viz-subtitle">传统 / 教团之间的影响、冲突与融合（与下方实体 id 一致）</p>
-              <div class="mermaid-zoom-wrap faction-global-zoom" data-mermaid-zoom>
-                <div class="mermaid-zoom-toolbar" role="toolbar" aria-label="文化关系图缩放">
-                  <button
-                    type="button"
-                    class="ghost btn-sm btn-ic"
-                    id="btnRefreshCultureRelations"
-                    title="根据当前文化/宗教设定调用模型，重算各实体 relations 并保存（用于关系图）"
-                  >
-                    <span class="ms" aria-hidden="true">account_tree</span>修订关系网
-                  </button>
-                  <button type="button" class="ghost btn-sm mzoom-out" title="缩小">−</button>
-                  <span class="mzoom-pct muted tiny">100%</span>
-                  <button type="button" class="ghost btn-sm mzoom-in" title="放大">+</button>
-                  <button type="button" class="ghost btn-sm mzoom-reset" title="重置缩放与平移">重置</button>
-                </div>
-                <div class="mermaid-zoom-viewport">
-                  <div class="mermaid-zoom-surface">
-                    <div
-                      id="vizCulturesHost"
-                      class="mermaid-host faction-global-host"
-                      role="img"
-                      aria-label="文化与传统关系总图"
-                    ></div>
-                  </div>
-                </div>
+              <div class="faction-global-toolbar">
+                <button
+                  type="button"
+                  class="ghost btn-sm btn-ic"
+                  id="btnRefreshCultureRelations"
+                  title="根据当前文化/宗教设定调用模型，重算各实体 relations 并保存（用于关系图）"
+                >
+                  <span class="ms" aria-hidden="true">account_tree</span>修订关系网
+                </button>
               </div>
+              <div
+                id="vizCulturesHost"
+                class="faction-global-host"
+                role="img"
+                aria-label="文化与传统关系总图"
+              ></div>
             </div>
             <label class="field-label">总览（叙事氛围、禁忌与多元共存）</label>
             <textarea id="cultureSummary" placeholder="多种族、多教派如何共处；主流与异端的张力…"></textarea>
@@ -959,33 +949,23 @@
             <div class="inpanel-viz">
               <p class="viz-subtitle">派系总览（可读预览）</p>
               <div id="factionGlobalBrief" class="faction-global-brief" aria-live="polite"></div>
-              <p class="viz-subtitle">全局关系图：滚轮缩放，左键拖拽平移，「重置」恢复位置与比例</p>
-              <div class="mermaid-zoom-wrap faction-global-zoom" data-mermaid-zoom>
-                <div class="mermaid-zoom-toolbar" role="toolbar" aria-label="关系图缩放">
-                  <button
-                    type="button"
-                    class="ghost btn-sm btn-ic"
-                    id="btnRefreshFactionRelations"
-                    title="根据当前派系设定调用模型，重算各派系 relations 并保存（用于关系图）"
-                  >
-                    <span class="ms" aria-hidden="true">account_tree</span>修订关系网
-                  </button>
-                  <button type="button" class="ghost btn-sm mzoom-out" title="缩小">−</button>
-                  <span class="mzoom-pct muted tiny">100%</span>
-                  <button type="button" class="ghost btn-sm mzoom-in" title="放大">+</button>
-                  <button type="button" class="ghost btn-sm mzoom-reset" title="重置缩放与平移">重置</button>
-                </div>
-                <div class="mermaid-zoom-viewport">
-                  <div class="mermaid-zoom-surface">
-                    <div
-                      id="vizFactionHost"
-                      class="mermaid-host faction-global-host"
-                      role="img"
-                      aria-label="派系关系总图"
-                    ></div>
-                  </div>
-                </div>
+              <p class="viz-subtitle">全局关系图：滚轮缩放，左键拖拽平移</p>
+              <div class="faction-global-toolbar">
+                <button
+                  type="button"
+                  class="ghost btn-sm btn-ic"
+                  id="btnRefreshFactionRelations"
+                  title="根据当前派系设定调用模型，重算各派系 relations 并保存（用于关系图）"
+                >
+                  <span class="ms" aria-hidden="true">account_tree</span>修订关系网
+                </button>
               </div>
+              <div
+                id="vizFactionHost"
+                class="faction-global-host"
+                role="img"
+                aria-label="派系关系总图"
+              ></div>
             </div>
             <label class="field-label">派系总览（编辑）</label>
             <textarea id="factionSummary" placeholder="全局派系氛围、阵营对立与共同历史…"></textarea>
@@ -1553,6 +1533,15 @@
       <aside class="context-panel" aria-label="数据看板">
         <h3><span class="ms aside-h-ic" aria-hidden="true">dashboard</span>看板</h3>
         <div id="statStrip" class="stat-strip"></div>
+        <details class="raw-fold" id="ctxTokenUsage" open>
+          <summary>
+            <span class="ms sum-ic" aria-hidden="true">token</span>Token 用量
+            <span id="ctxTokenTotal" class="ctx-token-total muted tiny"></span>
+          </summary>
+          <div class="ctx-token-body" id="ctxTokenBody">
+            <p class="muted tiny">—</p>
+          </div>
+        </details>
         <p class="aside-moved-hint muted tiny">
           关系图、时间轴与各境界/档位导图已迁至对应模块页顶部；此处保留<strong>计数条</strong>与下方原始 JSON。<strong>引用一致性</strong>与<strong>版本快照 / diff / 回滚</strong>请使用左侧<strong>数据</strong>中的「引用一致性」「版本快照」。
         </p>

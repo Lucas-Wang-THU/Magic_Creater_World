@@ -1225,7 +1225,14 @@ async def api_story_generate_manuscript(
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
     _maybe_persist_story(world_id, w, persist=body.persist)
-    return {"reply": reply, "hook_errors": hook_errors, "world": w.model_dump(mode="json"), "timing_breakdown": timing_breakdown}
+    ch = next((c for c in w.story.chapters if c.id == body.chapter_id), None)
+    return {
+        "reply": reply,
+        "hook_errors": hook_errors,
+        "world": w.model_dump(mode="json"),
+        "timing_breakdown": timing_breakdown,
+        "polish_rounds": ch.polish_rounds if ch else 0,
+    }
 
 
 @app.post("/api/worlds/{world_id}/story/generate/manuscript/stream")
@@ -1534,6 +1541,65 @@ def api_get_polish_trace(world_id: str, chapter_id: str) -> dict[str, Any]:
     return {
         "chapter_id": chapter_id,
         "trace": _json.loads(tp.read_text(encoding="utf-8")),
+    }
+
+
+# ── Token Usage ─────────────────────────────────────────────────────
+
+@app.get("/api/worlds/{world_id}/token-usage")
+def api_token_usage(world_id: str) -> dict[str, Any]:
+    """Return actual token usage statistics for *world_id*.
+
+    Merges session-level (in-memory) usage with persisted per-chapter
+    records from ``token_usage.json``.
+    """
+    from worldforger.llm import get_token_usage
+    from worldforger.story_store import read_token_usage
+
+    try:
+        _ = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    saved = read_token_usage(world_id)
+    live_session = get_token_usage()
+
+    # Prefer live session; fall back to persisted last_session
+    session = live_session if live_session else saved.get("last_session", {})
+
+    s_prompt = sum(v.get("prompt_tokens", 0) for v in session.values())
+    s_completion = sum(v.get("completion_tokens", 0) for v in session.values())
+    saved_prompt = saved.get("prompt_tokens", 0) or 0
+    saved_completion = saved.get("completion_tokens", 0) or 0
+
+    # Per-chapter breakdown
+    by_chapter = saved.get("by_chapter", {})
+    if not isinstance(by_chapter, dict):
+        by_chapter = {}
+    persisted_by_label = saved.get("by_label", {})
+    if not isinstance(persisted_by_label, dict):
+        persisted_by_label = {}
+
+    return {
+        "world_id": world_id,
+        "session": {
+            "prompt_tokens": s_prompt,
+            "completion_tokens": s_completion,
+            "total_tokens": s_prompt + s_completion,
+            "by_label": session,
+        },
+        "persisted": {
+            "prompt_tokens": saved_prompt,
+            "completion_tokens": saved_completion,
+            "total_tokens": saved_prompt + saved_completion,
+            "by_chapter": by_chapter,
+            "by_label": persisted_by_label,
+        },
+        "total": {
+            "prompt_tokens": s_prompt + saved_prompt,
+            "completion_tokens": s_completion + saved_completion,
+            "total_tokens": s_prompt + saved_prompt + s_completion + saved_completion,
+        },
     }
 
 

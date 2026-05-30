@@ -2016,24 +2016,16 @@ button.ghost {
   padding: 8px;
 }
 
-/* 派系页总图：允许横向滚动、放大可读性 */
-#vizFactionHost.mermaid-host {
-  min-height: 260px;
-  max-height: min(52vh, 520px);
-  padding: 12px 10px;
-}
-
-.mermaid-host svg {
-  max-width: 100%;
-  height: auto;
-}
-
-#vizFactionHost.mermaid-host svg {
-  max-width: none;
-  width: auto;
-  min-width: min(100%, 400px);
-  height: auto;
-  display: block;
+/* 派系 & 文化总图：vis.js 交互式网络，与 inpanel-viz 容器保持一致 */
+#vizFactionHost.faction-global-host,
+#vizCulturesHost.faction-global-host {
+  width: 100%;
+  min-height: 280px;
+  max-height: min(58vh, 560px);
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 }
 
 /* 地理区域网络（地理页） */
@@ -2906,31 +2898,33 @@ button.ghost {
 }
 
 .faction-viz-host {
+  width: 100%;
   min-height: 220px;
   max-height: min(48vh, 420px);
-  overflow: auto;
-  background: rgba(255, 255, 255, 0.92);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 }
 
-.faction-viz-host svg {
-  max-width: none;
-  width: auto;
-  min-width: 280px;
-  height: auto;
-  display: block;
-  filter: drop-shadow(0 1px 2px rgba(15, 23, 42, 0.06));
+.culture-viz-wrap {
+  width: 100%;
+  border-radius: 12px;
+  padding: 10px 10px 8px;
+  background: linear-gradient(165deg, #f5f0f8 0%, #fff 55%);
+  border: 1px solid #e0d4e8;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75), 0 1px 2px rgba(15, 23, 42, 0.04);
+  margin-bottom: 10px;
 }
 
-/* 缩放容器内由外层 viewport 承担滚动，内层随 SVG 增高 */
-.mermaid-zoom-surface .faction-viz-host {
-  max-height: none;
-  min-height: 160px;
+.culture-viz-host {
+  width: 100%;
+  min-height: 200px;
+  max-height: min(40vh, 360px);
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 }
 
 .faction-fields {
@@ -3112,6 +3106,88 @@ label.tiny {
   line-height: 1.45;
 }
 
+/* ── Token 用量面板（看板内） ────────────────────────────── */
+
+.ctx-token-total {
+  margin-left: 8px;
+  font-weight: 500;
+  color: var(--primary);
+}
+
+.ctx-token-body {
+  padding: 6px 4px 10px;
+}
+
+.ctx-token-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 8px;
+}
+
+.ctx-token-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.75rem;
+  color: #475569;
+  padding: 1px 0;
+}
+
+.ctx-token-row--total {
+  font-weight: 600;
+  border-top: 1px solid #e2e8f0;
+  padding-top: 5px;
+  margin-top: 3px;
+}
+
+.ctx-token-row--label {
+  font-size: 0.7rem;
+  color: #64748b;
+}
+
+.ctx-token-row--label span:first-child {
+  max-width: 68%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-token-row--ch span:first-child {
+  max-width: 65%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctx-token-bar {
+  height: 5px;
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  background: #e2e8f0;
+  margin-bottom: 2px;
+}
+
+.ctx-token-bar-prompt {
+  background: #6366f1;
+  min-width: 2px;
+}
+
+.ctx-token-bar-compl {
+  background: #22c55e;
+  min-width: 2px;
+}
+
+.ctx-token-section-title {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin: 10px 0 4px;
+}
+
 /* 历史：大事件竖向时间轴 */
 .history-major-timeline {
   margin-bottom: 14px;
@@ -3287,34 +3363,21 @@ label.tiny {
   user-select: none;
 }
 
-.faction-global-zoom .mermaid-zoom-viewport {
+.faction-global-host {
+  width: 100%;
+  min-height: 280px;
   max-height: min(58vh, 560px);
-  min-height: 200px;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  border-radius: 0;
 }
 
-.faction-card-zoom-viewport {
-  max-height: 220px;
-  min-height: 140px;
-}
-
-.mermaid-zoom-surface {
-  display: block;
-  width: max-content;
-  min-width: 100%;
-  min-height: 160px;
-  box-sizing: border-box;
-  transition: transform 0.12s ease-out;
-}
-
-/* 缩放层内由视口滚动；避免 host 的 max-height/overflow 把全局/卡片派系图画裁没 */
-.faction-global-zoom .mermaid-zoom-surface #vizFactionHost.mermaid-host,
-.faction-card-zoom .mermaid-zoom-surface .faction-viz-host.mermaid-host {
-  overflow: visible !important;
-  max-height: none !important;
-}
-
-.faction-global-zoom .mermaid-zoom-surface #vizFactionHost.mermaid-host {
-  min-height: 240px;
+.faction-global-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .faction-intro-viz {
@@ -6261,26 +6324,31 @@ textarea.json-editor-tiny {
 
 /* ── Layer 4: 润色者面板 ────────────────────────────────────── */
 
-.story-polish-diff {
+.story-polish-diff-card .story-polish-diff {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
   padding: 10px 14px;
-  max-height: 60vh;
-  overflow: hidden;
+  height: min(70vh, 800px);
+  min-height: 240px;
+}
+
+.story-polish-diff-card {
+  /* card already provides overflow:hidden */
 }
 
 .story-polish-col {
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #fafbfc;
 }
 
 .story-polish-col-head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  flex-shrink: 0;
   padding: 8px 12px;
   font-size: 0.78rem;
   font-weight: 600;
@@ -6297,12 +6365,24 @@ textarea.json-editor-tiny {
 }
 
 .story-polish-col-body {
+  flex: 1;
+  overflow-y: auto;
   padding: 12px 14px;
   font-size: 0.84rem;
   line-height: 1.85;
   color: #334155;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.story-polish-single-col {
+  padding: 12px 16px;
+}
+
+.story-polish-single-col .story-polish-col-body {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  background: #fafbfc;
 }
 
 .story-polish-col-body del {
@@ -6321,17 +6401,15 @@ textarea.json-editor-tiny {
   border-radius: 2px;
 }
 
-/* ── 润色 Loop 指示器 ─────────────────────────────────── */
+/* ── 润色 Loop 指示器（置于卡片内） ─────────────────────── */
 
 .story-polish-loop-indicator {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px 14px;
-  margin: 0 14px 6px;
+  padding: 10px 14px;
   background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
+  border-bottom: 1px solid #e2e8f0;
   font-size: 0.78rem;
   color: #475569;
 }
@@ -6367,29 +6445,22 @@ textarea.json-editor-tiny {
 .story-polish-loop-reason.info { color: #ca8a04; }
 .story-polish-loop-reason.warn { color: #ea580c; }
 
-/* ── 润色说明列表 ─────────────────────────────────── */
+/* ── 润色说明（独立卡片内） ──────────────────────────── */
 
-.story-polish-notes {
-  padding: 8px 14px 12px;
-  max-height: 200px;
+.story-polish-notes-card .story-polish-notes-body {
+  padding: 10px 14px 14px;
+  max-height: 320px;
   overflow-y: auto;
 }
 
-.story-polish-notes-title {
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: #475569;
-  margin-bottom: 6px;
-}
-
 .story-polish-note-item {
-  font-size: 0.76rem;
-  color: #64748b;
-  padding: 4px 8px;
-  margin-bottom: 3px;
+  font-size: 0.78rem;
+  color: #475569;
+  padding: 5px 10px;
+  margin-bottom: 4px;
   border-left: 3px solid #e2e8f0;
   border-radius: 0 4px 4px 0;
-  line-height: 1.5;
+  line-height: 1.55;
 }
 
 .story-polish-note-item:hover {
@@ -6397,13 +6468,13 @@ textarea.json-editor-tiny {
   background: #f8fafc;
 }
 
-/* ── Issue 追踪面板 ─────────────────────────────────── */
+/* ── 润色期号追踪标签 ─────────────────────────────────── */
 
 .story-polish-issue-track {
-  padding: 8px 14px;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
+  padding: 6px 14px 8px;
 }
 
 .story-polish-issue-badge {

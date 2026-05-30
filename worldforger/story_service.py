@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 
-from worldforger.llm import chat_completion, chat_completion_stream, drain_timing_log
+from worldforger.llm import chat_completion, chat_completion_stream, drain_timing_log, drain_token_usage
 from worldforger.schemas import StoryChapter, StoryPerson, World
 from worldforger.story_prompts import (
     build_chapter_summary_user_payload,
@@ -26,6 +26,7 @@ from worldforger.story_prompts import (
     sentiment_analysis_system,
 )
 from worldforger.story_store import (
+    accumulate_token_usage,
     beat_path,
     chapters_before,
     default_beat_rel,
@@ -255,9 +256,16 @@ async def generate_manuscript(
 
     # ── Layer 4：审校 ↔ 润色 Loop（内部自带一致性审校，不再重复调用）──
     if world.story.writing_defaults.enable_polisher:
-        await _run_polish_loop(world, chapter_id, reply)
+        reply = await _run_polish_loop(world, chapter_id, reply)
+        sync_chapter_word_count(world, chapter_id)
 
     timing_breakdown = drain_timing_log()
+
+    # Persist token usage per chapter
+    token_usage = drain_token_usage()
+    if token_usage:
+        accumulate_token_usage(world.meta.id, chapter_id, token_usage)
+
     return reply, hook_errors, timing_breakdown
 
 
@@ -348,11 +356,27 @@ async def generate_manuscript_stream(
 
     if world.story.writing_defaults.enable_polisher:
         yield {"type": "step", "phase": "polish", "label": "正在润色文稿…", "index": 3, "total": total_steps}
-        await _run_polish_loop(world, chapter_id, reply)
+        polished = await _run_polish_loop(world, chapter_id, reply)
+        sync_chapter_word_count(world, chapter_id)
 
     timing_breakdown = drain_timing_log()
+
+    # Persist token usage per chapter
+    token_usage = drain_token_usage()
+    if token_usage:
+        accumulate_token_usage(world.meta.id, chapter_id, token_usage)
+
     yield {"type": "step", "phase": "done", "label": "生成完成", "index": total_steps, "total": total_steps}
-    yield {"type": "done", "world": world.model_dump(mode="json"), "timing_breakdown": timing_breakdown}
+    ch_final = next((c for c in world.story.chapters if c.id == chapter_id), None)
+    done_payload = {
+        "type": "done",
+        "world": world.model_dump(mode="json"),
+        "timing_breakdown": timing_breakdown,
+        "polish_rounds": ch_final.polish_rounds if ch_final else 0,
+    }
+    if world.story.writing_defaults.enable_polisher:
+        done_payload["polished_text"] = polished
+    yield done_payload
 
 
 def try_import_legacy(world: World) -> bool:
@@ -473,6 +497,7 @@ async def _try_index_chapter(world: World, chapter_id: str, manuscript_text: str
 async def _try_extract_kg_events(world: World, chapter_id: str, manuscript_text: str) -> str:
     """正文生成后，从正文提取 KG 实体和事件。失败不阻塞，返回错误描述。"""
     import json as _json
+    import re as _re
 
     try:
         from worldforger.narrative_kg import NarrativeKGManager
@@ -487,13 +512,30 @@ async def _try_extract_kg_events(world: World, chapter_id: str, manuscript_text:
             max_tokens=2048,
             timing_label="kg_extraction",
         )
-        data = _json.loads(reply.strip())
+
+        # ── Robust JSON extraction (same pattern as consistency_checker) ──
+        t = reply.strip()
+        # Strip markdown code fences
+        if t.startswith("```"):
+            t = _re.sub(r"^```[a-zA-Z0-9]*\s*", "", t)
+            t = _re.sub(r"\s*```$", "", t)
+            t = t.strip()
+        # Extract the first JSON object
+        start = t.find("{")
+        end = t.rfind("}")
+        if start == -1 or end == -1:
+            return "KG 抽取：LLM 返回不包含 JSON 对象"
+        t = t[start:end + 1]
+
+        data = _json.loads(t)
         if not isinstance(data, dict):
             return "KG 抽取：LLM 返回非 JSON 格式"
         mgr = NarrativeKGManager(world.meta.id)
         kg = mgr.merge_extraction(data)
         world.story.narrative_kg = kg
         return ""
+    except _json.JSONDecodeError as e:
+        return f"KG 抽取：JSON 解析失败 — {e}"
     except Exception as e:
         return f"KG 抽取：{e}"
 
@@ -548,19 +590,26 @@ async def _try_track_sentiment(world: World, chapter_id: str, manuscript_text: s
 # ── Layer 4：审校 ↔ 润色反馈闭环 ─────────────────────────────
 
 
-async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) -> None:
+def _text_similarity(a: str, b: str) -> float:
+    """Return similarity ratio (0.0–1.0) between two strings."""
+    from difflib import SequenceMatcher
+
+    if not a and not b:
+        return 1.0
+    if not a or not b:
+        return 0.0
+    return SequenceMatcher(None, a, b).ratio()
+
+
+async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) -> str:
     """Run the consistency-check ↔ polish feedback loop.
 
-    Iterates up to ``polish_max_rounds`` times.  Each round:
-      1. Run consistency check on the current text (or reuse the existing
-         report for round 1).
-      2. If verdict is clean or only info-level issues remain, exit.
-      3. Feed issues into the polisher and generate a polished version.
-      4. The polished text becomes the input for the next round.
+    Always runs at least **one** round of polish (the polisher LLM is always
+    called).  Subsequent rounds only run when the consistency check still
+    reports fixable issues **and** the polisher produced a meaningfully
+    different text from the previous round (convergence detection).
 
-    On completion the polished manuscript is written to
-    ``story/polished/{chapter_id}.md`` and the chapter model is updated.
-    Failure at any point does **not** block the main generation flow.
+    Returns the polished text.  On failure returns the original text unchanged.
     """
     import json as _json
 
@@ -581,14 +630,14 @@ async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) 
         for round_idx in range(1, max_rounds + 1):
             round_record = {"round": round_idx, "issues_before": [], "issues_after": []}
 
-            # ── Step 1: Run consistency check ──
+            # ── Step 1: Run consistency check (for polisher input, NOT as a gate) ──
             from worldforger.consistency_checker import run_consistency_check
 
             report = await run_consistency_check(world, chapter_id, current_text)
             round_record["verdict"] = report.verdict
             round_record["total_issues"] = report.total_issues
 
-            # Classify issues for this round
+            # Classify issues vs previous rounds
             current_issue_ids = {iss.issue_id for iss in report.issues} if report.issues else set()
             prev_issue_ids = set()
             for h in all_issues_history:
@@ -599,7 +648,6 @@ async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) 
             new_ids = current_issue_ids - prev_issue_ids
             persistent_ids = current_issue_ids & prev_issue_ids
 
-            # Build classified issue lists
             fixed_issues = []
             persistent_issues = []
             new_issues = []
@@ -613,54 +661,34 @@ async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) 
                         iss_dict["_classification"] = "persistent"
                         persistent_issues.append(iss_dict)
 
-            # Reconstruct classified issues from history for "fixed" display
             for h in all_issues_history:
                 for iss in h.get("issues", []):
                     if iss.get("issue_id") in fixed_ids:
                         iss["_classification"] = "fixed"
                         fixed_issues.append(iss)
 
-            round_record["issues_before"] = all_issues_history[-1].get("issues", []) if all_issues_history else []
-            round_record["issues_after"] = [iss.model_dump() if hasattr(iss, "model_dump") else {} for iss in (report.issues or [])]
+            round_record["issues_before"] = (
+                all_issues_history[-1].get("issues", []) if all_issues_history else []
+            )
+            round_record["issues_after"] = [
+                iss.model_dump() if hasattr(iss, "model_dump") else {}
+                for iss in (report.issues or [])
+            ]
             round_record["classification"] = {
                 "fixed": fixed_issues,
                 "persistent": persistent_issues,
                 "regression": new_issues,
             }
 
-            trace["rounds"].append(round_record)
-
-            # ── Step 2: Check termination conditions ──
-            non_critical_issues = [
-                iss for iss in (report.issues or []) if iss.severity != "critical"
-            ]
-            if report.verdict == "clean" or report.total_issues == 0:
-                trace["termination_reason"] = "clean"
-                break
-            if all(iss.severity == "info" for iss in (report.issues or [])):
-                trace["termination_reason"] = "info_only"
-                break
-            if new_issues and all(
-                iss.get("severity") == "critical"
-                for iss in new_issues
-                if isinstance(iss, dict)
-            ):
-                trace["termination_reason"] = "critical_only_new"
-                break
-
-            # ── Step 3: No fixable issues → exit ──
-            if not non_critical_issues:
-                trace["termination_reason"] = "no_fixable_issues"
-                break
-
-            # ── Step 4: Build polisher input ──
+            # ── Step 2: Build polisher input (ALWAYS, even for clean text) ──
             from worldforger.story_prompts import (
                 build_polisher_user_payload,
                 format_consistency_issues_for_polisher,
                 polisher_system,
             )
 
-            # Format regression issues separately for higher priority
+            issues_text = format_consistency_issues_for_polisher(report)
+
             regression_text = ""
             if new_issues:
                 regression_lines = []
@@ -669,10 +697,11 @@ async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) 
                     cat = iss.get("category", "")
                     desc = iss.get("description", "")
                     sug = iss.get("suggestion", "")
-                    regression_lines.append(f"  [REGRESSION-{sev}] {cat}: {desc}" + (f"（建议：{sug}）" if sug else ""))
+                    regression_lines.append(
+                        f"  [REGRESSION-{sev}] {cat}: {desc}"
+                        + (f"（建议：{sug}）" if sug else "")
+                    )
                 regression_text = "\n".join(regression_lines)
-
-            issues_text = format_consistency_issues_for_polisher(report)
 
             system = polisher_system()
             user = build_polisher_user_payload(
@@ -684,7 +713,7 @@ async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) 
                 regression_issues=regression_text,
             )
 
-            # ── Step 5: Call polisher LLM ──
+            # ── Step 3: Call polisher LLM (always, at least once) ──
             polished_reply = await chat_completion(
                 [{"role": "system", "content": system}, {"role": "user", "content": user}],
                 temperature=0.35,
@@ -692,24 +721,66 @@ async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) 
                 timing_label=f"polish_round:{round_idx}",
             )
 
+            prev_text = current_text
             if polished_reply and polished_reply.strip():
                 current_text = polished_reply.strip()
 
-            # Store current issues for next round comparison
+            trace["rounds"].append(round_record)
+
+            # ── Step 4: Convergence detection ──
+            # (a) Consistency says clean or info-only → polisher did its job
+            if report.verdict == "clean" or report.total_issues == 0:
+                trace["termination_reason"] = "clean"
+                trace["actual_rounds"] = round_idx
+                break
+
+            if all(iss.severity == "info" for iss in (report.issues or [])):
+                trace["termination_reason"] = "info_only"
+                trace["actual_rounds"] = round_idx
+                break
+
+            # (b) Text barely changed → converged
+            sim = _text_similarity(prev_text, current_text)
+            if sim >= 0.95:
+                trace["termination_reason"] = f"converged_sim={sim:.3f}"
+                trace["actual_rounds"] = round_idx
+                break
+
+            # (c) All remaining issues are critical (can't fix via polish)
+            non_critical = [
+                iss
+                for iss in (report.issues or [])
+                if iss.severity != "critical"
+            ]
+            if not non_critical and (report.issues or []):
+                trace["termination_reason"] = "no_fixable_issues"
+                trace["actual_rounds"] = round_idx
+                break
+
+            # Store for next round
             all_issues_history.append({
                 "round": round_idx,
-                "issues": [iss.model_dump() if hasattr(iss, "model_dump") else {} for iss in (report.issues or [])],
+                "issues": [
+                    iss.model_dump() if hasattr(iss, "model_dump") else {}
+                    for iss in (report.issues or [])
+                ],
             })
 
-            # ── Check max rounds after polish ──
+            # Max rounds reached
             if round_idx >= max_rounds:
                 trace["termination_reason"] = "max_rounds"
+                trace["actual_rounds"] = round_idx
                 break
 
         # ── After loop: persist polished result ──
-        trace["actual_rounds"] = len(trace["rounds"])
+        if "actual_rounds" not in trace or not trace["actual_rounds"]:
+            trace["actual_rounds"] = len(trace["rounds"])
+        if not trace["termination_reason"]:
+            trace["termination_reason"] = "max_rounds"
+
         from worldforger.story_store import polished_path, polish_trace_path, write_text
 
+        # Persist polished text (polished/ only — keep original manuscript intact for diff)
         write_text(polished_path(world.meta.id, chapter_id), current_text)
 
         # Write trace
@@ -724,9 +795,11 @@ async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) 
             ch.polish_rounds = trace["actual_rounds"]
             ch.polish_issue_tracking = trace
 
+        return current_text
+
     except Exception:
         # Polish loop failure does not block the main generation flow
-        pass
+        return manuscript_text
 
 
 def _extract_character_ids_from_beat(world: World, beat_text: str) -> list[str]:

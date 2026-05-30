@@ -361,10 +361,11 @@ export function renderCharacterNetworkFromData(entities, relations, containerId)
       const key = [e.id, r.target_id].sort().join("|") + "|" + (r.type || "neutral");
       if (seenEdges.has(key)) continue;
       seenEdges.add(key);
+      const label = r.notes ? `${r.type || ""}: ${r.notes}` : (r.type || "");
       edgeList.push({
         from: e.id,
         to: r.target_id,
-        label: r.type || "",
+        label,
         color: { color: RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
         arrows: "to",
         width: 2,
@@ -378,10 +379,11 @@ export function renderCharacterNetworkFromData(entities, relations, containerId)
     const key = [r.source_id, r.target_id].sort().join("|") + "|" + (r.type || "neutral");
     if (seenEdges.has(key)) continue;
     seenEdges.add(key);
+    const label = r.notes ? `${r.type || ""}: ${r.notes}` : (r.type || "");
     edgeList.push({
       from: r.source_id,
       to: r.target_id,
-      label: r.type || "",
+      label,
       color: { color: RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
       arrows: "to",
       width: 2,
@@ -428,7 +430,33 @@ const RELATION_COLORS = {
 const DEFAULT_NODE_COLOR = "#607d8b";
 const DEFAULT_EDGE_COLOR = "#90a4ae";
 
+const FAC_CULT_NODE_COLOR = "#3d5a80";
+const FAC_CULT_ROOT_COLOR = "#2c4a6e";
+const FAC_CULT_PEER_COLOR = "#607d8b";
+const FAC_CULT_EXT_COLOR = "#b8860b";
+
+const CULTURE_KIND_COLORS = {
+  culture: "#3d5a80",
+  religion: "#7b1fa2",
+  syncretic: "#00838f",
+};
+
+const CULTURE_RELATION_COLORS = {
+  influence: "#4caf50",
+  conflict: "#f44336",
+  syncretic: "#9c27b0",
+  fusion: "#9c27b0",
+  subordinate: "#2196f3",
+  dominant: "#e91e63",
+  tension: "#ff9800",
+  neutral: "#90a4ae",
+};
+
 let _charNetwork = null;
+let _facGlobalNet = null;
+let _cultGlobalNet = null;
+let _facCardNets = [];
+let _cultCardNets = [];
 
 export function renderCharacterNetwork(containerId) {
   const container = $(containerId);
@@ -458,10 +486,11 @@ export function renderCharacterNetwork(containerId) {
       const key = [e.id, r.target_id].sort().join("|") + "|" + (r.type || "neutral");
       if (seenEdges.has(key)) continue;
       seenEdges.add(key);
+      const label = r.notes ? `${r.type || ""}: ${r.notes}` : (r.type || "");
       edgeList.push({
         from: e.id,
         to: r.target_id,
-        label: r.type || "",
+        label,
         color: { color: RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
         arrows: "to",
         width: 2,
@@ -475,10 +504,11 @@ export function renderCharacterNetwork(containerId) {
     const key = [r.source_id, r.target_id].sort().join("|") + "|" + (r.type || "neutral");
     if (seenEdges.has(key)) continue;
     seenEdges.add(key);
+    const label = r.notes ? `${r.type || ""}: ${r.notes}` : (r.type || "");
     edgeList.push({
       from: r.source_id,
       to: r.target_id,
-      label: r.type || "",
+      label,
       color: { color: RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
       arrows: "to",
       width: 2,
@@ -524,6 +554,374 @@ function _buildNodeTooltip(entity) {
     if (rs.goal) parts.push(`目标：${escapeHtml(rs.goal)}`);
   }
   return parts.join("<br>");
+}
+
+
+// ═══════════════════════════════════════════════════════════════════
+// Faction & Culture Interactive Relationship Graphs (vis.js)
+// ═══════════════════════════════════════════════════════════════════
+
+function _factionEdgeLabel(r) {
+  const t = r.type || "";
+  const n = r.notes || "";
+  if (t && n) return `${t}: ${n}`;
+  if (t) return t;
+  if (n) return n;
+  return "关联";
+}
+
+function _cultureEdgeLabel(r) {
+  return _factionEdgeLabel(r);
+}
+
+function _factionNodeTooltip(e) {
+  const parts = [];
+  if (e.name) parts.push(`<strong>${escapeHtml(e.name)}</strong>`);
+  if (e.id) parts.push(`ID: ${escapeHtml(e.id)}`);
+  if (e.goals) parts.push(`目标: ${escapeHtml(String(e.goals).slice(0, 80))}`);
+  if (e.territory) parts.push(`地盘: ${escapeHtml(String(e.territory).slice(0, 80))}`);
+  return parts.join("<br>");
+}
+
+function _cultureNodeTooltip(e) {
+  const parts = [];
+  const kindLabel = { culture: "文化", religion: "宗教", syncretic: "融合" };
+  if (e.name) parts.push(`<strong>${escapeHtml(e.name)}</strong>`);
+  if (e.kind) parts.push(`类型: ${kindLabel[e.kind] || e.kind}`);
+  if (e.id) parts.push(`ID: ${escapeHtml(e.id)}`);
+  if (e.summary) parts.push(`${escapeHtml(String(e.summary).slice(0, 100))}`);
+  return parts.join("<br>");
+}
+
+/** Render faction global relationship network using vis.js. */
+export function renderFactionGlobalNetwork(entities, containerId) {
+  const container = $(containerId);
+  if (!container) return;
+  if (!entities?.length) {
+    container.innerHTML = `<p class="muted" style="padding:1rem;text-align:center">暂无派系数据</p>`;
+    return;
+  }
+  const valid = entities.filter(e => e && typeof e === "object" && e.id);
+  if (!valid.length) {
+    container.innerHTML = `<p class="muted" style="padding:1rem;text-align:center">暂无派系数据</p>`;
+    return;
+  }
+  const nodesArr = valid.map(e => ({
+    id: e.id,
+    label: (e.name || e.id || "?").slice(0, 20),
+    color: { background: FAC_CULT_NODE_COLOR, border: "#2c4a6e" },
+    font: { size: 13, color: "#1a1a1a", strokeWidth: 0 },
+    shape: "dot",
+    size: 22,
+    title: _factionNodeTooltip(e),
+  }));
+  const nodes = new vis.DataSet(nodesArr);
+
+  const edgeList = [];
+  const seen = new Set();
+  for (const e of valid) {
+    const rels = Array.isArray(e.relations) ? e.relations : [];
+    for (const r of rels) {
+      if (!r || !r.target_id || r.target_id === e.id) continue;
+      const key = [e.id, r.target_id].sort().join("|") + "|" + (r.type || "");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const label = _factionEdgeLabel(r);
+      edgeList.push({
+        from: e.id,
+        to: r.target_id,
+        label,
+        color: { color: RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
+        arrows: "to",
+        width: 2,
+        font: { color: "#1565c0", strokeWidth: 0, background: "rgba(255,255,255,0.85)" },
+      });
+    }
+  }
+  const edges = new vis.DataSet(edgeList);
+
+  if (_facGlobalNet) { _facGlobalNet.destroy(); _facGlobalNet = null; }
+  container.innerHTML = "";
+
+  const data = { nodes, edges };
+  const options = {
+    physics: { solver: "forceAtlas2Based", stabilization: { iterations: 100 } },
+    edges: { smooth: { type: "continuous" }, font: { size: 9, strokeWidth: 0, color: "#1565c0" } },
+    interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true },
+    nodes: { borderWidth: 2, shadow: { enabled: true, size: 6 }, font: { color: "#1a1a1a" } },
+  };
+  _facGlobalNet = new vis.Network(container, data, options);
+
+  _facGlobalNet.on("click", function (params) {
+    if (params.edges.length > 0) {
+      const edge = edges.get(params.edges[0]);
+      if (edge) {
+        const fromN = nodes.get(edge.from);
+        const toN = nodes.get(edge.to);
+        toast(`${fromN?.label || edge.from} → ${toN?.label || edge.to}: ${edge.label || "关系"}`);
+      }
+    }
+  });
+}
+
+/** Render culture global relationship network using vis.js. */
+export function renderCultureGlobalNetwork(entities, containerId) {
+  const container = $(containerId);
+  if (!container) return;
+  if (!entities?.length) {
+    container.innerHTML = `<p class="muted" style="padding:1rem;text-align:center">暂无文化/宗教数据</p>`;
+    return;
+  }
+  const valid = entities.filter(e => e && typeof e === "object" && e.id);
+  if (!valid.length) {
+    container.innerHTML = `<p class="muted" style="padding:1rem;text-align:center">暂无文化/宗教数据</p>`;
+    return;
+  }
+  const nodesArr = valid.map(e => ({
+    id: e.id,
+    label: (e.name || e.id || "?").slice(0, 20),
+    color: { background: CULTURE_KIND_COLORS[e.kind] || FAC_CULT_NODE_COLOR, border: "#333" },
+    font: { size: 13, color: "#1a1a1a", strokeWidth: 0 },
+    shape: "dot",
+    size: 22,
+    title: _cultureNodeTooltip(e),
+  }));
+  const nodes = new vis.DataSet(nodesArr);
+
+  const edgeList = [];
+  const seen = new Set();
+  for (const e of valid) {
+    const rels = Array.isArray(e.relations) ? e.relations : [];
+    for (const r of rels) {
+      if (!r || !r.target_id || r.target_id === e.id) continue;
+      const key = [e.id, r.target_id].sort().join("|") + "|" + (r.type || "");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const label = _cultureEdgeLabel(r);
+      edgeList.push({
+        from: e.id,
+        to: r.target_id,
+        label,
+        color: { color: CULTURE_RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
+        arrows: "to",
+        width: 2,
+        font: { color: "#1565c0", strokeWidth: 0, background: "rgba(255,255,255,0.85)" },
+      });
+    }
+  }
+  const edges = new vis.DataSet(edgeList);
+
+  if (_cultGlobalNet) { _cultGlobalNet.destroy(); _cultGlobalNet = null; }
+  container.innerHTML = "";
+
+  const data = { nodes, edges };
+  const options = {
+    physics: { solver: "forceAtlas2Based", stabilization: { iterations: 100 } },
+    edges: { smooth: { type: "continuous" }, font: { size: 9, strokeWidth: 0, color: "#1565c0" } },
+    interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true },
+    nodes: { borderWidth: 2, shadow: { enabled: true, size: 6 }, font: { color: "#1a1a1a" } },
+  };
+  _cultGlobalNet = new vis.Network(container, data, options);
+
+  _cultGlobalNet.on("click", function (params) {
+    if (params.edges.length > 0) {
+      const edge = edges.get(params.edges[0]);
+      if (edge) {
+        const fromN = nodes.get(edge.from);
+        const toN = nodes.get(edge.to);
+        toast(`${fromN?.label || edge.from} → ${toN?.label || edge.to}: ${edge.label || "关系"}`);
+      }
+    }
+  });
+}
+
+/** Render a single faction's ego-centric relationship network. */
+export function renderSingleFactionNetwork(entity, allEntities, container) {
+  if (!container || !entity) return;
+  const all = Array.isArray(allEntities) ? allEntities : [];
+  const nodesArr = [];
+  const edgeList = [];
+  const seen = new Set();
+
+  // Root node
+  const rootId = entity.id || "root";
+  const rootLabel = (entity.name || rootId || "?").slice(0, 20);
+  nodesArr.push({
+    id: rootId,
+    label: rootLabel,
+    color: { background: FAC_CULT_NODE_COLOR, border: "#2c4a6e" },
+    font: { size: 14, color: "#1a1a1a", strokeWidth: 0 },
+    shape: "dot",
+    size: 26,
+    title: _factionNodeTooltip(entity),
+  });
+
+  const rels = Array.isArray(entity.relations) ? entity.relations : [];
+  for (const r of rels) {
+    const tid = r?.target_id;
+    if (!tid || tid === rootId) continue;
+    const key = [rootId, tid].sort().join("|") + "|" + (r.type || "");
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const target = all.find(x => x.id === tid);
+    const isKnown = !!target;
+    const peerLabel = isKnown ? (target.name || tid).slice(0, 20) : `${(tid || "?").slice(0, 16)}…`;
+    nodesArr.push({
+      id: tid,
+      label: peerLabel,
+      color: {
+        background: isKnown ? FAC_CULT_PEER_COLOR : FAC_CULT_EXT_COLOR,
+        border: isKnown ? "#455a64" : "#8b6914",
+      },
+      font: { size: 12, color: "#1a1a1a", strokeWidth: 0 },
+      shape: "dot",
+      size: isKnown ? 18 : 14,
+      title: target ? _factionNodeTooltip(target) : `ID: ${escapeHtml(tid)}（未建档）`,
+    });
+
+    const label = _factionEdgeLabel(r);
+    edgeList.push({
+      from: rootId,
+      to: tid,
+      label,
+      color: { color: RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
+      arrows: "to",
+      width: isKnown ? 2 : 1,
+      dashes: !isKnown,
+      font: { color: "#1565c0", strokeWidth: 0, background: "rgba(255,255,255,0.85)" },
+    });
+  }
+
+  if (edgeList.length === 0) {
+    container.innerHTML = `<p class="muted" style="padding:0.5rem;text-align:center;font-size:12px">暂无关系边</p>`;
+    return;
+  }
+
+  // Clean up previous network in this container
+  const idx = _facCardNets.findIndex(n => n.container === container);
+  if (idx >= 0) {
+    _facCardNets[idx].net.destroy();
+    _facCardNets.splice(idx, 1);
+  }
+
+  container.innerHTML = "";
+  const nodes = new vis.DataSet(nodesArr);
+  const edges = new vis.DataSet(edgeList);
+  const data = { nodes, edges };
+  const options = {
+    physics: { solver: "forceAtlas2Based", stabilization: { iterations: 80 } },
+    edges: { smooth: { type: "continuous" }, font: { size: 8, strokeWidth: 0, color: "#1565c0" } },
+    interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true },
+    nodes: { borderWidth: 2, font: { color: "#1a1a1a" } },
+  };
+  const net = new vis.Network(container, data, options);
+  _facCardNets.push({ container, net });
+
+  net.on("click", function (params) {
+    if (params.edges.length > 0) {
+      const edge = edges.get(params.edges[0]);
+      if (edge) {
+        const fromN = nodes.get(edge.from);
+        const toN = nodes.get(edge.to);
+        toast(`${fromN?.label || edge.from} → ${toN?.label || edge.to}: ${edge.label || "关系"}`);
+      }
+    }
+  });
+}
+
+/** Render a single culture's ego-centric relationship network. */
+export function renderSingleCultureNetwork(entity, allEntities, container) {
+  if (!container || !entity) return;
+  const all = Array.isArray(allEntities) ? allEntities : [];
+  const nodesArr = [];
+  const edgeList = [];
+  const seen = new Set();
+
+  const rootId = entity.id || "root";
+  const rootLabel = (entity.name || rootId || "?").slice(0, 20);
+  nodesArr.push({
+    id: rootId,
+    label: rootLabel,
+    color: { background: CULTURE_KIND_COLORS[entity.kind] || FAC_CULT_NODE_COLOR, border: "#333" },
+    font: { size: 14, color: "#1a1a1a", strokeWidth: 0 },
+    shape: "dot",
+    size: 26,
+    title: _cultureNodeTooltip(entity),
+  });
+
+  const rels = Array.isArray(entity.relations) ? entity.relations : [];
+  for (const r of rels) {
+    const tid = r?.target_id;
+    if (!tid || tid === rootId) continue;
+    const key = [rootId, tid].sort().join("|") + "|" + (r.type || "");
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    const target = all.find(x => x.id === tid);
+    const isKnown = !!target;
+    const peerLabel = isKnown ? (target.name || tid).slice(0, 20) : `${(tid || "?").slice(0, 16)}…`;
+    const kindColor = target ? (CULTURE_KIND_COLORS[target.kind] || FAC_CULT_PEER_COLOR) : FAC_CULT_EXT_COLOR;
+    nodesArr.push({
+      id: tid,
+      label: peerLabel,
+      color: {
+        background: isKnown ? kindColor : FAC_CULT_EXT_COLOR,
+        border: isKnown ? "#333" : "#8b6914",
+      },
+      font: { size: 12, color: "#1a1a1a", strokeWidth: 0 },
+      shape: "dot",
+      size: isKnown ? 18 : 14,
+      title: target ? _cultureNodeTooltip(target) : `ID: ${escapeHtml(tid)}（未建档）`,
+    });
+
+    const label = _cultureEdgeLabel(r);
+    edgeList.push({
+      from: rootId,
+      to: tid,
+      label,
+      color: { color: CULTURE_RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
+      arrows: "to",
+      width: isKnown ? 2 : 1,
+      dashes: !isKnown,
+      font: { color: "#1565c0", strokeWidth: 0, background: "rgba(255,255,255,0.85)" },
+    });
+  }
+
+  if (edgeList.length === 0) {
+    container.innerHTML = `<p class="muted" style="padding:0.5rem;text-align:center;font-size:12px">暂无关系边</p>`;
+    return;
+  }
+
+  const idx = _cultCardNets.findIndex(n => n.container === container);
+  if (idx >= 0) {
+    _cultCardNets[idx].net.destroy();
+    _cultCardNets.splice(idx, 1);
+  }
+
+  container.innerHTML = "";
+  const nodes = new vis.DataSet(nodesArr);
+  const edges = new vis.DataSet(edgeList);
+  const data = { nodes, edges };
+  const options = {
+    physics: { solver: "forceAtlas2Based", stabilization: { iterations: 80 } },
+    edges: { smooth: { type: "continuous" }, font: { size: 8, strokeWidth: 0, color: "#1565c0" } },
+    interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true },
+    nodes: { borderWidth: 2, font: { color: "#1a1a1a" } },
+  };
+  const net = new vis.Network(container, data, options);
+  _cultCardNets.push({ container, net });
+
+  net.on("click", function (params) {
+    if (params.edges.length > 0) {
+      const edge = edges.get(params.edges[0]);
+      if (edge) {
+        const fromN = nodes.get(edge.from);
+        const toN = nodes.get(edge.to);
+        toast(`${fromN?.label || edge.from} → ${toN?.label || edge.to}: ${edge.label || "关系"}`);
+      }
+    }
+  });
 }
 
 
