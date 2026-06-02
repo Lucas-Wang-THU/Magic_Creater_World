@@ -331,7 +331,7 @@ class EcologySection(BaseModel):
 
 
 StoryPerson = Literal["first_person", "third_person_limited", "third_person_omniscient"]
-StoryChapterStatus = Literal["planned", "drafting", "locked"]
+StoryChapterStatus = Literal["planned", "outline", "drafting", "revising", "locked", "done", "archived"]
 StoryForeshadowStatus = Literal["open", "partial", "resolved"]
 
 
@@ -382,7 +382,7 @@ class KGEntity(BaseModel):
     # character fields
     states: list[CharacterStateSnapshot] = Field(default_factory=list)
     # item fields
-    item_status: Literal["active", "lost", "destroyed"] = "active"
+    item_status: Literal["active", "lost", "destroyed", "damaged", "broken", "stolen", "unknown"] = "active"
     possessed_by: str = ""
     last_seen_chapter: str = ""
 
@@ -454,6 +454,97 @@ class SentimentLog(BaseModel):
     analyzed_at: str = ""
 
 
+# ── 角色认知/知识系统 ─────────────────────────────────────────────
+
+class CharacterKnowledgeEntry(BaseModel):
+    """单条知识——某个角色知道某件事。"""
+    knowledge_id: str = ""  # "know_traitor_identity"
+    character_id: str = ""  # 谁知道
+    topic: str = ""  # "芬恩是叛徒" / "翠绿议会的真正起源"
+    category: Literal[
+        "secret", "personal_history", "world_lore",
+        "plan", "suspicion", "misunderstanding",
+    ] = "secret"
+    certainty: Literal[
+        "knows_for_sure", "strongly_suspects",
+        "vaguely_senses", "believes_wrongly",
+    ] = "knows_for_sure"
+    source_chapter: str = ""  # 从哪章获得此知识
+    source_detail: str = ""  # 如何获得的："偷听了议会对话"
+    shared_with: list[dict] = Field(default_factory=list)
+    # [{"character_id": "char_b", "chapter": "ch_5", "method": "主动告知"}]
+    is_still_true: bool = True
+    notes: str = ""
+
+
+class CharacterKnowledgeGraph(BaseModel):
+    """全局角色知识图谱。"""
+    entries: list[CharacterKnowledgeEntry] = Field(default_factory=list)
+
+
+# ── P1: 角色决策日志 ──────────────────────────────────────────
+
+class CharacterDecision(BaseModel):
+    """角色的关键决策及其后果链。"""
+    decision_id: str = ""
+    character_id: str = ""
+    chapter: str = ""
+    summary: str = ""  # "艾拉选择不救NPC莫里斯，以获取翠绿议会的关键情报"
+    decision_type: Literal[
+        "moral_choice", "trust_decision", "strategic_choice",
+        "self_revelation", "relationship_choice", "sacrifice",
+    ] = "moral_choice"
+    options_considered: list[str] = Field(default_factory=list)
+    option_chosen: str = ""
+    stated_reason: str = ""
+    actual_reason: str = ""
+    immediate_consequences: list[str] = Field(default_factory=list)
+    long_term_consequences: list[dict] = Field(default_factory=list)
+    reflections: list[dict] = Field(default_factory=list)
+    outcome_verdict: Literal[
+        "pending", "proved_right", "proved_wrong", "ambiguous", "irrelevant",
+    ] = "pending"
+
+
+# ── P1: 角色身体状况追踪 ──────────────────────────────────────
+
+class CharacterPhysicalState(BaseModel):
+    """角色身体状况 — 身体承载叙事历史。"""
+    character_id: str = ""
+    active_injuries: list[dict] = Field(default_factory=list)
+    # [{"injury_id": "inj_001", "type": "箭伤", "location": "左肩",
+    #   "caused_in_chapter": "ch_1", "severity": "moderate",
+    #   "healing_progress": "60%", "functional_impact": "左手抬不过肩"}]
+    permanent_marks: list[dict] = Field(default_factory=list)
+    # [{"mark_id": "scar_001", "type": "疤痕", "location": "左前臂",
+    #   "origin": "ch_1 箭伤愈合", "visibility": "noticeable"}]
+    chronic_conditions: list[dict] = Field(default_factory=list)
+    # [{"condition": "左肩旧伤——阴雨天酸痛", "since_chapter": "ch_2"}]
+    fatigue_level: Literal["rested", "tired", "exhausted", "collapse_imminent"] = "rested"
+    general_condition: str = ""
+    last_updated_chapter: str = ""
+
+
+# ── P2: 角色个人时间线 ──────────────────────────────────────────
+
+class PersonalTimelineEvent(BaseModel):
+    """角色个人时间线上的事件。"""
+    event_id: str = ""
+    character_id: str = ""
+    chapter: str = ""  # 发生在哪个章节期间
+    relative_timing: str = ""  # "ch_2 开始前" / "ch_3 中间" / "ch_4 结束后"
+    event: str = ""  # "格罗姆在出发前独自去了一趟旧神殿"
+    known_by: list[str] = Field(default_factory=list)  # 哪些角色知道此事件
+    significance: str = ""  # 对角色弧光的意义
+    linked_events: list[str] = Field(default_factory=list)  # 关联的主时间线事件id
+
+
+class CharacterPersonalTimeline(BaseModel):
+    """某个角色的完整个人时间线。"""
+    character_id: str = ""
+    events: list[PersonalTimelineEvent] = Field(default_factory=list)
+
+
 class StoryNarrator(BaseModel):
     character_id: str = Field(default="", description="对齐 characters.entities[].id，空表示不绑定 POV 角色。")
     person: StoryPerson = "third_person_limited"
@@ -472,6 +563,14 @@ class StoryWritingDefaults(BaseModel):
     # Layer 4: Polisher
     enable_polisher: bool = True
     polish_max_rounds: int = Field(default=2, ge=1, le=3, description="审校↔润色最大循环轮数")
+    # Knowledge system
+    enable_knowledge_track: bool = True
+    # P1: Decision tracking
+    enable_decision_track: bool = True
+    # P1: Physical state tracking
+    enable_physical_state_track: bool = True
+    # P2: Personal timeline tracking
+    enable_personal_timeline_track: bool = True
 
 
 class StoryOutlineMacro(BaseModel):
@@ -539,6 +638,10 @@ class World(BaseModel):
     history: HistorySection = Field(default_factory=HistorySection)
     economy: EconomySection = Field(default_factory=EconomySection)
     story: StorySection = Field(default_factory=StorySection)
+    character_knowledge: CharacterKnowledgeGraph = Field(default_factory=CharacterKnowledgeGraph)
+    character_decisions: list[CharacterDecision] = Field(default_factory=list)
+    character_physical_states: list[CharacterPhysicalState] = Field(default_factory=list)
+    character_personal_timelines: list[CharacterPersonalTimeline] = Field(default_factory=list)
 
     def bump_version(self) -> None:
         self.meta.version = int(self.meta.version) + 1

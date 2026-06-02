@@ -216,6 +216,10 @@ class StoryWritingDefaultsPatchBody(BaseModel):
     # Layer 4
     enable_polisher: bool | None = None
     polish_max_rounds: int | None = Field(default=None, ge=1, le=3)
+    enable_knowledge_track: bool | None = None
+    enable_decision_track: bool | None = None
+    enable_physical_state_track: bool | None = None
+    enable_personal_timeline_track: bool | None = None
 
 
 class StoryGenerateManuscriptBody(BaseModel):
@@ -1101,6 +1105,55 @@ def api_delete_story_chapter(world_id: str, chapter_id: str) -> dict[str, Any]:
     return {"ok": True, "world": w.model_dump(mode="json")}
 
 
+# ── P2: Chapter batch operations ──────────────────────────────────────
+
+class StoryChapterBatchBody(BaseModel):
+    action: str  # "delete", "reorder", "status"
+    chapter_ids: list[str] = Field(default_factory=list)
+    # For reorder: new order list of {id, order}
+    orders: list[dict] | None = None
+    # For status batch change
+    new_status: str | None = None
+
+
+@app.post("/api/worlds/{world_id}/story/chapters/batch")
+def api_batch_chapters(world_id: str, body: StoryChapterBatchBody) -> dict[str, Any]:
+    """Batch operations on chapters: delete, reorder, status change."""
+    w = _story_world_or_404(world_id)
+    chapters = w.story.chapters
+    action = body.action
+
+    if action == "delete":
+        ids = set(body.chapter_ids)
+        kept = [c for c in chapters if c.id not in ids]
+        w.story.chapters = kept
+        if kept:
+            for i, c in enumerate(kept):
+                c.order = i + 1
+
+    elif action == "reorder":
+        if body.orders:
+            order_map = {item.get("id"): item.get("order", 0) for item in body.orders if isinstance(item, dict)}
+            for c in chapters:
+                if c.id in order_map:
+                    c.order = order_map[c.id]
+
+    elif action == "status":
+        new_status = body.new_status
+        if new_status in {"planned", "outline", "drafting", "revising", "locked", "done", "archived"}:
+            ids = set(body.chapter_ids)
+            for c in chapters:
+                if c.id in ids:
+                    c.status = new_status  # type: ignore[assignment]
+
+    else:
+        raise HTTPException(status_code=400, detail=f"unknown action: {action}")
+
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {"ok": True, "world": w.model_dump(mode="json")}
+
+
 # ── P2-9: Chapter Version Snapshots ──────────────────────────────────
 
 
@@ -1295,6 +1348,40 @@ def api_story_rag_stats(world_id: str) -> dict[str, object]:
     return {"ready": ready, **stats}
 
 
+# ── Polish-only (re-polish existing manuscript) ──────────────────────
+
+@app.post("/api/worlds/{world_id}/story/generate/polish-only")
+async def api_story_polish_only(
+    world_id: str, body: StoryGenerateManuscriptBody
+) -> dict[str, Any]:
+    """Re-run the polish loop on an existing manuscript without regenerating."""
+    from worldforger.story_service import _run_polish_loop
+
+    w = _story_world_or_404(world_id)
+    if not any(c.id == body.chapter_id for c in w.story.chapters):
+        raise HTTPException(status_code=404, detail="chapter not found")
+    existing = read_text(manuscript_path(world_id, body.chapter_id))
+    if not existing.strip():
+        raise HTTPException(status_code=400, detail="该章节暂无文稿，请先生成。")
+
+    # Enable polisher temporarily
+    was_enabled = w.story.writing_defaults.enable_polisher
+    w.story.writing_defaults.enable_polisher = True
+    try:
+        polished = await _run_polish_loop(w, body.chapter_id, existing)
+    finally:
+        w.story.writing_defaults.enable_polisher = was_enabled
+
+    sync_chapter_word_count(w, body.chapter_id)
+    _maybe_persist_story(world_id, w, persist=body.persist)
+    ch = next((c for c in w.story.chapters if c.id == body.chapter_id), None)
+    return {
+        "reply": polished,
+        "world": w.model_dump(mode="json"),
+        "polish_rounds": ch.polish_rounds if ch else 0,
+    }
+
+
 # ── Layer 3: Narrative KG ──────────────────────────────────────────
 
 
@@ -1487,6 +1574,18 @@ def api_patch_story_writing_defaults(
     if body.polish_max_rounds is not None:
         wd.polish_max_rounds = body.polish_max_rounds
         changed = True
+    if body.enable_knowledge_track is not None:
+        wd.enable_knowledge_track = body.enable_knowledge_track
+        changed = True
+    if body.enable_decision_track is not None:
+        wd.enable_decision_track = body.enable_decision_track
+        changed = True
+    if body.enable_physical_state_track is not None:
+        wd.enable_physical_state_track = body.enable_physical_state_track
+        changed = True
+    if body.enable_personal_timeline_track is not None:
+        wd.enable_personal_timeline_track = body.enable_personal_timeline_track
+        changed = True
     if changed:
         w.bump_version()
         save_world(w, export_markdown=False)
@@ -1601,6 +1700,241 @@ def api_token_usage(world_id: str) -> dict[str, Any]:
             "total_tokens": s_prompt + saved_prompt + s_completion + saved_completion,
         },
     }
+
+
+# ── Character Knowledge Graph ────────────────────────────────────────
+
+@app.get("/api/worlds/{world_id}/knowledge-graph")
+def api_get_knowledge_graph(world_id: str) -> dict[str, Any]:
+    """Return the full character knowledge graph."""
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    return {
+        "world_id": world_id,
+        "entries": [e.model_dump(mode="json") for e in w.character_knowledge.entries],
+        "total_entries": len(w.character_knowledge.entries),
+    }
+
+
+@app.post("/api/worlds/{world_id}/knowledge-graph/clear")
+def api_clear_knowledge_graph(world_id: str) -> dict[str, Any]:
+    """Clear all knowledge entries (useful for resetting after major rewrites)."""
+    w = _story_world_or_404(world_id)
+    w.character_knowledge.entries = []
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {"ok": True, "world": w.model_dump(mode="json")}
+
+
+# ── P1: Character Decisions ────────────────────────────────────
+
+@app.get("/api/worlds/{world_id}/decisions")
+def api_get_decisions(world_id: str) -> dict[str, Any]:
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    return {
+        "world_id": world_id,
+        "decisions": [d.model_dump(mode="json") for d in w.character_decisions],
+        "total": len(w.character_decisions),
+    }
+
+
+@app.post("/api/worlds/{world_id}/decisions/extract-all")
+async def api_extract_all_decisions(world_id: str) -> dict[str, Any]:
+    """Scan all existing chapter manuscripts and extract character decisions."""
+    import asyncio as _asyncio
+
+    w = _story_world_or_404(world_id)
+    chapters = [c for c in w.story.chapters if c.status not in ("planned", "outline")]
+    if not chapters:
+        return {"ok": True, "total_new": 0, "by_chapter": {}, "message": "没有可提取的章节"}
+
+    from worldforger.story_store import manuscript_path, read_text
+    from worldforger.story_service import _try_detect_decisions
+
+    results = {}
+    sem = _asyncio.Semaphore(3)
+
+    async def _extract_one(ch) -> dict:
+        async with sem:
+            ms = read_text(manuscript_path(world_id, ch.id))
+            if not ms.strip():
+                return {"chapter_id": ch.id, "skipped": True}
+            await _asyncio.sleep(3)
+            prev = len(w.character_decisions)
+            err = await _try_detect_decisions(w, ch.id, ms)
+            new_count = len(w.character_decisions) - prev
+            return {"chapter_id": ch.id, "new": new_count, "error": err} if err else {"chapter_id": ch.id, "new": new_count}
+
+    chapter_results = await _asyncio.gather(*[_extract_one(ch) for ch in chapters])
+    total_new = 0
+    for r in chapter_results:
+        results[r["chapter_id"]] = {k: v for k, v in r.items() if k != "chapter_id"}
+        total_new += r.get("new", 0)
+
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {"ok": True, "total_new": total_new, "total": len(w.character_decisions), "by_chapter": results, "world": w.model_dump(mode="json")}
+
+
+# ── P1: Physical State ──────────────────────────────────────
+
+@app.get("/api/worlds/{world_id}/physical-states")
+def api_get_physical_states(world_id: str) -> dict[str, Any]:
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    return {
+        "world_id": world_id,
+        "physical_states": [ps.model_dump(mode="json") for ps in w.character_physical_states],
+    }
+
+
+@app.post("/api/worlds/{world_id}/physical-states/extract-all")
+async def api_extract_all_physical_states(world_id: str) -> dict[str, Any]:
+    """Scan all existing chapter manuscripts and extract physical states."""
+    import asyncio as _asyncio
+
+    w = _story_world_or_404(world_id)
+    chapters = [c for c in w.story.chapters if c.status not in ("planned", "outline")]
+    if not chapters:
+        return {"ok": True, "total_new": 0, "by_chapter": {}, "message": "没有可提取的章节"}
+
+    from worldforger.story_store import manuscript_path, read_text
+    from worldforger.story_service import _try_update_physical_states
+
+    results = {}
+    sem = _asyncio.Semaphore(3)
+
+    async def _extract_one(ch) -> dict:
+        async with sem:
+            ms = read_text(manuscript_path(world_id, ch.id))
+            if not ms.strip():
+                return {"chapter_id": ch.id, "skipped": True}
+            await _asyncio.sleep(3)
+            prev = len(w.character_physical_states)
+            err = await _try_update_physical_states(w, ch.id, ms)
+            new_count = len(w.character_physical_states) - prev
+            return {"chapter_id": ch.id, "new": new_count, "error": err} if err else {"chapter_id": ch.id, "new": new_count}
+
+    chapter_results = await _asyncio.gather(*[_extract_one(ch) for ch in chapters])
+    total_new = 0
+    for r in chapter_results:
+        results[r["chapter_id"]] = {k: v for k, v in r.items() if k != "chapter_id"}
+        total_new += r.get("new", 0)
+
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {"ok": True, "total_new": total_new, "total": len(w.character_physical_states), "by_chapter": results, "world": w.model_dump(mode="json")}
+
+
+# ── P2: Personal Timelines ──────────────────────────────────
+
+@app.get("/api/worlds/{world_id}/personal-timelines")
+def api_get_personal_timelines(world_id: str) -> dict[str, Any]:
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+    return {
+        "world_id": world_id,
+        "timelines": [tl.model_dump(mode="json") for tl in w.character_personal_timelines],
+    }
+
+
+@app.post("/api/worlds/{world_id}/personal-timelines/extract-all")
+async def api_extract_all_timelines(world_id: str) -> dict[str, Any]:
+    """Scan all existing chapter manuscripts and extract personal timeline events."""
+    import asyncio as _asyncio
+
+    w = _story_world_or_404(world_id)
+    chapters = [c for c in w.story.chapters if c.status not in ("planned", "outline")]
+    if not chapters:
+        return {"ok": True, "total_new": 0, "by_chapter": {}, "message": "没有可提取的章节"}
+
+    from worldforger.story_store import manuscript_path, read_text
+    from worldforger.story_service import _try_detect_timeline_events
+
+    results = {}
+    sem = _asyncio.Semaphore(3)
+
+    async def _extract_one(ch) -> dict:
+        async with sem:
+            ms = read_text(manuscript_path(world_id, ch.id))
+            if not ms.strip():
+                return {"chapter_id": ch.id, "skipped": True}
+            await _asyncio.sleep(3)
+            prev = sum(len(tl.events) for tl in w.character_personal_timelines)
+            err = await _try_detect_timeline_events(w, ch.id, ms)
+            new_count = sum(len(tl.events) for tl in w.character_personal_timelines) - prev
+            return {"chapter_id": ch.id, "new": new_count, "error": err} if err else {"chapter_id": ch.id, "new": new_count}
+
+    chapter_results = await _asyncio.gather(*[_extract_one(ch) for ch in chapters])
+    total_new = 0
+    for r in chapter_results:
+        results[r["chapter_id"]] = {k: v for k, v in r.items() if k != "chapter_id"}
+        total_new += r.get("new", 0)
+
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    total_events = sum(len(tl.events) for tl in w.character_personal_timelines)
+    return {"ok": True, "total_new": total_new, "total_events": total_events, "by_chapter": results, "world": w.model_dump(mode="json")}
+
+
+@app.post("/api/worlds/{world_id}/knowledge-graph/extract-all")
+async def api_extract_all_knowledge(world_id: str) -> dict[str, Any]:
+    """Scan all existing chapter manuscripts and extract knowledge entries.
+
+    Processes chapters in parallel (up to 5 at a time) for speed.
+    Returns counts of new/updated entries per chapter.
+    """
+    import asyncio as _asyncio
+
+    w = _story_world_or_404(world_id)
+    chapters = [c for c in w.story.chapters if c.status not in ("planned", "outline")]
+    if not chapters:
+        return {"ok": True, "total_new": 0, "by_chapter": {}, "message": "没有可提取的章节"}
+
+    from worldforger.story_store import manuscript_path, read_text
+    from worldforger.story_service import _try_detect_knowledge
+
+    results = {}
+    sem = _asyncio.Semaphore(3)  # limit concurrency to avoid rate limiting
+
+    async def _extract_one(ch) -> dict:
+        async with sem:
+            ms = read_text(manuscript_path(world_id, ch.id))
+            if not ms.strip():
+                return {"chapter_id": ch.id, "skipped": True, "reason": "文稿为空"}
+            prev_count = len(w.character_knowledge.entries)
+            # Small delay between calls to avoid rate limiting
+            await _asyncio.sleep(3)
+            err = await _try_detect_knowledge(w, ch.id, ms)
+            new_count = len(w.character_knowledge.entries) - prev_count
+            return {"chapter_id": ch.id, "skipped": False, "new": new_count, "error": err} if err else {"chapter_id": ch.id, "skipped": False, "new": new_count}
+
+    chapter_results = await _asyncio.gather(*[_extract_one(ch) for ch in chapters])
+    total_new = 0
+    for r in chapter_results:
+        results[r["chapter_id"]] = {k: v for k, v in r.items() if k != "chapter_id"}
+        total_new += r.get("new", 0)
+
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {
+        "ok": True,
+        "total_new": total_new,
+        "total_entries": len(w.character_knowledge.entries),
+        "by_chapter": results,
+        "world": w.model_dump(mode="json"),
+    }
+
+
 
 
 @app.post("/api/worlds/{world_id}/story/foreshadowing/apply")

@@ -87,6 +87,25 @@ def token_usage_path(world_id: str) -> Path:
     return story_dir(world_id) / "token_usage.json"
 
 
+def knowledge_graph_path(world_id: str) -> Path:
+    return story_dir(world_id) / "knowledge_graph.json"
+
+
+def read_knowledge_graph(world_id: str) -> dict:
+    p = knowledge_graph_path(world_id)
+    if not p.is_file():
+        return {}
+    try:
+        data = read_json_file(p)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def write_knowledge_graph(world_id: str, data: dict) -> None:
+    write_json_file(knowledge_graph_path(world_id), data)
+
+
 def read_token_usage(world_id: str) -> dict:
     """Read persisted token usage, returning {} if missing or corrupted."""
     p = token_usage_path(world_id)

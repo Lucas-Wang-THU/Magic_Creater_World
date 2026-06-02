@@ -239,7 +239,21 @@ def delete_world(world_id: str) -> None:
         raise FileNotFoundError(world_id)
     from worldforger import sqlite_store
     sqlite_store.close_world(world_id)
-    shutil.rmtree(world_root(world_id))
+    from worldforger.chapter_indexer import ChapterIndexer
+    ChapterIndexer.close_world(world_id)
+    import gc, time
+    gc.collect()
+    root = world_root(world_id)
+    last_err = None
+    for attempt in range(5):
+        try:
+            shutil.rmtree(root)
+            return
+        except PermissionError as e:
+            last_err = e
+            time.sleep(1.0)
+            gc.collect()
+    raise last_err
 
 
 def save_world(world: World, *, export_markdown: bool = True) -> None:

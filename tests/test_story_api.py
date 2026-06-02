@@ -412,6 +412,10 @@ async def test_generate_manuscript_triggers_summary_card(mock_chat):
     w.story.writing_defaults.enable_consistency_check = False
     w.story.writing_defaults.enable_sentiment_track = False
     w.story.writing_defaults.enable_polisher = False
+    w.story.writing_defaults.enable_knowledge_track = False
+    w.story.writing_defaults.enable_decision_track = False
+    w.story.writing_defaults.enable_physical_state_track = False
+    w.story.writing_defaults.enable_personal_timeline_track = False
 
     # 第一次调用：正文生成
     # 第二次调用：摘要卡片生成（由 _try_generate_summary_card 触发）

@@ -10,7 +10,7 @@ from worldforger.llm import chat_completion_with_tools
 from worldforger.schemas import StoryPerson, World
 from worldforger.story_chat_artifacts import auto_apply_story_artifacts_from_reply
 from worldforger.story_prompts import story_chat_system_prompt
-from worldforger.story_service import generate_manuscript
+from worldforger.story_service import generate_chapter_beats, generate_manuscript
 from worldforger.world_store import save_world
 
 STORY_TOOLS: list[dict[str, Any]] = [
@@ -58,6 +58,28 @@ STORY_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "generate_chapter_beats",
+            "description": (
+                "为指定章节生成细纲（场景目标、冲突、出场人物、伏笔衔接）并写入 beats 文件。"
+                "当用户要求写细纲/生成细纲/规划章节内容时使用。"
+                "生成后请在回复中用 ```story-beat:<chapter_id> 代码块输出完整细纲供用户查看。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chapter_id": {"type": "string", "description": "章节 id，须存在于 story.chapters"},
+                    "extra_prompt": {
+                        "type": "string",
+                        "description": "额外细纲要求（会与用户最近一条消息合并）",
+                    },
+                },
+                "required": ["chapter_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "generate_manuscript",
             "description": (
                 "根据粗纲、细纲与伏笔撰写指定章节正文并写入 manuscript 文件。"
@@ -80,10 +102,11 @@ STORY_TOOLS: list[dict[str, Any]] = [
 
 TOOL_SYSTEM_APPEND = """
 【工具与意图】
-你可调用工具维护伏笔台账、撰写章节文稿。规则：
-- 用户要求**写正文/撰写本章/成稿**时，优先调用 `generate_manuscript`（chapter_id 用当前选中章或用户指定 id）。
+你可调用工具生成细纲、撰写文稿、维护伏笔台账。规则：
+- 用户要求**写细纲/生成细纲/规划章节**时，调用 `generate_chapter_beats`（chapter_id 用当前选中章或用户指定 id）。生成后必须在回复中用 ```story-beat:<chapter_id> 代码块输出完整细纲。
+- 用户要求**写正文/撰写本章/成稿**时，调用 `generate_manuscript`（chapter_id 用当前选中章或用户指定 id）。
 - 用户要求**埋设/回收/更新伏笔**时，调用 `apply_foreshadowing`；也可在回复末尾附 ```story-foreshadow` JSON 数组（与工具等效）。
-- 粗纲/细纲/文稿长文仍可用 story-macro / story-beat:id / story-manuscript:id 代码块；系统会自动写入磁盘。
+- 粗纲长文可用 story-macro 代码块；系统会自动写入磁盘。
 - 勿编造不存在的 chapter_id / character_id。
 """
 
@@ -158,6 +181,34 @@ async def run_story_chat_agent(
                 ensure_ascii=False,
             )
 
+        if name == "generate_chapter_beats":
+            cid = str(args.get("chapter_id") or active_chapter_id or "").strip()
+            if not cid:
+                return json.dumps({"ok": False, "error": "chapter_id required"})
+            if not any(c.id == cid for c in world.story.chapters):
+                return json.dumps({"ok": False, "error": f"chapter {cid} not found"})
+            extra = str(args.get("extra_prompt") or "").strip()
+            prompt_parts = [p for p in (last_user, extra) if p]
+            prompt = "\n\n".join(prompt_parts) or "请撰写本章细纲。"
+            try:
+                beats = await generate_chapter_beats(
+                    world,
+                    chapter_ids=[cid],
+                    prompt=prompt,
+                    creative_mode=creative_mode,
+                    include_world_md=world.story.writing_defaults.include_world_md,
+                )
+            except Exception as e:
+                return json.dumps({"ok": False, "error": str(e)})
+            beat_text = beats.get(cid, "")
+            actions.append({"tool": name, "chapter_id": cid, "chars": len(beat_text)})
+            return json.dumps(
+                {"ok": True, "chapter_id": cid, "word_count": len(beat_text),
+                 "preview": beat_text[:800],
+                 "hint": f"请在回复中用 ```story-beat:{cid} 代码块输出完整细纲"},
+                ensure_ascii=False,
+            )
+
         if name == "generate_manuscript":
             cid = str(args.get("chapter_id") or active_chapter_id or "").strip()
             if not cid:
@@ -175,7 +226,7 @@ async def run_story_chat_agent(
                 else world.story.writing_defaults.attach_prev_chapters
             )
             try:
-                text, _hook_errors = await generate_manuscript(
+                text, _hook_errors, _timing = await generate_manuscript(
                     world,
                     chapter_id=cid,
                     prompt=prompt,

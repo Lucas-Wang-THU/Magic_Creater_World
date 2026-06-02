@@ -58,20 +58,30 @@
 
     <div class="workflow-strip" aria-label="使用步骤">
       <div class="workflow-inner">
-        <span class="wf-step"
-          ><span class="ms wf-step-ic" aria-hidden="true">rocket_launch</span
-          ><span class="wf-n">1</span>新建或选择世界</span
-        >
+        <span class="wf-step" title="创建新世界或从下拉列表中选择已有世界">
+          <span class="ms wf-step-ic" aria-hidden="true">rocket_launch</span>
+          <span class="wf-n">1</span>新建/选择世界
+        </span>
         <span class="wf-arrow ms" aria-hidden="true">arrow_forward</span>
-        <span class="wf-step"
-          ><span class="ms wf-step-ic" aria-hidden="true">edit_note</span
-          ><span class="wf-n">2</span>世界观构建或左侧分区编辑</span
-        >
+        <span class="wf-step" title="通过对话构建世界观，或在左侧各分区（地理/生态/派系等）中手动编辑">
+          <span class="ms wf-step-ic" aria-hidden="true">edit_note</span>
+          <span class="wf-n">2</span>世界观构建
+        </span>
         <span class="wf-arrow ms" aria-hidden="true">arrow_forward</span>
-        <span class="wf-step"
-          ><span class="ms wf-step-ic" aria-hidden="true">save_alt</span
-          ><span class="wf-n">3</span>保存写入磁盘</span
-        >
+        <span class="wf-step" title="生成主角团、配角和人物关系，建立角色卡司">
+          <span class="ms wf-step-ic" aria-hidden="true">person</span>
+          <span class="wf-n">3</span>角色生成
+        </span>
+        <span class="wf-arrow ms" aria-hidden="true">arrow_forward</span>
+        <span class="wf-step" title="编排粗纲细纲、撰写章节文稿，AI 自动审校与润色">
+          <span class="ms wf-step-ic" aria-hidden="true">auto_stories</span>
+          <span class="wf-n">4</span>情节构建
+        </span>
+        <span class="wf-arrow ms" aria-hidden="true">arrow_forward</span>
+        <span class="wf-step" title="保存当前编辑到磁盘；支持自动快照版本历史">
+          <span class="ms wf-step-ic" aria-hidden="true">save_alt</span>
+          <span class="wf-n">5</span>保存同步
+        </span>
       </div>
     </div>
 
@@ -124,6 +134,9 @@
         </button>
         <button type="button" data-view="charRelations" title="人物关系网络（characters.relations）">
           <span class="ms nav-ic" aria-hidden="true">device_hub</span>人物关系网络
+        </button>
+        <button type="button" data-view="charKnowledge" title="角色认知/知识图谱：追踪每个角色知道什么、信息差与秘密传播">
+          <span class="ms nav-ic" aria-hidden="true">psychology</span>知识图谱
         </button>
         <button type="button" data-view="charData" title="卡司 entities / relations JSON（保存时沿用 world 中已有 summary、design_notes）">
           <span class="ms nav-ic" aria-hidden="true">code</span>卡司数据
@@ -338,6 +351,14 @@
                 <div class="story-wb-aside-head">
                   <span class="story-wb-aside-title"><span id="storyChatAsideUnitLabel">章</span>列表</span>
                   <button type="button" class="ghost tiny btn-ic" id="btnStoryAddChapterChat" title="新建章节">+</button>
+                </div>
+                <div class="story-batch-bar" id="storyBatchBar2">
+                  <span class="story-batch-count">已选 0 章</span>
+                  <button type="button" class="ghost tiny" onclick="batchSetStatus('revising')">修订中</button>
+                  <button type="button" class="ghost tiny" onclick="batchSetStatus('done')">已完成</button>
+                  <button type="button" class="ghost tiny" onclick="batchSetStatus('locked')">锁定</button>
+                  <button type="button" class="ghost tiny" onclick="batchRenumber()">重编号</button>
+                  <button type="button" class="ghost tiny" style="color:#dc2626" onclick="batchDeleteChapters()">删除</button>
                 </div>
                 <nav id="storyChatChapterNav" class="story-chapter-nav" aria-label="章节列表" aria-busy="false"></nav>
                 <p id="storyChatAsideGenHint" class="story-wb-aside-gen-hint muted tiny" hidden role="status">
@@ -1124,6 +1145,42 @@
           </div>
         </section>
 
+        <section id="view-charKnowledge" class="panel">
+          <div class="card">
+            <div class="knowledge-page-head">
+              <h2><span class="ms h2-ic" aria-hidden="true">psychology</span>角色知识图谱</h2>
+              <span id="charKnowledgeCount" class="knowledge-count-badge"></span>
+              <p class="muted tiny knowledge-intro">追踪每个角色知道什么——谁掌握了什么秘密、谁对谁产生了怀疑、信息如何在角色间传播。章节生成后自动检测更新。</p>
+            </div>
+            <div class="knowledge-toolbar">
+              <label class="muted lbl-ic tiny"><input type="checkbox" id="storyToggleKnowledge" checked /> 自动检测</label>
+              <select id="charKnowledgeFilterChar" class="muted tiny" aria-label="按角色筛选"><option value="">全部角色</option></select>
+              <label class="muted tiny knowledge-radio-group">
+                <span>分组：</span>
+                <label class="knowledge-radio"><input type="radio" name="knowledgeGroupBy" value="character" checked onchange="renderKnowledgePanel()"> 按角色</label>
+                <label class="knowledge-radio"><input type="radio" name="knowledgeGroupBy" value="category" onchange="renderKnowledgePanel()"> 按类别</label>
+              </label>
+              <label class="muted lbl-ic tiny"><input type="checkbox" id="storyToggleDecisions" checked /> 决策检测</label>
+              <label class="muted lbl-ic tiny"><input type="checkbox" id="storyTogglePhysical" checked /> 身体追踪</label>
+              <label class="muted lbl-ic tiny"><input type="checkbox" id="storyToggleTimeline" checked /> 时间线</label>
+              <span class="knowledge-toolbar-spacer"></span>
+              <button type="button" class="ghost tiny btn-ic" id="btnExtractAllKnowledge" title="扫描已有章节，提取知识和决策"><span class="ms" aria-hidden="true">auto_awesome</span>从已有章节提取</button>
+              <button type="button" class="ghost tiny" id="btnClearKnowledge" title="清空所有条目（不可撤销）">清空</button>
+            </div>
+            <!-- 标签切换 -->
+            <div class="knowledge-tabs" id="knowledgeTabs">
+              <button type="button" class="knowledge-tab active" data-knowledge-tab="knowledge">认知图谱 <span id="knowledgeTabCount" class="muted tiny"></span></button>
+              <button type="button" class="knowledge-tab" data-knowledge-tab="decisions">关键决策 <span id="decisionsTabCount" class="muted tiny"></span></button>
+              <button type="button" class="knowledge-tab" data-knowledge-tab="physical">身体状况 <span id="physicalTabCount" class="muted tiny"></span></button>
+              <button type="button" class="knowledge-tab" data-knowledge-tab="timeline">个人时间线 <span id="timelineTabCount" class="muted tiny"></span></button>
+            </div>
+            <div id="charKnowledgeList" class="char-knowledge-list"></div>
+            <div id="charDecisionsList" class="char-knowledge-list hidden"></div>
+            <div id="charPhysicalList" class="char-knowledge-list hidden"></div>
+            <div id="charTimelineList" class="char-knowledge-list hidden"></div>
+          </div>
+        </section>
+
         <section id="view-charData" class="panel">
           <div class="card">
             <h2><span class="ms h2-ic" aria-hidden="true">code</span>卡司数据</h2>
@@ -1150,6 +1207,14 @@
                 <div class="story-wb-aside-head">
                   <span class="story-wb-aside-title"><span id="storyAsideUnitLabel">章</span>列表</span>
                   <button type="button" class="ghost tiny btn-ic" id="btnStoryAddChapterSide" title="新建章节">+</button>
+                </div>
+                <div class="story-batch-bar" id="storyBatchBar1">
+                  <span class="story-batch-count">已选 0 章</span>
+                  <button type="button" class="ghost tiny" onclick="batchSetStatus('revising')">修订中</button>
+                  <button type="button" class="ghost tiny" onclick="batchSetStatus('done')">已完成</button>
+                  <button type="button" class="ghost tiny" onclick="batchSetStatus('locked')">锁定</button>
+                  <button type="button" class="ghost tiny" onclick="batchRenumber()">重编号</button>
+                  <button type="button" class="ghost tiny" style="color:#dc2626" onclick="batchDeleteChapters()">删除</button>
                 </div>
                 <nav id="storyChapterNav" class="story-chapter-nav" aria-busy="false"></nav>
                 <p id="storyWbAsideGenHint" class="story-wb-aside-gen-hint muted tiny" hidden role="status">
@@ -1179,6 +1244,7 @@
                 <button type="button" class="ghost btn-ic" id="btnStoryImportLegacy">导入旧 plot_outline</button>
                 <button type="button" class="ghost btn-ic" id="btnStoryAddChapter">新建章节</button>
               </div>
+              <div id="storyChapterStatusList" class="story-ch-status-list"></div>
               <details class="story-advanced">
                 <summary class="muted tiny">高级：chapters JSON</summary>
                 <textarea id="storyChaptersJson" class="json-editor-compact" spellcheck="false"></textarea>
@@ -1290,6 +1356,15 @@
               <div class="story-fs-toolbar row">
                 <button type="button" class="ghost btn-ic" id="btnStoryAddForeshadow">+ 添加伏笔</button>
                 <span class="muted tiny">沿章节轴查看埋设与回收；保存世界时写入 story.foreshadowing</span>
+              </div>
+              <div class="story-fs-filters" id="storyFsFilters">
+                <span class="muted tiny">筛选：</span>
+                <span class="story-fs-badge-filter story-fs-badge-filter--active story-fs-badge-filter--open" data-fs-filter="open">开放</span>
+                <span class="story-fs-badge-filter story-fs-badge-filter--resolved" data-fs-filter="resolved">已回收</span>
+                <span class="story-fs-badge-filter story-fs-badge-filter--abandoned" data-fs-filter="abandoned">废弃</span>
+                <span style="margin-left:8px" class="muted tiny">章：</span>
+                <select id="storyFsChapterFilter" aria-label="按章筛选"><option value="">全部章节</option></select>
+                <button type="button" class="ghost tiny" id="btnStoryFsClearFilter" style="display:none">清除筛选</button>
               </div>
               <div id="storyForeshadowTimeline" class="story-fs-timeline" aria-label="伏笔时间轴"></div>
               <div id="storyForeshadowList" class="story-fs-list"></div>

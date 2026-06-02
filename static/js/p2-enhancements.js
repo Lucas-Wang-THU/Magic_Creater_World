@@ -26,18 +26,41 @@ export async function renderStoryStats() {
 function _buildStatsHTML(d) {
   const prog = d.completion || {};
   const fs = d.foreshadowing || {};
+  const statusLabels = { planned: "规划中", outline: "大纲", drafting: "草稿", revising: "修订中", locked: "已锁定", done: "已完成", archived: "归档" };
   const chRows = (d.chapter_progress || []).map(c => {
     const pct = d.total_words > 0 ? Math.round(c.word_count / Math.max(1, d.total_words) * 100) : 0;
-    const statusLabels = { locked: "已锁定", completed: "已完成", drafting: "草稿", outline: "大纲" };
-    const st = statusLabels[c.status] || c.status || "大纲";
+    const st = statusLabels[c.status] || c.status || "规划中";
     return `<tr>
       <td class="stats-ch-order">${c.order}</td>
       <td>${escapeHtml(c.title || "")}</td>
       <td class="stats-ch-words">${c.word_count.toLocaleString()}</td>
-      <td><span class="pill-sm pill-${c.status || 'outline'}">${st}</span></td>
+      <td><span class="pill-sm pill-${c.status || 'planned'}">${st}</span></td>
       <td><div class="stats-mini-bar"><div class="stats-mini-bar-fill" style="width:${pct}%"></div></div></td>
     </tr>`;
   }).join("");
+
+  // Completion progress: count chapters by status
+  const chProgress = d.chapter_progress || [];
+  const statusCount = {};
+  for (const ch of chProgress) {
+    const s = ch.status || "planned";
+    statusCount[s] = (statusCount[s] || 0) + 1;
+  }
+  const doneCount = (statusCount.done || 0) + (statusCount.locked || 0);
+  const totalCh = chProgress.length || 1;
+  const donePct = Math.round(doneCount / totalCh * 100);
+  const progressSegments = [
+    { key: "done", count: statusCount.done || 0, cls: "stats-progress-fill--done" },
+    { key: "locked", count: statusCount.locked || 0, cls: "stats-progress-fill--locked" },
+    { key: "drafting", count: statusCount.drafting || 0, cls: "stats-progress-fill--drafting" },
+    { key: "revising", count: statusCount.revising || 0, cls: "stats-progress-fill--revising" },
+    { key: "planned", count: (statusCount.planned || 0) + (statusCount.outline || 0) + (statusCount.archived || 0), cls: "stats-progress-fill--planned" },
+  ].filter(s => s.count > 0);
+  const progressBar = totalCh > 0
+    ? `<div class="stats-progress-bar">${progressSegments.map(s =>
+        `<div class="stats-progress-fill ${s.cls}" style="width:${Math.round(s.count / totalCh * 100)}%" title="${statusLabels[s.key] || s.key}: ${s.count} 章"></div>`
+      ).join("")}</div>`
+    : "";
 
   return `<div class="stats-dashboard">
     <div class="stats-hero">
@@ -54,10 +77,11 @@ function _buildStatsHTML(d) {
         <span class="stats-hero-label">伏笔总数</span>
       </div>
       <div class="stats-hero-card">
-        <span class="stats-hero-num">${prog.completed || 0}/${prog.locked || 0}</span>
-        <span class="stats-hero-label">完成/锁定</span>
+        <span class="stats-hero-num">${donePct}%</span>
+        <span class="stats-hero-label">完成度</span>
       </div>
     </div>
+    ${progressBar ? `<div class="stats-card"><h3 class="stats-card-title"><span class="ms" aria-hidden="true">timeline</span>章节进度</h3>${progressBar}<p class="muted tiny" style="margin-top:4px">${doneCount}/${totalCh} 章已完成或锁定</p></div>` : ""}
     <div class="stats-grid">
       <div class="stats-card">
         <h3 class="stats-card-title"><span class="ms" aria-hidden="true">show_chart</span>章节字数分布</h3>

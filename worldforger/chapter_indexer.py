@@ -187,22 +187,39 @@ def _book_summary_path(world_id: str) -> Path:
 class ChapterIndexer:
     """管理单个世界的向量索引（章节手稿 + world.md + 人物卡）。"""
 
+    _global_clients: dict[str, "chromadb.PersistentClient"] = {}
+
     def __init__(self, world_id: str):
         self.world_id = world_id
         self._index_dir = rag_index_dir(world_id)
 
-    # ── client / collection (lazy) ──
+    # ── client / collection (lazy, cached) ──
 
-    @property
-    def _client(self) -> "chromadb.PersistentClient":
+    def _get_client(self) -> "chromadb.PersistentClient":
         import chromadb
+        if self.world_id not in self._global_clients:
+            self._index_dir.mkdir(parents=True, exist_ok=True)
+            self._global_clients[self.world_id] = chromadb.PersistentClient(path=str(self._index_dir))
+        return self._global_clients[self.world_id]
 
-        self._index_dir.mkdir(parents=True, exist_ok=True)
-        return chromadb.PersistentClient(path=str(self._index_dir))
+    @classmethod
+    def close_world(cls, world_id: str) -> None:
+        """Close and release the ChromaDB client for a world (frees file locks)."""
+        client = cls._global_clients.pop(world_id, None)
+        if client is not None:
+            try:
+                client._system.stop()  # chromadb >= 0.4
+            except Exception:
+                try:
+                    client._admin_client._server.stop()  # older chromadb
+                except Exception:
+                    pass
+        import gc
+        gc.collect()
 
     @property
     def _collection(self):
-        return self._client.get_or_create_collection(
+        return self._get_client().get_or_create_collection(
             name="narrative_chunks",
             metadata={"hnsw:space": "cosine"},
         )

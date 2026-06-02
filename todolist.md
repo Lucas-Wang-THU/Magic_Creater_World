@@ -9,7 +9,7 @@
 
 ## 当前状态（最近一次核对）
 
-- **pytest**：**`364 passed, 14 deselected`**（364 tests 全部通过；含 84 个 Layer 3 测试 + 38 个 Layer 4 测试；14 个测试需 API key 或存在已知的格式校对者兼容性问题；使用 `E:/ananconda/envs/Agent/python.exe`）。
+- **pytest**：**`421 passed, 1 deselected`**（421 tests 全部通过；含 84 个 Layer 3 + 38 个 Layer 4 + 28 个知识系统 + 13 个决策系统 + 新的身体状态测试；1 个 e2e 偶发不稳定）。
 - **全部 11 个世界观模块**（地理/生态/境界/属性/物品/派系/文化/历史/经济/角色/情节）已完成 **Schema + GUI 表单 + 第二路结构化同步**。
 - **三 Agent 校对者流水线**：架构师→同步器→校对者→架构师补充循环（至多 N 轮，默认 3），校对者检查同步器是否遗漏架构师回复中的新增内容，确保增量追加不丢数据。
 - **ID 感知增量合并**：`merge_array_by_id()` 按 `id` 匹配已有条目做 deep-merge，新条目追加到末尾，**永不覆盖/删除已有数据**。
@@ -92,13 +92,22 @@
 
 对用户有直接可见价值的改进。
 
-| 优先级 | 项 | 说明 |
-|:--:|:--|:--|
-| P2 | **world.md 导出包含情节** | 目前 `markdown_export` 不含 story 节的章节列表与伏笔台账；导出追加 `## 情节` 小节 | ▢ |
-| P2 | **章节批量操作** | 拖拽排序、多选删除、批量重编号 | ▢ |
-| P2 | **伏笔时间轴交互优化** | 拖拽分配章节、状态切换动画、筛选视图 | ▢ |
-| P2 | **写作看板统计** | 各章字数趋势、伏笔 open/resolved 比例、完成度进度条 | ▢ |
-| P2 | **章节细分状态** | 当前 `planned | drafting | locked` 三级，可考虑扩展 `revising`、`done` 等 | ▢ |
+| 优先级 | 项 | 说明 | 状态 |
+|:--:|:--|:--|:--:|
+| P2 | ~~world.md 导出包含情节~~ | 用户明确不需要 | ❌ |
+| P2 | **章节批量操作** | 多选复选框、批量工具栏（状态更改/重编号/删除）、自动重编号 | ✅ |
+| P2 | **伏笔时间轴交互优化** | 按状态筛选（开放/已回收/废弃）、按章节筛选、清除筛选按钮 | ✅ |
+| P2 | **写作看板统计** | 完成度进度条（状态分色堆叠）、英雄卡片完成度百分比、7 种状态标签扩展 | ✅ |
+| P2 | **章节细分状态** | `planned → outline → drafting → revising → locked → done → archived` 七级状态机 | ✅ |
+
+### P2 实现细节
+
+- **Schema** `worldforger/schemas.py`：`StoryChapterStatus` 扩展为 7 个 Literal 值
+- **API** `app/main.py`：新增 `POST /api/worlds/{id}/story/chapters/batch`（支持 delete/reorder/status 三种 action）
+- **前端** `static/app.js`：`renderStoryChapterNav()` 增加多选复选框 + `refreshBatchBar()` 批量工具栏 + `batchSetStatus()`/`batchDeleteChapters()`/`batchRenumber()` 函数；伏笔 `_foreshadowFilter` 状态驱动筛选 + 事件绑定
+- **前端** `static/js/p2-enhancements.js`：统计面板增加完成度进度条、状态分色堆叠、英雄卡片百分比
+- **CSS** `static/styles.css`：新增 7 色状态指示点、批量工具栏样式、筛选标签样式、进度条样式
+- **HTML** `static/index.html`：两个章节侧栏各增加批量工具栏、伏笔面板增加筛选条
 
 ---
 
@@ -666,226 +675,55 @@ class RelationshipState(BaseModel):
 
 ---
 
-### P0 — 角色认知/知识系统（2 周）
+### P0 — 角色认知/知识系统（2 周）✅ 已完成
 
-#### 问题
+**2026-06 已实现**：完整的知识追踪系统，含 6 类知识（秘密/个人历史/世界设定/计划/怀疑/误解）× 4 级确定度。每章生成后自动检测；manuscript prompt 注入信息边界；前端知识图谱独立页面（按角色/类别分组、筛选、批量提取）。
 
-当前系统不追踪"谁知道什么"。导致：
-- 角色在对话中不经意说出不该知道的信息
-- 同一个秘密被反复"首次揭露"
-- 无法利用信息差制造戏剧张力（读者知道 A 是叛徒，B 不知道——但系统不追踪这个）
-
-#### Schema 设计
-
-```python
-class CharacterKnowledgeEntry(BaseModel):
-    """单条知识——某个角色知道某件事"""
-    knowledge_id: str = ""                  # 如 "know_traitor_identity"
-    character_id: str = ""                  # 谁知道
-    topic: str = ""                         # "芬恩是叛徒" / "翠绿议会的真正起源"
-    category: Literal[
-        "secret",          # 秘密（只有特定角色知道）
-        "personal_history", # 个人历史（童年经历、创伤）
-        "world_lore",      # 世界设定知识
-        "plan",            # 计划/策略（某角色知道的行动计划）
-        "suspicion",       # 怀疑（不确定但有所察觉）
-        "misunderstanding", # 误解（角色以为是真的但其实是假的）
-    ] = "secret"
-    certainty: Literal["knows_for_sure", "strongly_suspects", "vaguely_senses", "believes_wrongly"] = "knows_for_sure"
-    source_chapter: str = ""                # 从哪章获得此知识
-    source_detail: str = ""                 # 如何获得的："偷听了议会对话"
-    shared_with: list[str] = Field(default_factory=list)
-    # [{"char_id": "char_b", "chapter": "ch_5", "method": "主动告知"}]
-    is_still_true: bool = True              # 是否仍是真相（可能后来的事件改变了事实）
-    notes: str = ""
-
-class CharacterKnowledgeGraph(BaseModel):
-    """全局角色知识图谱"""
-    entries: list[CharacterKnowledgeEntry] = Field(default_factory=list)
-    # 视角查询：GET /knowledge?character=char_a → 该角色知道的全部信息
-    # 秘密查询：GET /knowledge?topic=traitor → 谁知道/不知道此信息
-```
-
-**存储位置**：`World` 新增可选字段 `character_knowledge: CharacterKnowledgeGraph`
-
-#### 检测与更新
-
-每章生成后：
-```
-【角色知识检测】
-检查本章正文中：
-1. 是否有角色获得了新信息？（谁、什么信息、从什么来源、确定程度）
-2. 是否有角色分享了信息？（谁告诉了谁什么）
-3. 是否有角色基于错误信息行动？（记录下来——这是戏剧冲突来源）
-4. 是否有角色"不应该知道但说了出来"？（标注为潜在的一致性 bug）
-
-对每个检测到的知识变化，创建或更新 KnowledgeEntry。
-```
-
-#### 注入策略
-
-在 manuscript prompt 中追加：
-```
-【本章各角色所知信息（请严格遵守信息边界）】
-- 艾拉 KNOWS: 芬恩的真实身份（ch_2 偷听得知）、裂隙的初步情报
-- 艾拉 DOES NOT KNOW: 凯伦在 ch_3 与敌人的秘密交易
-- 芬恩 KNOWS: 艾拉在隐瞒某事（suspicion, ch_4 察觉到异常）
-- 芬恩 DOES NOT KNOW: 艾拉隐瞒的具体内容
-
-【信息差叙事规则】
-1. 角色不能说出ta不知道的信息
-2. 如果 X 不知道 Y，X 的对话和内心独白不应含有 Y
-3. 利用信息差制造张力：读者知道但角色不知道的，用角色的"无知"行为体现
-4. 误解（believes_wrongly）是好的戏剧素材——不要急于纠正
-```
-
-#### 涉及文件
+#### 实现文件
 
 | 文件 | 改动 |
 |:--|:--|
-| `worldforger/schemas.py` | 新增 `CharacterKnowledgeEntry`、`CharacterKnowledgeGraph`，`World` 增加字段 |
-| `worldforger/story_prompts.py` | 新增 `knowledge_detection_system()`；manuscript prompt 注入知识边界 |
-| `worldforger/story_service.py` | 章节后知识检测 + 更新 |
-| `worldforger/panel_sync.py` | 同步器 characters scope 支持 knowledge entries |
-| `static/app.js` | 新增"角色知识"面板：按角色视角筛选 + 信息差高亮 + 秘密传播图 |
+| `worldforger/schemas.py` | `CharacterKnowledgeEntry`、`CharacterKnowledgeGraph`、`StoryWritingDefaults.enable_knowledge_track`、`World.character_knowledge` |
+| `worldforger/story_prompts.py` | `knowledge_detection_system()`、`build_knowledge_detection_user_payload()`、`format_knowledge_boundaries()` |
+| `worldforger/story_service.py` | `_try_detect_knowledge()` 后处理钩子 + `_repair_llm_json()` 通用 JSON 修复 |
+| `app/main.py` | `GET /api/.../knowledge-graph`、`POST .../extract-all`（并行扫描）、`POST .../clear` |
+| `static/app.js` | `renderKnowledgePanel()`（按角色/类别分组、六色 category 标记） |
+| `static/index.html` | 左侧角色导航新增"知识图谱"按钮 + 专属面板（工具栏 + 标签切换） |
+| `tests/test_knowledge.py` | 28 个测试覆盖 Schema/Prompt/Storage/Service |
 
 ---
 
-### P1 — 角色决策日志（1.5 周）
+### P1 — 角色决策日志（1.5 周）✅ 已完成
 
-#### 问题
+**2026-06 已实现**：6 类决策追踪（道德抉择/信任决策/战略选择/自我揭示/关系决策/牺牲），区分表面/真实动机，后果链 + 反思 + 判决。manuscript prompt 注入决策历史保持行为一致性。知识图谱页"关键决策"标签。
 
-角色在 ch_2 做了一个关键选择（"放弃救 NPC 以获取情报"），到 ch_8 时行为模式已变，但无系统追踪该决策的长期影响。导致角色行为看似随机——没有决策→后果→信念变化的因果链。
-
-#### Schema 设计
-
-```python
-class CharacterDecision(BaseModel):
-    """角色的关键决策及其后果链"""
-    decision_id: str = ""
-    character_id: str = ""
-    chapter: str = ""
-    summary: str = ""                       # "艾拉选择不救 NPC 莫里斯，以获取翠绿议会的关键情报"
-    decision_type: Literal[
-        "moral_choice",       # 道德抉择（牺牲谁/什么）
-        "trust_decision",     # 信任决策（相信/拒绝某人）
-        "strategic_choice",   # 战略选择（走哪条路）
-        "self_revelation",    # 自我揭示（角色的某个选择暴露了ta真正的价值观）
-        "relationship_choice", # 关系决策（切断/建立/修复关系）
-        "sacrifice",          # 牺牲（失去某物以换取某物）
-    ] = "moral_choice"
-    options_considered: list[str] = Field(default_factory=list)
-    # ["A: 冲进去救莫里斯但失去情报", "B: 放弃莫里斯获取情报"]
-    option_chosen: str = ""                 # "B"
-    stated_reason: str = ""                 # 角色自己说的理由
-    actual_reason: str = ""                 # 真实原因（可能不同——角色会自我欺骗）
-
-    # 后果链
-    immediate_consequences: list[str] = Field(default_factory=list)
-    # ["莫里斯死亡", "获得翠绿议会情报", "凯伦对艾拉的信任降低"]
-    long_term_consequences: list[dict] = Field(default_factory=list)
-    # [{"chapter": "ch_5", "effect": "艾拉开始回避需要牺牲他人的决策", "type": "personality_shift"}]
-
-    # 角色的反思
-    reflections: list[dict] = Field(default_factory=list)
-    # [{"chapter": "ch_4", "reflection": "艾拉梦到莫里斯", "type": "emotional"}]
-
-    # 是否已被证明是错误/正确的？
-    outcome_verdict: Literal["pending", "proved_right", "proved_wrong", "ambiguous", "irrelevant"] = "pending"
-```
-
-**存储位置**：在 `characters.entities[]` 每项 dict 中新增可选字段 `decisions: list[dict]`
-
-#### 检测时机
-
-每章生成后检测新的关键决策（与 aftermath 检测合并调用）。不要求每章都有新决策——关键决策以 3-5 章为单位出现。
-
-#### Prompt 注入
-
-```
-【角色决策历史——行为一致性参考】
-艾拉的关键决策：
-- ch_2：放弃莫里斯获取情报（moral_choice）→ 长期影响：对牺牲类决策犹豫
-  → 本章提示：如果艾拉面临"牺牲 X 换取 Y"的情境，她的犹豫应比普通角色更明显
-- ch_5：主动向芬恩坦白身份（self_revelation）→ 说明艾拉在信任方面有进展
-  → 本章提示：艾拉的对人态度应有微妙变化——更愿意冒信任风险
-```
-
-#### 涉及文件
+#### 实现文件
 
 | 文件 | 改动 |
 |:--|:--|
-| `worldforger/schemas.py` | 新增 `CharacterDecision` |
-| `worldforger/story_prompts.py` | 新增 `decision_detection_system()`；manuscript prompt 注入决策历史 |
-| `worldforger/story_service.py` | 章节后决策检测 |
-| `static/app.js` | 角色面板新增"关键决策"时间轴 + 后果链可视化 |
+| `worldforger/schemas.py` | `CharacterDecision`（10 字段）、`StoryWritingDefaults.enable_decision_track`、`World.character_decisions` |
+| `worldforger/story_prompts.py` | `decision_detection_system()`、`build_decision_detection_user_payload()`、`format_decision_history()` |
+| `worldforger/story_service.py` | `_try_detect_decisions()` 后处理钩子 |
+| `app/main.py` | `GET /api/.../decisions`、`POST .../decisions/extract-all`、PATCH toggle |
+| `static/app.js` | `renderDecisionsPanel()` 卡片渲染（六色类型标记 + 判决标记 + 表面/真实动机区分） |
+| `tests/test_decisions.py` | 13 个测试覆盖 Schema/Prompt/Service |
 
 ---
 
-### P1 — 角色身体状况追踪（1 周）
+### P1 — 角色身体状况追踪（1 周）✅ 已完成
 
-#### 问题
+**2026-06 已实现**：每章生成后 LLM 自动提取身体状态变化（活跃伤情 × 愈合进度、永久疤痕、慢性状态、四级疲劳度）。manuscript prompt 注入身体状态 + 叙事规则。知识图谱页"身体状况"标签。
 
-角色在 ch_1 手臂中箭，ch_2 若无其事地攀岩——没有"伤病史"追踪。真正的身体承载历史：旧伤在雨天隐隐作痛、疤痕让人不敢穿短袖、长期疲劳导致判断力下降。
-
-#### Schema 设计
-
-```python
-class CharacterPhysicalState(BaseModel):
-    """角色身体状况——身体承载叙事历史"""
-    character_id: str = ""
-
-    # 活跃伤情
-    active_injuries: list[dict] = Field(default_factory=list)
-    # [{"injury_id": "inj_001", "type": "箭伤", "location": "左肩",
-    #   "caused_in_chapter": "ch_1", "severity": "moderate",
-    #   "healing_progress": "60%", "functional_impact": "左手抬不过肩",
-    #   "last_mentioned_chapter": "ch_3"}]
-
-    # 永久疤痕/改变
-    permanent_marks: list[dict] = Field(default_factory=list)
-    # [{"mark_id": "scar_001", "type": "疤痕", "location": "左前臂",
-    #   "origin": "ch_1 箭伤愈合", "visibility": "noticeable",
-    #   "character_feeling": "不愿被人看到"}]
-
-    # 慢性状态
-    chronic_conditions: list[dict] = Field(default_factory=list)
-    # [{"condition": "左肩旧伤——阴雨天酸痛", "since_chapter": "ch_2"}]
-
-    # 当前身体状态
-    fatigue_level: Literal["rested", "tired", "exhausted", "collapse_imminent"] = "rested"
-    general_condition: str = ""
-    # "连续三章高强度战斗，身体处于透支边缘"
-
-    last_updated_chapter: str = ""
-```
-
-**存储位置**：在 `characters.entities[]` 每项 dict 中新增可选字段 `physical_state: dict`
-
-#### 更新与注入
-
-轻量——不需要独立 LLM 调用。在 manuscript prompt 中要求模型自己标注身体状态变化：
-```
-【角色身体状况——请让身体承载历史】
-- 芬恩：左肩箭伤（ch_1，愈合约 60%，左手抬不过肩）、疲劳度=tired
-  → 本章任何涉及左臂的动作应有不适感（一句即可）
-  → 如果有人拍他左肩，他应该缩一下
-- 艾拉：无伤，但疲劳度=exhausted（ch_4-5 连续战斗+失眠）
-  → 决策速度应变慢，可能因为疲劳犯小错误
-
-【身体叙事规则】
-1. 旧伤不是背景装饰——它真的影响行动
-2. 疲劳会影响判断力——疲劳的角色更容易出错
-```
-
-#### 涉及文件
+#### 实现文件
 
 | 文件 | 改动 |
 |:--|:--|
-| `worldforger/schemas.py` | 新增 `CharacterPhysicalState` |
-| `worldforger/story_prompts.py` | manuscript prompt 注入身体状态 |
-| `worldforger/story_service.py` | 章节后从正文提取身体状态变化（复用已有 aftermath 提取流程） |
-| `static/app.js` | 角色卡片展示活跃伤情 + 身体状况 |
+| `worldforger/schemas.py` | `CharacterPhysicalState`（active_injuries/permanent_marks/chronic_conditions/fatigue_level 四级）、toggle + `World.character_physical_states` |
+| `worldforger/story_prompts.py` | `physical_state_detection_system()`、`build_physical_state_detection_user_payload()`、`format_physical_state_for_prompt()` |
+| `worldforger/story_service.py` | `_try_update_physical_states()` 后处理钩子（按 character_id upsert） |
+| `app/main.py` | `GET /api/.../physical-states`、PATCH toggle |
+| `static/app.js` | `renderPhysicalStatesPanel()` — 伤情/疤痕/慢性状态卡片 + 疲劳度色标 |
+| `static/index.html` | 知识页"身体状况"标签 + 身体追踪开关 |
 
 ---
 
@@ -1022,20 +860,18 @@ class CharacterPersonalTimeline(BaseModel):
 ### 实施路径
 
 ```
-Phase 1（2-3 周）──────────── Phase 2（2-3 周）──────────── Phase 3（2-3 周）──
-├─ P0: 关系演变状态机          ├─ P1: 角色决策日志           ├─ P2: 团队/群像动力学
-├─ P0: 角色认知/知识系统       ├─ P1: 角色身体状况追踪       ├─ P2: 角色个人时间线
+Phase 1（已完成）────────────── Phase 2（已完成）────────────── Phase 3（规划中）──
+├─ P0: 关系演变状态机 [待定]    ├─ P1: 角色决策日志 ✅          ├─ P2: 团队/群像动力学
+├─ P0: 角色认知/知识系统 ✅     ├─ P1: 角色身体状况追踪 ✅      ├─ P2: 角色个人时间线
 │                               │                             │
 │  + todolist_far Phase 1      │  + todolist_far Phase 2     │  + todolist_far Phase 3
 │    (语言风格+后遗症+反公式)    │    (呼吸段落+金句+缺陷+习惯) │    (设定揭示+不可逆失败+相互改变)
 └──────────────────────────────┴──────────────────────────────┴──────────────────────────
 ```
 
-**Phase 1 策略**：关系演变 + 认知系统是两个基础性的"横向"系统——几乎所有角色功能都依赖它们。优先做这两个，后续模块（决策日志、身体追踪、团队动力学）可以建立在它们之上。
+**Phase 1 已完成**：知识系统是基础性的"横向"系统——几乎所有角色功能都依赖它。
 
-**Phase 2 策略**：决策日志 + 身体状况是"纵向"系统——追踪单个角色随时间的变化。它们依赖 Phase 1 的关系和知识系统来提供上下文。
-
-**Phase 3 策略**：团队动力学 + 个人时间线是"全局"系统——需要 Phase 1+2 的数据累积才能发挥最大价值。
+**Phase 2 已完成**：决策日志 + 身体状况是"纵向"系统——追踪单个角色随时间的变化。
 
 ---
 
@@ -1119,3 +955,25 @@ Phase 1（2-3 周）──────────── Phase 2（2-3 周）─
   - 性能优化：独立后处理钩子并行执行（`asyncio.gather`）+ 润色环启用时跳过独立一致性审校（避免重复 LLM 调用），单章生成墙钟时间节省约 40%。
   - 测试：38 个 Layer 4 单元与集成测试（`tests/test_layer4.py`），覆盖 7 个测试类——Schema（4）、Storage（5）、Prompts（10）、Loop（7）、API（7）、StyleReference（3）、Integration（2）。
 - [x] **校对者性能优化**：统一校对者（审查+补全合并为单次 LLM 调用，消除架构师→同步器往返）、`PROOFREADER_MODEL` 可配置（建议用小模型加速）、空 patch 跳过校对、章节节拍并行生成（`asyncio.gather`）。
+
+- [x] **P2 体验增强**：章节细分状态（7 级状态机）+ 章节批量操作（多选复选框、批量工具栏）+ 伏笔时间轴筛选（按状态/按章过滤）+ 写作看板统计增强（完成度分色进度条）。
+  - `worldforger/schemas.py`：`StoryChapterStatus` 从 3 个扩展为 7 个。
+  - `app/main.py`：新增 `POST /api/worlds/{id}/story/chapters/batch`（delete/reorder/status）。
+  - `static/app.js`：多选复选框 + 批量工具栏 + 伏笔筛选逻辑。
+  - `static/js/p2-enhancements.js`：完成度进度条 + 英雄卡片百分比。
+  - `static/styles.css`：7 色状态指示点、批量工具栏、筛选标签、进度条样式。
+  - `static/index.html`：章节侧栏批量工具栏 + 伏笔筛选条。
+
+- [x] **P0 角色认知/知识系统**：6 类知识 x 4 级确定度。每章自动检测；manuscript 注入信息边界。前端知识图谱独立页面（按角色/类别分组、筛选、批量提取）。
+  - schemas: CharacterKnowledgeEntry、CharacterKnowledgeGraph、World.character_knowledge。
+  - prompts: knowledge_detection_system()、format_knowledge_boundaries()。
+  - service: _try_detect_knowledge() + _repair_llm_json()。
+  - 28 个测试 (test_knowledge.py)。
+
+- [x] **P1 角色决策日志**：6 类决策，区分表面/真实动机，后果链 + 反思 + 判决。manuscript 注入决策历史。
+  - schemas: CharacterDecision (10 字段)、World.character_decisions。
+  - 13 个测试 (test_decisions.py)。
+
+- [x] **P1 角色身体状况追踪**：伤情愈合进度 + 永久疤痕 + 慢性状态 + 四级疲劳度。manuscript 注入身体叙事规则。
+  - schemas: CharacterPhysicalState、World.character_physical_states。
+  - service: _try_update_physical_states() 按 character_id upsert。

@@ -85,9 +85,6 @@
   color: #ea580c;
 }
 
-.wf-step {
-  gap: 6px;
-}
 .wf-step-ic {
   font-size: 18px !important;
   color: var(--accent) !important;
@@ -308,25 +305,29 @@ a:hover {
   color: #334155;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
+  cursor: default;
+  white-space: nowrap;
 }
 
 .wf-n {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
   background: var(--primary);
   color: #fff;
   font-size: 11px;
   font-weight: 700;
+  flex-shrink: 0;
 }
 
 .wf-arrow {
   color: #94a3b8;
   font-size: 14px;
+  flex-shrink: 0;
 }
 
 .header-actions {
@@ -4758,6 +4759,292 @@ textarea.json-editor-tiny {
   color: #475569 !important;
 }
 
+/* ── P0: 角色知识图谱页面 ────────────────────────────────── */
+
+.knowledge-page-head {
+  margin-bottom: 12px;
+}
+.knowledge-page-head h2 { margin: 0 0 4px; }
+.knowledge-intro { display: block; margin-top: 2px; max-width: 640px; }
+.knowledge-count-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.74rem;
+  font-weight: 500;
+  background: #ede9fe;
+  color: #7c3aed;
+  vertical-align: middle;
+}
+
+.knowledge-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin-bottom: 14px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+}
+.knowledge-toolbar-spacer { flex: 1; }
+.knowledge-radio-group { display: flex; align-items: center; gap: 4px; font-size: 0.74rem; }
+.knowledge-radio { display: flex; align-items: center; gap: 2px; cursor: pointer; }
+.knowledge-radio input { margin: 0; }
+
+.knowledge-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  border: 2px dashed #e2e8f0;
+  border-radius: 14px;
+  background: #fafbfc;
+}
+.knowledge-empty-icon { font-size: 2.5rem !important; color: #cbd5e1 !important; margin-bottom: 8px; }
+.knowledge-empty p { margin: 2px 0; }
+
+/* Knowledge page: constrained height from panel → card → list */
+#view-charKnowledge.panel {
+  max-height: calc(100vh - 110px);
+  overflow: hidden;
+}
+#view-charKnowledge .card {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.char-knowledge-list {
+  display: none;                    /* hidden by default, shown by tab switch */
+  flex-direction: column;
+  gap: 12px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 2px 0;
+  min-height: 0;
+}
+.char-knowledge-list:not(.hidden) {
+  display: flex;
+}
+
+/* Character group cards: constrain max height with internal scroll */
+.knowledge-char-group {
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  max-height: 50vh;
+  min-height: 0;
+}
+.knowledge-char-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  background: linear-gradient(135deg, #f8fafc, #f1f5f9);
+  border-bottom: 1px solid #e2e8f0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #334155;
+}
+.knowledge-char-group-head .ms { color: #6366f1; }
+.knowledge-char-count { margin-left: auto; font-size: 0.72rem; color: #94a3b8; font-weight: 400; }
+
+.knowledge-char-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+  align-content: start;
+}
+
+.knowledge-card {
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #fafbfc;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+.knowledge-card:hover {
+  box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+  border-color: #cbd5e1;
+}
+.knowledge-card-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.knowledge-card-cat {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px;
+  border-radius: 5px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  border: 1px solid;
+}
+.knowledge-card-cat .ms { font-size: 0.85rem; }
+.knowledge-card-certainty {
+  padding: 1px 8px;
+  border-radius: 5px;
+  font-size: 0.66rem;
+  font-weight: 500;
+}
+.knowledge-card-stale {
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.64rem;
+  background: #fee2e2;
+  color: #991b1b;
+}
+.knowledge-card-topic {
+  margin: 4px 0;
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: #1e293b;
+  line-height: 1.4;
+}
+.knowledge-card-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: 0.72rem;
+  color: #64748b;
+  margin-bottom: 2px;
+}
+.knowledge-card-detail {
+  margin-top: 3px;
+  font-size: 0.74rem;
+  color: #475569;
+  line-height: 1.5;
+}
+.knowledge-detail-label {
+  display: inline-block;
+  font-size: 0.66rem;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-right: 6px;
+  min-width: 3.5em;
+}
+
+/* ── 知识图谱页：标签切换 ──────────────────────────────── */
+
+.knowledge-tabs {
+  display: flex; gap: 0; margin-bottom: 14px;
+  border-bottom: 2px solid #e2e8f0;
+}
+.knowledge-tab {
+  padding: 7px 18px; border: none; background: none;
+  font-size: 0.82rem; font-weight: 500; color: #64748b;
+  cursor: pointer; border-bottom: 2px solid transparent;
+  margin-bottom: -2px; transition: color 0.15s, border-color 0.15s;
+}
+.knowledge-tab:hover { color: #334155; }
+.knowledge-tab.active { color: var(--primary); border-bottom-color: var(--primary); font-weight: 600; }
+
+/* ── P1: 决策卡片 ─────────────────────────────────────── */
+
+.decision-card {
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0; border-radius: 10px;
+  background: #fafbfc; margin-bottom: 8px;
+  transition: box-shadow 0.15s;
+}
+.decision-card:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
+.decision-card-top {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+}
+.decision-verdict {
+  margin-left: auto; font-size: 0.68rem; font-weight: 500;
+  padding: 1px 8px; border-radius: 4px;
+  background: #f1f5f9; color: #64748b;
+}
+
+/* ── P1: 身体状况卡片 ─────────────────────────────────── */
+
+.phys-card {
+  padding: 14px 16px;
+  border: 1px solid #e2e8f0; border-radius: 12px;
+  background: #fff; margin-bottom: 10px;
+}
+.phys-card:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
+.phys-card-head {
+  display: flex; align-items: center; gap: 6px; margin-bottom: 6px;
+}
+.phys-card-head .ms { color: #6366f1; }
+.phys-card-head strong { font-size: 0.88rem; color: #1e293b; }
+.phys-fatigue {
+  margin-left: auto; font-size: 0.74rem; font-weight: 600;
+}
+.phys-general { font-size: 0.82rem; color: #475569; margin: 4px 0 8px; }
+.phys-section { margin-top: 8px; }
+.phys-section-title {
+  font-size: 0.68rem; font-weight: 600; color: #94a3b8;
+  text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px;
+}
+.phys-injury {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 8px; margin-bottom: 3px; border-radius: 5px;
+  background: #fef2f2; font-size: 0.78rem; color: #475569;
+}
+.phys-injury-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.phys-mark {
+  padding: 3px 8px; margin-bottom: 2px; font-size: 0.76rem; color: #64748b;
+}
+.phys-chronic {
+  padding: 3px 8px; margin-bottom: 2px; font-size: 0.76rem; color: #7c3aed;
+}
+
+/* ── P2: 个人时间线 ───────────────────────────────────── */
+
+.timeline-track {
+  position: relative; padding-left: 18px;
+  margin-top: 8px;
+}
+.timeline-track::before {
+  content: ""; position: absolute; left: 6px; top: 0; bottom: 0;
+  width: 2px; background: #e2e8f0; border-radius: 1px;
+}
+.timeline-event {
+  position: relative; display: flex; gap: 10px;
+  padding: 6px 0;
+}
+.timeline-event-dot {
+  position: absolute; left: -15px; top: 10px;
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #6366f1; border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #c7d2fe;
+  flex-shrink: 0;
+}
+.timeline-event-body {
+  flex: 1; min-width: 0;
+}
+.timeline-event-head {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 2px;
+}
+.timeline-event-ch {
+  font-size: 0.7rem; font-weight: 600; color: #6366f1;
+  background: #eef2ff; padding: 1px 7px; border-radius: 4px;
+}
+.timeline-event-text {
+  margin: 2px 0; font-size: 0.82rem; color: #334155; line-height: 1.5;
+}
+
 .char-viz-boundary-titles {
   flex: 1;
   min-width: 0;
@@ -5246,6 +5533,77 @@ textarea.json-editor-tiny {
     transform: rotate(360deg);
   }
 }
+
+/* ── P2: 章节多选 & 批量工具栏 ──────────────────────────── */
+
+.story-ch-cb {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  accent-color: var(--primary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.story-ch-nav-btn:hover .story-ch-cb,
+.story-ch-nav-btn--sel .story-ch-cb,
+.story-chapter-nav--batch .story-ch-cb { opacity: 1; }
+
+.story-ch-nav-btn--sel {
+  background: #e8eef6 !important;
+  border-color: var(--primary) !important;
+}
+
+.story-batch-bar {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.74rem;
+}
+.story-batch-bar--show { display: flex; flex-wrap: wrap; }
+.story-batch-count { color: var(--primary); font-weight: 600; margin-right: 4px; }
+.story-batch-bar button { font-size: 0.72rem; white-space: nowrap; }
+.story-batch-status-select { font-size: 0.72rem; padding: 2px 4px; border-radius: 4px; border: 1px solid #cbd5e1; }
+
+/* ── P2: 伏笔筛选 ─────────────────────────────────────── */
+
+.story-fs-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 10px;
+}
+.story-fs-filters select { font-size: 0.74rem; padding: 3px 6px; border-radius: 5px; border: 1px solid #cbd5e1; }
+.story-fs-badge-filter {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 3px 10px; border-radius: 14px; font-size: 0.7rem; font-weight: 500;
+  cursor: pointer; border: 1px solid transparent; transition: all 0.15s;
+}
+.story-fs-badge-filter:hover { opacity: 0.8; }
+.story-fs-badge-filter--active { box-shadow: 0 0 0 2px var(--primary); }
+.story-fs-badge-filter--open { background: #e8f0fe; color: #1a56db; border-color: #93c5fd; }
+.story-fs-badge-filter--resolved { background: #e8f5e9; color: #2e7d32; border-color: #86efac; }
+.story-fs-badge-filter--abandoned { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
+
+/* ── P2: 写作看板进度条 ────────────────────────────────── */
+
+.stats-progress-bar {
+  height: 8px; border-radius: 4px; overflow: hidden; display: flex; background: #e2e8f0;
+  margin: 6px 0 4px;
+}
+.stats-progress-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; }
+.stats-progress-fill--done { background: #22c55e; }
+.stats-progress-fill--locked { background: #10b981; }
+.stats-progress-fill--drafting { background: #f59e0b; }
+.stats-progress-fill--revising { background: #8b5cf6; }
+.stats-progress-fill--planned { background: #cbd5e1; }
+.stats-hero-card--sm { flex: 1; min-width: 80px; }
 
 /* 默认隐藏；勿用 display:flex 覆盖 [hidden]，否则侧栏会一直显示「AI 正在生成」 */
 .story-wb-aside-gen-hint {
@@ -5921,17 +6279,38 @@ textarea.json-editor-tiny {
   flex-shrink: 0;
 }
 
-.story-ch-status-dot--planned {
-  background: #94a3b8;
-}
+.story-ch-status-dot--planned { background: #94a3b8; }
+.story-ch-status-dot--outline { background: #a78bfa; }
+.story-ch-status-dot--drafting { background: #f59e0b; }
+.story-ch-status-dot--revising { background: #8b5cf6; }
+.story-ch-status-dot--locked { background: #10b981; }
+.story-ch-status-dot--done { background: #22c55e; }
+.story-ch-status-dot--archived { background: #9ca3af; }
 
-.story-ch-status-dot--drafting {
-  background: #f59e0b;
-}
+/* ── P2: 章节状态列表（总览页） ──────────────────────────── */
 
-.story-ch-status-dot--locked {
-  background: #10b981;
+.story-ch-status-list { margin-top: 12px; }
+.story-ch-status-list-head {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 0 8px;
+  font-size: 0.82rem; font-weight: 600; color: #334155;
 }
+.story-ch-status-row {
+  display: flex; align-items: center; gap: 8px;
+  padding: 5px 8px; margin-bottom: 2px;
+  border-radius: 6px; background: #fafbfc;
+  transition: background 0.12s;
+}
+.story-ch-status-row:hover { background: #f1f5f9; }
+.story-ch-status-row .story-ch-status-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.story-ch-status-order { font-size: 0.74rem; color: #64748b; min-width: 1.8em; }
+.story-ch-status-title { flex: 1; font-size: 0.82rem; color: #1e293b; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.story-ch-status-sel {
+  font-size: 0.72rem; padding: 2px 6px; border-radius: 5px;
+  border: 1px solid #d1d5db; background: #fff; color: #374151; cursor: pointer;
+  flex-shrink: 0;
+}
+.story-ch-status-sel:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(61,90,128,0.15); }
 
 /* ── 章节导航微标题 ─────────────────────────────────────── */
 
@@ -6701,6 +7080,8 @@ textarea.json-editor-tiny {
 .pill-locked { background: #e8f5e9; color: #2e7d32; }
 .pill-completed { background: #e3f2fd; color: #1565c0; }
 .pill-drafting { background: #fff3e0; color: #e65100; }
+.pill-revising { background: #f3e8ff; color: #7c3aed; }
+.pill-done { background: #dcfce7; color: #16a34a; }
 .pill-outline { background: #f5f5f5; color: #777; }
 
 .stats-fs-badges {

@@ -21,6 +21,7 @@ const VIEW_TO_SCOPE = {
   charSupporting: "characters",
   charRelations: "characters",
   charData: "characters",
+  charKnowledge: "characters",
   storyChat: "story",
   storyOverview: "story",
   storyOutline: "story",
@@ -95,7 +96,8 @@ function isCharacterPanelView(name) {
     name === "charProtagonists" ||
     name === "charSupporting" ||
     name === "charRelations" ||
-    name === "charData"
+    name === "charData" ||
+    name === "charKnowledge"
   );
 }
 
@@ -139,6 +141,7 @@ const WORLDVIEW_EDIT_LABELS = {
   economy: "经济与流通",
   charProtagonists: "主角团",
   charSupporting: "重要配角",
+  charKnowledge: "知识图谱",
 };
 
 function isWorldviewPanelEditEnabled(panelId) {
@@ -3874,6 +3877,7 @@ async function switchView(name) {
     renderStoryMessages();
   }
   if (isCharacterPanelView(name)) scheduleCharactersVizFromForm();
+  if (name === "charKnowledge") renderKnowledgePanel();
   if (name === "powers") setPowerSubView(state.powerSubView || "system");
   if (name === "geo") setGeoSubView(state.geoSubView || "overview");
   if (name === "ecology") {
@@ -3956,11 +3960,17 @@ function storyMetaToForm() {
   if ($("storyPolishMaxRounds")) $("storyPolishMaxRounds").value = String(wd.polish_max_rounds ?? 2);
   if ($("storyChatTogglePolisher")) $("storyChatTogglePolisher").checked = wd.enable_polisher !== false;
   if ($("storyChatPolishMaxRounds")) $("storyChatPolishMaxRounds").value = String(wd.polish_max_rounds ?? 2);
+  if ($("storyToggleKnowledge")) $("storyToggleKnowledge").checked = wd.enable_knowledge_track !== false;
+  if ($("storyToggleDecisions")) $("storyToggleDecisions").checked = wd.enable_decision_track !== false;
+  if ($("storyTogglePhysical")) $("storyTogglePhysical").checked = wd.enable_physical_state_track !== false;
+  if ($("storyToggleTimeline")) $("storyToggleTimeline").checked = wd.enable_personal_timeline_track !== false;
   void refreshUsageStats();
+  void renderKnowledgePanel();
   refreshStoryNarratorSelect(n.character_id || "");
   refreshStoryChapterSelects();
   syncStoryChatWritingControlsFromForm();
   renderStoryChapterNav();
+  renderChapterStatusList();
   renderStoryForeshadowTimeline(s.foreshadowing ?? []);
   renderRuntimeStates();
   void updateRagStatusDot();
@@ -4953,6 +4963,41 @@ function initStoryPanelBindings() {
     setDirty(true);
   });
   $("storyForeshadowJson")?.addEventListener("input", scheduleStoryForeshadowFromJson);
+  // P2: Foreshadow filter events
+  document.querySelectorAll(".story-fs-badge-filter").forEach(badge => {
+    badge.addEventListener("click", () => {
+      const filterVal = badge.dataset.fsFilter || "";
+      if (_foreshadowFilter.status === filterVal) {
+        _foreshadowFilter.status = ""; // toggle off
+      } else {
+        _foreshadowFilter.status = filterVal;
+      }
+      document.querySelectorAll(".story-fs-badge-filter").forEach(b => {
+        b.classList.toggle("story-fs-badge-filter--active", b.dataset.fsFilter === _foreshadowFilter.status);
+      });
+      const items = document.querySelector("#storyForeshadowList .story-fs-card")
+        ? collectStoryForeshadowingFromDom()
+        : (state.world?.story?.foreshadowing || []);
+      renderStoryForeshadowTimeline(items);
+    });
+  });
+  $("storyFsChapterFilter")?.addEventListener("change", () => {
+    _foreshadowFilter.chapter = $("storyFsChapterFilter")?.value || "";
+    const items = document.querySelector("#storyForeshadowList .story-fs-card")
+      ? collectStoryForeshadowingFromDom()
+      : (state.world?.story?.foreshadowing || []);
+    renderStoryForeshadowTimeline(items);
+  });
+  $("btnStoryFsClearFilter")?.addEventListener("click", () => {
+    _foreshadowFilter = { status: "", chapter: "" };
+    document.querySelectorAll(".story-fs-badge-filter").forEach(b => b.classList.remove("story-fs-badge-filter--active"));
+    if ($("storyFsChapterFilter")) $("storyFsChapterFilter").value = "";
+    const items = document.querySelector("#storyForeshadowList .story-fs-card")
+      ? collectStoryForeshadowingFromDom()
+      : (state.world?.story?.foreshadowing || []);
+    renderStoryForeshadowTimeline(items);
+  });
+
   $("btnStoryAddForeshadow")?.addEventListener("click", () => {
     let list = document.querySelector("#storyForeshadowList .story-fs-card")
       ? collectStoryForeshadowingFromDom()
@@ -5158,6 +5203,32 @@ function initStoryPanelBindings() {
       void refreshUsageStats();
     });
   }
+
+  // Knowledge detection toggle
+  $("storyToggleKnowledge")?.addEventListener("change", () => void saveKnowledgeToggle());
+  $("charKnowledgeFilterChar")?.addEventListener("change", () => renderKnowledgePanel());
+  $("btnClearKnowledge")?.addEventListener("click", () => void clearKnowledgeGraph());
+  $("btnExtractAllKnowledge")?.addEventListener("click", () => void extractAllKnowledge());
+  $("storyToggleDecisions")?.addEventListener("change", () => void saveKnowledgeToggle());
+  // Tab switching
+  document.querySelectorAll(".knowledge-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".knowledge-tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      const show = tab.dataset.knowledgeTab;
+      const allLists = ["charKnowledgeList", "charDecisionsList", "charPhysicalList", "charTimelineList"];
+      const tabMap = { knowledge: "charKnowledgeList", decisions: "charDecisionsList", physical: "charPhysicalList", timeline: "charTimelineList" };
+      allLists.forEach(id => {
+        const el = $(id);
+        if (el) el.classList.toggle("hidden", tabMap[show] !== id);
+      });
+      if (show === "decisions") renderDecisionsPanel();
+      if (show === "physical") renderPhysicalStatesPanel();
+      if (show === "timeline") renderTimelinePanel();
+    });
+  });
+
+  $("storyTogglePhysical")?.addEventListener("change", () => void saveKnowledgeToggle());
 
 }
 
@@ -5634,6 +5705,61 @@ async function generateStoryManuscriptFromUI(opts = {}) {
     (useChat ? $("storyChatChapterSelect")?.value : $("storyWriteChapterSelect")?.value) ||
     storyChatActiveChapterId();
   if (!cid) return toast("请选择章节");
+
+  // Check if manuscript already exists → offer polish-only option
+  const wid = state.world.meta.id;
+  let existingMs = "";
+  try {
+    const checkRes = await api(`/api/worlds/${wid}/story/chapters/${encodeURIComponent(cid)}/manuscript`);
+    existingMs = (checkRes.content || "").trim();
+  } catch (_) { /* no existing manuscript */ }
+
+  let polishOnly = false;
+  if (existingMs && !opts.skipConfirm) {
+    const ch = (state.world.story?.chapters || []).find(c => c.id === cid);
+    const chTitle = ch?.title || cid;
+    const choice = confirm(
+      `「${chTitle}」已有文稿（约 ${existingMs.length.toLocaleString()} 字）。\n\n` +
+      `点「确定」重新撰写全文（从零生成）\n点「取消」仅重新润色现有文稿`
+    );
+    if (choice) {
+      // OK = full regenerate
+    } else {
+      // Cancel = polish only
+      polishOnly = true;
+    }
+  }
+
+  if (polishOnly) {
+    // ── Polish-only path ──
+    const genToken = beginStoryGeneration("polish-only", {
+      panel: useChat ? "story" : "storyWb",
+      chapterIds: [cid],
+      previewIds: ["storyManuscriptPreview"],
+    });
+    try {
+      const res = await api(`/api/worlds/${wid}/story/generate/polish-only`, {
+        method: "POST",
+        body: JSON.stringify({ chapter_id: cid, persist: true }),
+      });
+      state.world = res.world;
+      storyMetaToForm();
+      state.storyActiveChapterId = cid;
+      if ($("storyMsChapterSelect")) $("storyMsChapterSelect").value = cid;
+      if ($("storyManuscriptEdit")) $("storyManuscriptEdit").value = res.reply || "";
+      updateStoryMarkdownPreview("storyManuscriptPreview", res.reply || "", $("storyAuthorView")?.checked ?? true);
+      setDirty(false);
+      const pr = res.polish_rounds || 0;
+      toast(`已润色完成（${pr} 轮，约 ${(res.reply || "").length.toLocaleString()} 字）`);
+      if (opts.navigate !== false) switchView("storyChapter");
+    } catch (e) {
+      toast("润色失败：" + e.message);
+    } finally {
+      endStoryGeneration({ token: genToken });
+    }
+    return;
+  }
+
   const wp = storyWritingParamsFromUI(useChat);
   const lastUser = opts.lastUserMessage ?? lastStoryUserMessage();
   const prompt = wp.writing_prompt || "请撰写本章正文。";
@@ -5952,12 +6078,34 @@ function storyForeshadowChapterSelectHtml(field, index, selectedId, chapters) {
   return html + "</select>";
 }
 
+let _foreshadowFilter = { status: "", chapter: "" };
+
 function renderStoryForeshadowTimeline(items) {
   const host = $("storyForeshadowTimeline");
   const listEl = $("storyForeshadowList");
   if (!host || !listEl) return;
   const chapters = sortedStoryChapters();
-  const list = Array.isArray(items) ? items : [];
+  const rawList = Array.isArray(items) ? items : [];
+
+  // Apply filters
+  const fStatus = _foreshadowFilter.status;
+  const fChapter = _foreshadowFilter.chapter;
+  const list = rawList.filter(fs => {
+    if (fStatus && String(fs.status || "open") !== fStatus) return false;
+    if (fChapter && String(fs.planted_chapter_id || "") !== fChapter && String(fs.payoff_chapter_id || "") !== fChapter) return false;
+    return true;
+  });
+
+  // Update chapter filter dropdown
+  const chFilter = $("storyFsChapterFilter");
+  if (chFilter) {
+    const curVal = chFilter.value;
+    chFilter.innerHTML = '<option value="">全部章节</option>' +
+      chapters.map(c => `<option value="${escapeAttr(String(c.id))}"${String(c.id) === curVal ? " selected" : ""}>${escapeHtml(String(c.order))}. ${escapeHtml((c.title || c.id).slice(0, 16))}</option>`).join("");
+  }
+  const clearBtn = $("btnStoryFsClearFilter");
+  if (clearBtn) clearBtn.style.display = (fStatus || fChapter) ? "" : "none";
+
   const idxMap = chapterIndexMap(chapters);
   const cols = Math.max(chapters.length, 1);
 
@@ -6108,6 +6256,52 @@ function updateStoryWbStats() {
   }
 }
 
+function renderChapterStatusList() {
+  const host = $("storyChapterStatusList");
+  if (!host) return;
+  const chapters = sortedStoryChapters();
+  if (!chapters.length) {
+    host.innerHTML = "";
+    return;
+  }
+  const STATUS_OPTS = [
+    ["planned", "规划中"], ["outline", "大纲"], ["drafting", "草稿"],
+    ["revising", "修订中"], ["locked", "已锁定"], ["done", "已完成"], ["archived", "归档"],
+  ];
+  const DOT_COLORS = { planned: "#94a3b8", outline: "#a78bfa", drafting: "#f59e0b", revising: "#8b5cf6", locked: "#10b981", done: "#22c55e", archived: "#9ca3af" };
+  host.innerHTML = `<div class="story-ch-status-list-head">
+    <span class="ms" aria-hidden="true">checklist</span>章节状态
+    <span class="muted tiny">${chapters.length} 章</span>
+  </div>` +
+    chapters.map(c => {
+      const opts = STATUS_OPTS.map(([v, lab]) => `<option value="${v}"${c.status === v ? " selected" : ""}>${lab}</option>`).join("");
+      return `<div class="story-ch-status-row">
+        <span class="story-ch-status-dot" style="background:${DOT_COLORS[c.status] || '#94a3b8'}" title="${c.status}"></span>
+        <span class="story-ch-status-order">${c.order}.</span>
+        <span class="story-ch-status-title">${escapeHtml(c.title || c.id)}</span>
+        <span class="story-ch-status-wc muted tiny">${(c.word_count || 0).toLocaleString()} 字</span>
+        <select class="story-ch-status-sel" data-chapter-id="${escapeAttr(c.id)}" aria-label="状态">${opts}</select>
+      </div>`;
+    }).join("");
+  // Wire up change events
+  host.querySelectorAll(".story-ch-status-sel").forEach(sel => {
+    sel.addEventListener("change", async () => {
+      const cid = sel.dataset.chapterId;
+      const newStatus = sel.value;
+      try {
+        const res = await api(`/api/worlds/${state.world.meta.id}/story/chapters/batch`, {
+          method: "POST",
+          body: JSON.stringify({ action: "status", chapter_ids: [cid], new_status: newStatus }),
+        });
+        state.world = res.world;
+        renderStoryChapterNav();
+        renderChapterStatusList();
+        setDirty(false);
+      } catch (e) { toast("更新失败：" + e.message); }
+    });
+  });
+}
+
 function renderStoryChapterNav(activeId) {
   const chapters = sortedStoryChapters();
   const unit = state.storyUnitLabel || "章";
@@ -6118,6 +6312,14 @@ function renderStoryChapterNav(activeId) {
   if ($("storyChatUnitLine")) $("storyChatUnitLine").textContent = `情节单元：${unit}`;
   const aid = activeId || state.storyActiveChapterId || chapters[0]?.id || "";
   if (aid) state.storyActiveChapterId = aid;
+
+  const STATUS_DOTS = {
+    planned: " story-ch-status-dot--planned", outline: " story-ch-status-dot--outline",
+    drafting: " story-ch-status-dot--drafting", revising: " story-ch-status-dot--revising",
+    locked: " story-ch-status-dot--locked", done: " story-ch-status-dot--done",
+    archived: " story-ch-status-dot--archived",
+  };
+  const STATUS_LABELS = { planned: "规划中", outline: "大纲", drafting: "草稿", revising: "修订中", locked: "已锁定", done: "已完成", archived: "归档" };
   const emptyHtml = `<p class="muted tiny">尚无${unit}，点 + 新建</p>`;
   const listHtml = chapters.length
     ? chapters
@@ -6125,18 +6327,17 @@ function renderStoryChapterNav(activeId) {
           const id = String(c.id);
           const active = id === aid ? " active" : "";
           const title = (c.title || "").trim() || id;
-          const st = c.status && c.status !== "planned" ? ` · ${c.status}` : "";
-          const dotClass = c.status === "drafting" ? " story-ch-status-dot--drafting" : c.status === "locked" ? " story-ch-status-dot--locked" : " story-ch-status-dot--planned";
+          const sl = STATUS_LABELS[c.status] || c.status || STATUS_LABELS.planned;
+          const dotClass = STATUS_DOTS[c.status] || STATUS_DOTS.planned;
           const wc = c.word_count ? ` <span class="story-ch-status-label">${c.word_count} 字</span>` : "";
           const summaryDot = c.summary_card ? ' <span class="story-ch-status-dot" style="background:#0d9488" title="有摘要卡片"></span>' : "";
           const cr = c.consistency_report;
           const crBadge = cr
             ? ` <span class="story-ch-consistency-badge" style="background:${cr.verdict === 'clean' ? '#16a34a' : cr.verdict === 'minor_issues' ? '#eab308' : '#dc2626'}" title="审校：${cr.total_issues || 0} 个问题 · ${cr.verdict}">${cr.total_issues || 0}</span>`
             : "";
-          return `<button type="button" class="story-ch-nav-btn${active}" data-story-chapter-id="${escapeAttr(
-            id
-          )}" title="${escapeAttr(title)}${escapeAttr(st)}">
-        <span class="story-ch-order">${escapeHtml(String(c.order))}</span><span class="story-ch-status-dot${dotClass}" title="${c.status || 'planned'}"></span>${summaryDot}${crBadge}${escapeHtml(title)}${wc}
+          return `<button type="button" class="story-ch-nav-btn${active}" data-story-chapter-id="${escapeAttr(id)}" title="${escapeAttr(title)} · ${sl}">
+        <input type="checkbox" class="story-ch-cb" data-cb-id="${escapeAttr(id)}" title="选择" aria-label="选择${escapeAttr(title)}" />
+        <span class="story-ch-order">${escapeHtml(String(c.order))}</span><span class="story-ch-status-dot${dotClass}" title="${sl}"></span>${summaryDot}${crBadge}${escapeHtml(title)}${wc}
       </button>`;
         })
         .join("")
@@ -6147,12 +6348,101 @@ function renderStoryChapterNav(activeId) {
     if (!nav) continue;
     anyNav = true;
     nav.innerHTML = listHtml;
+    // Re-wire checkbox clicks
+    nav.querySelectorAll(".story-ch-cb").forEach(cb => {
+      cb.addEventListener("click", e => { e.stopPropagation(); refreshBatchBar(); });
+    });
   }
   if (!anyNav) return;
+  // Batch bar
+  refreshBatchBar();
   const sel = $("storyChatChapterSelect");
   if (sel && aid && [...sel.options].some((o) => o.value === aid)) sel.value = aid;
   refreshStoryChatContextLine();
   if (state.storyGen) applyStoryGenerationUi(state.storyGen);
+}
+
+// ── P2: Batch operations ──────────────────────────────────────────
+
+function getSelectedChapterIds() {
+  const ids = [];
+  for (const navId of STORY_CHAPTER_NAV_IDS) {
+    const nav = $(navId);
+    if (!nav) continue;
+    nav.querySelectorAll(".story-ch-cb:checked").forEach(cb => {
+      ids.push(cb.dataset.cbId);
+    });
+  }
+  return [...new Set(ids)];
+}
+
+function refreshBatchBar() {
+  const ids = getSelectedChapterIds();
+  const bars = document.querySelectorAll(".story-batch-bar");
+  bars.forEach(bar => {
+    bar.classList.toggle("story-batch-bar--show", ids.length > 0);
+    const countEl = bar.querySelector(".story-batch-count");
+    if (countEl) countEl.textContent = `已选 ${ids.length} 章`;
+  });
+  // Highlight selected nav buttons
+  for (const navId of STORY_CHAPTER_NAV_IDS) {
+    const nav = $(navId);
+    if (!nav) continue;
+    nav.querySelectorAll(".story-ch-nav-btn").forEach(btn => {
+      const cb = btn.querySelector(".story-ch-cb");
+      btn.classList.toggle("story-ch-nav-btn--sel", cb && cb.checked);
+    });
+  }
+}
+
+async function batchSetStatus(newStatus) {
+  const ids = getSelectedChapterIds();
+  if (!ids.length) return;
+  try {
+    const res = await api(`/api/worlds/${state.world.meta.id}/story/chapters/batch`, {
+      method: "POST",
+      body: JSON.stringify({ action: "status", chapter_ids: ids, new_status: newStatus }),
+    });
+    state.world = res.world;
+    storyMetaToForm();
+    renderStoryChapterNav();
+    toast(`已将 ${ids.length} 章设为「${newStatus}」`);
+  } catch (e) { toast("批量状态更新失败：" + e.message); }
+}
+
+async function batchDeleteChapters() {
+  const ids = getSelectedChapterIds();
+  if (!ids.length) return;
+  if (!confirm(`确定删除选中的 ${ids.length} 个章节？此操作不可撤销。`)) return;
+  try {
+    const res = await api(`/api/worlds/${state.world.meta.id}/story/chapters/batch`, {
+      method: "POST",
+      body: JSON.stringify({ action: "delete", chapter_ids: ids }),
+    });
+    state.world = res.world;
+    storyMetaToForm();
+    renderStoryChapterNav();
+    toast(`已删除 ${ids.length} 章`);
+  } catch (e) { toast("批量删除失败：" + e.message); }
+}
+
+async function batchRenumber() {
+  const ids = getSelectedChapterIds();
+  if (!ids.length) return;
+  const start = parseInt(prompt("起始编号：", "1") || "", 10);
+  if (isNaN(start) || start < 1) return;
+  const chapters = sortedStoryChapters();
+  const orders = ids.map((id, i) => ({ id, order: start + i }));
+  try {
+    const res = await api(`/api/worlds/${state.world.meta.id}/story/chapters/batch`, {
+      method: "POST",
+      body: JSON.stringify({ action: "reorder", orders }),
+    });
+    state.world = res.world;
+    storyMetaToForm();
+    renderStoryChapterNav();
+    toast(`已重编号 ${ids.length} 章（从 ${start} 开始）`);
+  } catch (e) { toast("重编号失败：" + e.message); }
 }
 
 async function selectStoryChapter(chapterId, subView) {
@@ -7748,11 +8038,6 @@ async function init() {
         "伏笔表",
         "请建议 5～8 条伏笔：每条说明 label、planted_chapter_id、payoff_chapter_id、status；便于同步进 story.foreshadowing。",
       ],
-      [
-        "draw",
-        "本章正文",
-        "请撰写当前章正文（Markdown），用 ```story-manuscript:<chapter_id> 代码块；人称与 POV 对齐 story.narrator。",
-      ],
     ];
     storyChips.forEach((row) => {
       const [glyph, label, text] = row;
@@ -7861,8 +8146,402 @@ window.loadStoryBeat = loadStoryBeat;
 window.renderConsistencyReport = renderConsistencyReport;
 window.loadPolishedManuscript = loadPolishedManuscript;
 window.selectStoryChapter = selectStoryChapter;
+window.batchSetStatus = batchSetStatus;
+window.batchDeleteChapters = batchDeleteChapters;
+window.batchRenumber = batchRenumber;
 
 // ── Token Usage Panel ──────────────────────────────────────────
+
+// ── P0: Character Knowledge Panel ────────────────────────────────
+
+function renderKnowledgePanel() {
+  const listEl = $("charKnowledgeList");
+  const countEl = $("charKnowledgeCount");
+  if (!listEl) return;
+  const entries = state.world?.character_knowledge?.entries || [];
+  if (countEl) countEl.textContent = entries.length ? `${entries.length} 条知识` : "";
+  // Update tab counts
+  const kTab = $("knowledgeTabCount");
+  if (kTab) kTab.textContent = entries.length ? `(${entries.length})` : "";
+  const decs = state.world?.character_decisions || [];
+  const dTab = $("decisionsTabCount");
+  if (dTab) dTab.textContent = decs.length ? `(${decs.length})` : "";
+  const tls = state.world?.character_personal_timelines || [];
+  const tlTab = $("timelineTabCount");
+  if (tlTab) tlTab.textContent = tls.reduce((s, t) => s + (t.events || []).length, 0) || "";
+
+  // Update character filter dropdown
+  const charSel = $("charKnowledgeFilterChar");
+  if (charSel) {
+    const curVal = charSel.value;
+    const chars = state.world?.characters?.entities || [];
+    charSel.innerHTML = '<option value="">全部角色</option>' +
+      chars.map(c => {
+        const cid = typeof c === "object" ? (c.id || "") : String(c);
+        const cname = typeof c === "object" ? (c.name || cid) : cid;
+        const cnt = entries.filter(e => e.character_id === cid).length;
+        return `<option value="${escapeAttr(cid)}"${cid === curVal ? " selected" : ""}>${escapeHtml(cname)}${cnt ? ` (${cnt})` : ""}</option>`;
+      }).join("");
+  }
+
+  // Apply character filter
+  const filterChar = charSel?.value || "";
+  let filtered = filterChar
+    ? entries.filter(e => e.character_id === filterChar)
+    : entries;
+
+  if (!filtered.length) {
+    listEl.innerHTML = `<div class="knowledge-empty">
+      <span class="ms knowledge-empty-icon" aria-hidden="true">psychology</span>
+      <p class="muted">暂无知识条目</p>
+      <p class="muted tiny">生成章节后，系统将自动检测角色获得或分享了哪些新信息。</p>
+    </div>`;
+    return;
+  }
+
+  const CAT_LABELS = { secret: "秘密", personal_history: "个人历史", world_lore: "世界设定", plan: "计划", suspicion: "怀疑", misunderstanding: "误解" };
+  const CAT_ICONS = { secret: "lock", personal_history: "history", world_lore: "public", plan: "tactic", suspicion: "visibility_off", misunderstanding: "error" };
+  const CAT_COLORS = { secret: "#7c3aed", personal_history: "#0d9488", world_lore: "#2563eb", plan: "#ea580c", suspicion: "#f59e0b", misunderstanding: "#dc2626" };
+  const CERT_LABELS = { knows_for_sure: "确知", strongly_suspects: "强怀疑", vaguely_senses: "隐约感知", believes_wrongly: "错误认知" };
+  const CERT_COLORS = { knows_for_sure: "#16a34a", strongly_suspects: "#ea580c", vaguely_senses: "#6366f1", believes_wrongly: "#dc2626" };
+
+  const groupBy = document.querySelector('input[name="knowledgeGroupBy"]:checked')?.value || "character";
+
+  const chars = state.world?.characters?.entities || [];
+  const charMap = {};
+  chars.forEach(c => {
+    const id = typeof c === "object" ? (c.id || "") : String(c);
+    charMap[id] = typeof c === "object" ? (c.name || id) : id;
+  });
+
+  if (groupBy === "character") {
+    // Group by character
+    const grouped = {};
+    filtered.forEach(e => {
+      grouped[e.character_id] = grouped[e.character_id] || [];
+      grouped[e.character_id].push(e);
+    });
+
+    listEl.innerHTML = Object.entries(grouped).map(([charId, knows]) => {
+      const cname = charMap[charId] || charId;
+      const cards = knows.map(e => _renderKnowledgeCard(e, charMap, CAT_LABELS, CAT_ICONS, CAT_COLORS, CERT_LABELS, CERT_COLORS)).join("");
+      return `<div class="knowledge-char-group">
+        <div class="knowledge-char-group-head">
+          <span class="ms" aria-hidden="true">person</span>
+          <span class="knowledge-char-name">${escapeHtml(cname)}</span>
+          <span class="knowledge-char-count">${knows.length} 条</span>
+        </div>
+        <div class="knowledge-char-cards">${cards}</div>
+      </div>`;
+    }).join("");
+  } else {
+    // Group by category
+    const grouped = {};
+    filtered.forEach(e => {
+      grouped[e.category] = grouped[e.category] || [];
+      grouped[e.category].push(e);
+    });
+
+    const catOrder = ["secret", "suspicion", "plan", "misunderstanding", "personal_history", "world_lore"];
+    listEl.innerHTML = catOrder.map(cat => {
+      const items = grouped[cat];
+      if (!items || !items.length) return "";
+      const cards = items.map(e => _renderKnowledgeCard(e, charMap, CAT_LABELS, CAT_ICONS, CAT_COLORS, CERT_LABELS, CERT_COLORS)).join("");
+      return `<div class="knowledge-char-group">
+        <div class="knowledge-char-group-head">
+          <span class="ms" aria-hidden="true" style="color:${CAT_COLORS[cat] || '#888'}">${CAT_ICONS[cat] || "help"}</span>
+          <span class="knowledge-char-name">${CAT_LABELS[cat] || cat}</span>
+          <span class="knowledge-char-count">${items.length} 条</span>
+        </div>
+        <div class="knowledge-char-cards">${cards}</div>
+      </div>`;
+    }).filter(Boolean).join("");
+  }
+}
+
+function _renderKnowledgeCard(e, charMap, CAT_LABELS, CAT_ICONS, CAT_COLORS, CERT_LABELS, CERT_COLORS) {
+  const cname = charMap[e.character_id] || e.character_id;
+  const shared = (e.shared_with || []).map(s => {
+    const sid = s.character_id || "";
+    return charMap[sid] || sid;
+  }).filter(Boolean).join("、");
+
+  return `<div class="knowledge-card">
+    <div class="knowledge-card-top">
+      <span class="knowledge-card-cat" style="background:${CAT_COLORS[e.category] || '#888'}11;color:${CAT_COLORS[e.category] || '#888'};border-color:${CAT_COLORS[e.category] || '#888'}33">
+        <span class="ms" aria-hidden="true">${CAT_ICONS[e.category] || "help"}</span>${CAT_LABELS[e.category] || e.category}
+      </span>
+      <span class="knowledge-card-certainty" style="background:${CERT_COLORS[e.certainty] || '#888'}18;color:${CERT_COLORS[e.certainty] || '#888'}">${CERT_LABELS[e.certainty] || e.certainty}</span>
+      ${!e.is_still_true ? '<span class="knowledge-card-stale">已过时</span>' : ""}
+    </div>
+    <p class="knowledge-card-topic">${escapeHtml(e.topic || e.knowledge_id)}</p>
+    <div class="knowledge-card-meta">
+      <span>🧑 ${escapeHtml(cname)}</span>
+      <span>📖 ${escapeHtml(e.source_chapter || "?")}</span>
+    </div>
+    ${e.source_detail ? `<div class="knowledge-card-detail"><span class="knowledge-detail-label">获得方式</span>${escapeHtml(e.source_detail)}</div>` : ""}
+    ${shared ? `<div class="knowledge-card-detail"><span class="knowledge-detail-label">已分享</span>${escapeHtml(shared)}</div>` : ""}
+    ${e.notes ? `<div class="knowledge-card-detail" style="color:#94a3b8"><span class="knowledge-detail-label">备注</span>${escapeHtml(e.notes)}</div>` : ""}
+  </div>`;
+}
+
+async function saveKnowledgeToggle() {
+  if (!state.world?.meta?.id) return;
+  const enabled = $("storyToggleKnowledge")?.checked ?? true;
+  const decEnabled = $("storyToggleDecisions")?.checked ?? true;
+  const physEnabled = $("storyTogglePhysical")?.checked ?? true;
+  const tlEnabled = $("storyToggleTimeline")?.checked ?? true;
+  try {
+    await api(`/api/worlds/${state.world.meta.id}/story/writing-defaults`, {
+      method: "PATCH",
+      body: JSON.stringify({ enable_knowledge_track: enabled, enable_decision_track: decEnabled, enable_physical_state_track: physEnabled, enable_personal_timeline_track: tlEnabled }),
+    });
+    if (state.world.story?.writing_defaults) {
+      state.world.story.writing_defaults.enable_knowledge_track = enabled;
+      state.world.story.writing_defaults.enable_decision_track = decEnabled;
+      state.world.story.writing_defaults.enable_physical_state_track = physEnabled;
+      state.world.story.writing_defaults.enable_personal_timeline_track = tlEnabled;
+    }
+  } catch (e) { console.warn("保存设置失败", e); }
+}
+
+async function clearKnowledgeGraph() {
+  if (!state.world?.meta?.id) return;
+  if (!confirm("确定清空所有角色知识条目？此操作不可撤销。")) return;
+  try {
+    const res = await api(`/api/worlds/${state.world.meta.id}/knowledge-graph/clear`, { method: "POST" });
+    state.world = res.world;
+    renderKnowledgePanel();
+    toast("知识图谱已清空");
+  } catch (e) { toast("清空失败：" + e.message); }
+}
+
+function renderPhysicalStatesPanel() {
+  const listEl = $("charPhysicalList");
+  const countEl = $("physicalTabCount");
+  if (!listEl) return;
+  const states = state.world?.character_physical_states || [];
+  if (countEl) countEl.textContent = states.length ? `(${states.length})` : "";
+
+  if (!states.length) {
+    listEl.innerHTML = `<div class="knowledge-empty">
+      <span class="ms knowledge-empty-icon">fitness_center</span>
+      <p class="muted">暂无身体状况数据</p>
+      <p class="muted tiny">生成章节后系统自动检测，或点击「从已有章节提取」扫描历史章节。</p>
+    </div>`;
+    return;
+  }
+
+  const FATIGUE_LABELS = { rested: "精力充沛", tired: "疲惫", exhausted: "极度疲劳", collapse_imminent: "即将崩溃" };
+  const FATIGUE_COLORS = { rested: "#16a34a", tired: "#ea580c", exhausted: "#dc2626", collapse_imminent: "#991b1b" };
+  const SEVERITY_COLORS = { minor: "#f59e0b", moderate: "#ea580c", severe: "#dc2626", critical: "#991b1b" };
+
+  const chars = state.world?.characters?.entities || [];
+  const charMap = {};
+  chars.forEach(c => {
+    const id = typeof c === "object" ? (c.id || "") : String(c);
+    charMap[id] = typeof c === "object" ? (c.name || id) : id;
+  });
+
+  listEl.innerHTML = states.map(ps => {
+    const cname = charMap[ps.character_id] || ps.character_id;
+    const injuries = (ps.active_injuries || []).map(inj =>
+      `<div class="phys-injury">
+        <span class="phys-injury-dot" style="background:${SEVERITY_COLORS[inj.severity] || '#888'}"></span>
+        <span>${inj.type || '伤'} · ${inj.location || '?'} · 愈合${inj.healing_progress || '?'}</span>
+        ${inj.functional_impact ? `<span class="muted tiny">— ${inj.functional_impact}</span>` : ""}
+      </div>`
+    ).join("");
+
+    const marks = (ps.permanent_marks || []).map(m =>
+      `<div class="phys-mark">${m.type || '疤痕'} · ${m.location || '?'}（${m.origin || '?'}）</div>`
+    ).join("");
+
+    const chronic = (ps.chronic_conditions || []).map(c =>
+      `<div class="phys-chronic">${c.condition || ''}</div>`
+    ).join("");
+
+    return `<div class="phys-card">
+      <div class="phys-card-head">
+        <span class="ms">person</span>
+        <strong>${escapeHtml(cname)}</strong>
+        <span class="phys-fatigue" style="color:${FATIGUE_COLORS[ps.fatigue_level] || '#888'}">${FATIGUE_LABELS[ps.fatigue_level] || ps.fatigue_level}</span>
+      </div>
+      ${ps.general_condition ? `<p class="phys-general">${escapeHtml(ps.general_condition)}</p>` : ""}
+      ${injuries ? `<div class="phys-section"><div class="phys-section-title">活跃伤情</div>${injuries}</div>` : ""}
+      ${marks ? `<div class="phys-section"><div class="phys-section-title">永久疤痕</div>${marks}</div>` : ""}
+      ${chronic ? `<div class="phys-section"><div class="phys-section-title">慢性状态</div>${chronic}</div>` : ""}
+    </div>`;
+  }).join("");
+}
+
+function renderTimelinePanel() {
+  const listEl = $("charTimelineList");
+  const countEl = $("timelineTabCount");
+  if (!listEl) return;
+  const timelines = state.world?.character_personal_timelines || [];
+  const totalEvents = timelines.reduce((s, tl) => s + (tl.events || []).length, 0);
+  if (countEl) countEl.textContent = totalEvents ? `(${totalEvents})` : "";
+
+  if (!totalEvents) {
+    listEl.innerHTML = `<div class="knowledge-empty">
+      <span class="ms knowledge-empty-icon">timeline</span>
+      <p class="muted">暂无个人时间线事件</p>
+      <p class="muted tiny">生成章节后系统自动检测，或点击「从已有章节提取」扫描历史章节。</p>
+    </div>`;
+    return;
+  }
+
+  const chars = state.world?.characters?.entities || [];
+  const charMap = {};
+  chars.forEach(c => {
+    const id = typeof c === "object" ? (c.id || "") : String(c);
+    charMap[id] = typeof c === "object" ? (c.name || id) : id;
+  });
+
+  listEl.innerHTML = timelines.map(tl => {
+    const cname = charMap[tl.character_id] || tl.character_id;
+    const sorted = (tl.events || []).slice().sort((a, b) => {
+      const ao = a.chapter || ""; const bo = b.chapter || "";
+      return ao.localeCompare(bo) || (a.relative_timing || "").localeCompare(b.relative_timing || "");
+    });
+    const eventCards = sorted.map(e => {
+      const knownNames = (e.known_by || []).map(kid => charMap[kid] || kid).filter(Boolean).join("、");
+      return `<div class="timeline-event">
+        <div class="timeline-event-dot"></div>
+        <div class="timeline-event-body">
+          <div class="timeline-event-head">
+            <span class="timeline-event-ch">${escapeHtml(e.chapter)}</span>
+            <span class="muted tiny">${escapeHtml(e.relative_timing || "期间")}</span>
+          </div>
+          <p class="timeline-event-text">${escapeHtml(e.event)}</p>
+          ${e.significance ? `<div class="knowledge-card-detail"><span class="knowledge-detail-label">意义</span>${escapeHtml(e.significance)}</div>` : ""}
+          ${knownNames ? `<div class="knowledge-card-detail"><span class="knowledge-detail-label">已知者</span>${escapeHtml(knownNames)}</div>` : ""}
+          ${(e.linked_events || []).length > 0 ? `<div class="knowledge-card-detail"><span class="knowledge-detail-label">关联</span>${escapeHtml(e.linked_events.join("、"))}</div>` : ""}
+        </div>
+      </div>`;
+    }).join("");
+
+    return `<div class="phys-card">
+      <div class="phys-card-head">
+        <span class="ms">timeline</span>
+        <strong>${escapeHtml(cname)}</strong>
+        <span class="muted tiny">${sorted.length} 个事件</span>
+      </div>
+      <div class="timeline-track">${eventCards}</div>
+    </div>`;
+  }).join("");
+}
+
+async function extractAllKnowledge() {
+  if (!state.world?.meta?.id) return;
+  const btn = $("btnExtractAllKnowledge");
+  if (btn) { btn.disabled = true; btn.textContent = "正在提取…"; }
+  try {
+    const wid = state.world.meta.id;
+    let kTotal = 0, dTotal = 0, pTotal = 0;
+
+    // Run sequentially — each call modifies the world, must pick up prior changes
+    const kRes = await api(`/api/worlds/${wid}/knowledge-graph/extract-all`, { method: "POST" });
+    state.world = kRes.world;
+    kTotal = kRes.total_new || 0;
+    btn.textContent = `知识 ${kTotal}…`;
+
+    const dRes = await api(`/api/worlds/${wid}/decisions/extract-all`, { method: "POST" });
+    state.world = dRes.world;
+    dTotal = dRes.total_new || 0;
+    btn.textContent = `决策 ${dTotal}…`;
+
+    // Physical state extraction: scan all non-planned chapters
+    const pRes = await api(`/api/worlds/${wid}/physical-states/extract-all`, { method: "POST" });
+    state.world = pRes.world || state.world;
+    pTotal = pRes.total_new || 0;
+    btn.textContent = `身体 ${pTotal}…`;
+
+    const tRes = await api(`/api/worlds/${wid}/personal-timelines/extract-all`, { method: "POST" });
+    state.world = tRes.world || state.world;
+    const tTotal = tRes.total_new || 0;
+
+    storyMetaToForm();
+    renderKnowledgePanel();
+    renderDecisionsPanel();
+    renderPhysicalStatesPanel();
+    renderTimelinePanel();
+
+    const parts = [];
+    if (kTotal > 0) parts.push(`${kTotal} 条知识`);
+    if (dTotal > 0) parts.push(`${dTotal} 个决策`);
+    if (pTotal > 0) parts.push(`${pTotal} 个状态`);
+    if (tTotal > 0) parts.push(`${tTotal} 个时间线`);
+    toast(parts.length > 0 ? `已提取 ${parts.join(" + ")}` : "未发现新的内容");
+  } catch (e) {
+    toast("提取失败：" + e.message);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = '<span class="ms" aria-hidden="true">auto_awesome</span>从已有章节提取'; }
+  }
+}
+
+function renderDecisionsPanel() {
+  const listEl = $("charDecisionsList");
+  const countEl = $("decisionsTabCount");
+  if (!listEl) return;
+  const decisions = state.world?.character_decisions || [];
+  if (countEl) countEl.textContent = decisions.length ? `(${decisions.length})` : "";
+
+  if (!decisions.length) {
+    listEl.innerHTML = `<div class="knowledge-empty">
+      <span class="ms knowledge-empty-icon">tactic</span>
+      <p class="muted">暂无关键决策</p>
+      <p class="muted tiny">生成章节后系统自动检测，或点击「从已有章节提取」扫描历史章节。</p>
+    </div>`;
+    return;
+  }
+
+  const TYPE_LABELS = {
+    moral_choice: "道德抉择", trust_decision: "信任决策", strategic_choice: "战略选择",
+    self_revelation: "自我揭示", relationship_choice: "关系决策", sacrifice: "牺牲",
+  };
+  const TYPE_COLORS = {
+    moral_choice: "#7c3aed", trust_decision: "#2563eb", strategic_choice: "#ea580c",
+    self_revelation: "#0d9488", relationship_choice: "#db2777", sacrifice: "#dc2626",
+  };
+  const VERDICT_LABELS = {
+    pending: "待定", proved_right: "已证实正确", proved_wrong: "已证实错误",
+    ambiguous: "模糊", irrelevant: "已无关",
+  };
+
+  const chars = state.world?.characters?.entities || [];
+  const charMap = {};
+  chars.forEach(c => {
+    const id = typeof c === "object" ? (c.id || "") : String(c);
+    charMap[id] = typeof c === "object" ? (c.name || id) : id;
+  });
+
+  listEl.innerHTML = decisions.slice().reverse().map(d => {
+    const cname = charMap[d.character_id] || d.character_id;
+    const opts = (d.options_considered || []).join(" | ");
+    return `<div class="decision-card">
+      <div class="decision-card-top">
+        <span class="knowledge-card-cat" style="background:${TYPE_COLORS[d.decision_type] || '#888'}11;color:${TYPE_COLORS[d.decision_type] || '#888'};border-color:${TYPE_COLORS[d.decision_type] || '#888'}33">
+          <span class="ms">tactic</span>${TYPE_LABELS[d.decision_type] || d.decision_type}
+        </span>
+        <span class="decision-verdict">${VERDICT_LABELS[d.outcome_verdict] || d.outcome_verdict}</span>
+      </div>
+      <p class="knowledge-card-topic">${escapeHtml(d.summary)}</p>
+      <div class="knowledge-card-meta">
+        <span>🧑 ${escapeHtml(cname)}</span>
+        <span>📖 ${escapeHtml(d.chapter)}</span>
+        ${d.option_chosen ? `<span>✅ ${escapeHtml(d.option_chosen)}</span>` : ""}
+      </div>
+      ${d.stated_reason && d.stated_reason !== d.actual_reason
+        ? `<div class="knowledge-card-detail"><span class="knowledge-detail-label">表面理由</span>${escapeHtml(d.stated_reason)}</div>
+           <div class="knowledge-card-detail" style="color:#7c3aed"><span class="knowledge-detail-label">真实动机</span>${escapeHtml(d.actual_reason)}</div>`
+        : (d.stated_reason ? `<div class="knowledge-card-detail"><span class="knowledge-detail-label">理由</span>${escapeHtml(d.stated_reason)}</div>` : "")}
+      ${opts ? `<div class="knowledge-card-detail"><span class="knowledge-detail-label">备选</span>${escapeHtml(opts)}</div>` : ""}
+      ${(d.immediate_consequences || []).length > 0 ? `<div class="knowledge-card-detail"><span class="knowledge-detail-label">后果</span>${escapeHtml(d.immediate_consequences.join("；"))}</div>` : ""}
+    </div>`;
+  }).join("");
+}
 
 async function refreshTokenUsagePanel() {
   if (!state.world?.meta?.id) return;

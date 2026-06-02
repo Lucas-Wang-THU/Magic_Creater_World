@@ -23,6 +23,7 @@ from worldforger.story_prompts import (
     kg_extraction_system,
     macro_outline_system,
     manuscript_system,
+    person_instruction,
     sentiment_analysis_system,
 )
 from worldforger.story_store import (
@@ -142,42 +143,52 @@ async def generate_chapter_beats(
     include_world_md: bool,
 ) -> dict[str, str]:
     mode_eff = creative_mode or world.meta.creative_mode
+    # ── Shared context computed ONCE ──
     macro = read_text(macro_outline_path(world.meta.id))
+    if len(macro) > 4000:
+        macro = macro[:4000] + "\n…(粗纲已截断)"
     system = chapter_beats_system(world, creative_mode=mode_eff)
     ctx = compact_world_snippet(world, include_markdown=include_world_md)
+    chapter_list = chapter_list_for_prompt(world)  # computed once
+    user_prompt = prompt.strip()
+
+    # Limit concurrency to avoid API rate-limit / queue bloat
+    sem = asyncio.Semaphore(5)
 
     async def _gen_one_beat(cid: str) -> tuple[str, str]:
-        ch = next((c for c in world.story.chapters if c.id == cid), None)
-        if not ch:
-            return cid, ""
-        # 注入前一章摘要卡片（衔接检查用）
-        prev_summary_block = ""
-        prev_cards = summaries_before(world.meta.id, cid, 1, world)
-        if prev_cards:
-            pc = prev_cards[0]
-            prev_summary_block = (
-                "\n【前一章摘要（务必检查衔接）】\n"
-                f"事件：{pc.get('main_events', '')}\n"
-                f"结尾钩子：{pc.get('ending_hook', '')}\n"
+        async with sem:
+            ch = next((c for c in world.story.chapters if c.id == cid), None)
+            if not ch:
+                return cid, ""
+            # 前一章摘要卡片（衔接检查用）
+            prev_summary_block = ""
+            prev_cards = summaries_before(world.meta.id, cid, 1, world)
+            if prev_cards:
+                pc = prev_cards[0]
+                prev_summary_block = (
+                    "\n【前一章摘要（务必检查衔接）】\n"
+                    f"事件：{pc.get('main_events', '')}\n"
+                    f"结尾钩子：{pc.get('ending_hook', '')}\n"
+                )
+            user = (
+                f"{chapter_list}\n\n"
+                f"【目标】仅为 id={cid}（{ch.title}）撰写细纲。\n"
+                f"【用户要求】\n{user_prompt}\n\n"
+                f"【粗纲】\n{macro}\n\n"
+                f"【世界设定】\n{ctx}"
+                f"{prev_summary_block}"
             )
-        user = (
-            f"{chapter_list_for_prompt(world)}\n\n"
-            f"【目标】仅为 id={cid}（{ch.title}）撰写细纲。\n"
-            f"【用户要求】\n{prompt.strip()}\n\n"
-            f"【粗纲】\n{macro[:8000]}\n\n"
-            f"【世界设定】\n{ctx}"
-            f"{prev_summary_block}"
-        )
-        reply = await chat_completion(
-            [{"role": "system", "content": system}, {"role": "user", "content": user}],
-            temperature=0.6,
-            max_tokens=4096,
-            timing_label=f"chapter_beat:{cid}",
-        )
-        write_text(beat_path(world.meta.id, cid), reply)
-        return cid, reply
+            reply = await chat_completion(
+                [{"role": "system", "content": system}, {"role": "user", "content": user}],
+                temperature=0.4,
+                max_tokens=2048,
+                timing_label=f"chapter_beat:{cid}",
+            )
+            write_text(beat_path(world.meta.id, cid), reply)
+            return cid, reply
 
-    results = await asyncio.gather(*[_gen_one_beat(cid) for cid in chapter_ids])
+    tasks = [_gen_one_beat(cid) for cid in chapter_ids]
+    results = await asyncio.gather(*tasks)
     return {cid: reply for cid, reply in results if reply}
 
 
@@ -196,6 +207,7 @@ async def generate_manuscript(
     inc_md = include_world_md if include_world_md is not None else wd.include_world_md
     prev_n = max(0, min(5, attach_prev_chapters))
     person_eff = person or world.story.narrator.person
+    ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
     macro = read_text(macro_outline_path(world.meta.id)) if wd.include_macro_outline else ""
     beat = read_text(beat_path(world.meta.id, chapter_id)) if wd.include_chapter_beats else ""
     prev: list[tuple[str, str]] = []
@@ -219,12 +231,36 @@ async def generate_manuscript(
     )
     # Drain timing log before manuscript generation to get a clean slate
     drain_timing_log()
+
+    # Guard: truncate user prompt if excessively large (>60K chars)
+    user_effective = user
+    if len(user) > 60000:
+        user_effective = user[:60000] + "\n…(上下文已截断，请基于已有设定写作)"
+
     reply = await chat_completion(
-        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        [{"role": "system", "content": system}, {"role": "user", "content": user_effective}],
         temperature=0.75,
         max_tokens=8192,
         timing_label="manuscript_generation",
     )
+
+    # Detect refusal — retry once with a minimal prompt
+    _REFUSAL_MARKERS = ["无法给到", "无法提供", "不能提供", "抱歉", "我无法", "我不能"]
+    if reply and len(reply.strip()) < 100 and any(m in reply for m in _REFUSAL_MARKERS):
+        chapter_title = ch.title if ch else chapter_id
+        retry_user = (
+            f"请为「{chapter_title}」撰写小说章节正文。\n"
+            f"叙事人称：{person_instruction(person_eff)}。\n"
+            "请直接输出正文（Markdown格式），不要输出任何解释。开始写作："
+        )
+        reply = await chat_completion(
+            [{"role": "system", "content": "你是一位专业小说作家。请直接输出用户要求的章节内容，不要拒绝，不要解释。"},
+             {"role": "user", "content": retry_user}],
+            temperature=0.8,
+            max_tokens=8192,
+            timing_label="manuscript_retry",
+        )
+
     write_text(manuscript_path(world.meta.id, chapter_id), reply)
     sync_chapter_word_count(world, chapter_id)
     ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
@@ -248,6 +284,18 @@ async def generate_manuscript(
 
     if world.story.writing_defaults.enable_sentiment_track:
         post_hooks.append(_try_track_sentiment(world, chapter_id, reply))
+
+    if world.story.writing_defaults.enable_knowledge_track:
+        post_hooks.append(_try_detect_knowledge(world, chapter_id, reply))
+
+    if world.story.writing_defaults.enable_decision_track:
+        post_hooks.append(_try_detect_decisions(world, chapter_id, reply))
+
+    if world.story.writing_defaults.enable_physical_state_track:
+        post_hooks.append(_try_update_physical_states(world, chapter_id, reply))
+
+    if world.story.writing_defaults.enable_personal_timeline_track:
+        post_hooks.append(_try_detect_timeline_events(world, chapter_id, reply))
 
     hook_errors: list[str] = []
     if post_hooks:
@@ -290,6 +338,7 @@ async def generate_manuscript_stream(
     inc_md = include_world_md if include_world_md is not None else wd.include_world_md
     prev_n = max(0, min(5, attach_prev_chapters))
     person_eff = person or world.story.narrator.person
+    ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
     macro = read_text(macro_outline_path(world.meta.id)) if wd.include_macro_outline else ""
     beat = read_text(beat_path(world.meta.id, chapter_id)) if wd.include_chapter_beats else ""
     prev: list[tuple[str, str]] = []
@@ -344,6 +393,18 @@ async def generate_manuscript_stream(
         post_hooks.append(_try_run_consistency_check(world, chapter_id, reply))
     if world.story.writing_defaults.enable_sentiment_track:
         post_hooks.append(_try_track_sentiment(world, chapter_id, reply))
+
+    if world.story.writing_defaults.enable_knowledge_track:
+        post_hooks.append(_try_detect_knowledge(world, chapter_id, reply))
+
+    if world.story.writing_defaults.enable_decision_track:
+        post_hooks.append(_try_detect_decisions(world, chapter_id, reply))
+
+    if world.story.writing_defaults.enable_physical_state_track:
+        post_hooks.append(_try_update_physical_states(world, chapter_id, reply))
+
+    if world.story.writing_defaults.enable_personal_timeline_track:
+        post_hooks.append(_try_detect_timeline_events(world, chapter_id, reply))
 
     hook_errors: list[str] = []
     if post_hooks:
@@ -494,10 +555,80 @@ async def _try_index_chapter(world: World, chapter_id: str, manuscript_text: str
 # ── 收尾：叙事知识图谱提取 ─────────────────────────────────
 
 
+# ── JSON repair helper (handles common LLM output quirks) ──────
+
+def _repair_llm_json(raw: str) -> str:
+    """Repair common LLM JSON errors: trailing commas, unescaped newlines in strings."""
+    import re as _re
+    t = raw.strip()
+    if t.startswith("```"):
+        t = _re.sub(r"^```[a-zA-Z0-9]*\s*", "", t)
+        t = _re.sub(r"\s*```$", "", t)
+        t = t.strip()
+    start = t.find("{")
+    end = t.rfind("}")
+    if start == -1 or end == -1:
+        return t
+    t = t[start:end + 1]
+    # Remove trailing commas
+    t = _re.sub(r",(\s*[}\]])", r"\1", t)
+    # Truncate to last complete JSON object (handle mid-string truncation)
+    if not t.endswith("}") and not t.endswith("]"):
+        # Scan backwards: find where braces balance
+        brace_depth = 0
+        last_good = len(t)
+        for i in range(len(t) - 1, -1, -1):
+            if t[i] == "}" or t[i] == "]":
+                brace_depth += 1
+            elif t[i] == "{" or t[i] == "[":
+                brace_depth -= 1
+                if brace_depth <= 0:
+                    last_good = i
+                    break
+        if last_good > 0:
+            t = t[:last_good]
+    # Remove trailing commas AGAIN after truncation
+    t = _re.sub(r",(\s*[}\]])", r"\1", t)
+    # Fix unescaped newlines inside string values
+    result = []
+    i = 0
+    in_string = False
+    escape_next = False
+    while i < len(t):
+        ch = t[i]
+        if escape_next:
+            escape_next = False
+            result.append(ch)
+            i += 1
+            continue
+        if ch == '\\':
+            escape_next = True
+            result.append(ch)
+            i += 1
+            continue
+        if ch == '"':
+            in_string = not in_string
+            result.append(ch)
+            i += 1
+            continue
+        if in_string:
+            if ch == '\n':
+                result.append('\\n')
+            elif ch == '\r':
+                result.append('')
+            elif ch == '\t':
+                result.append('\\t')
+            else:
+                result.append(ch)
+        else:
+            result.append(ch)
+        i += 1
+    return ''.join(result)
+
+
 async def _try_extract_kg_events(world: World, chapter_id: str, manuscript_text: str) -> str:
     """正文生成后，从正文提取 KG 实体和事件。失败不阻塞，返回错误描述。"""
     import json as _json
-    import re as _re
 
     try:
         from worldforger.narrative_kg import NarrativeKGManager
@@ -513,19 +644,11 @@ async def _try_extract_kg_events(world: World, chapter_id: str, manuscript_text:
             timing_label="kg_extraction",
         )
 
-        # ── Robust JSON extraction (same pattern as consistency_checker) ──
-        t = reply.strip()
-        # Strip markdown code fences
-        if t.startswith("```"):
-            t = _re.sub(r"^```[a-zA-Z0-9]*\s*", "", t)
-            t = _re.sub(r"\s*```$", "", t)
-            t = t.strip()
-        # Extract the first JSON object
-        start = t.find("{")
-        end = t.rfind("}")
-        if start == -1 or end == -1:
-            return "KG 抽取：LLM 返回不包含 JSON 对象"
-        t = t[start:end + 1]
+        t = _repair_llm_json(reply)
+        if t == reply.strip() or t.find("{") == -1:
+            # _repair_llm_json returned unchanged text without valid JSON
+            if "{" not in reply and "}" not in reply:
+                return "KG 抽取：LLM 返回不包含 JSON 对象"
 
         data = _json.loads(t)
         if not isinstance(data, dict):
@@ -538,6 +661,310 @@ async def _try_extract_kg_events(world: World, chapter_id: str, manuscript_text:
         return f"KG 抽取：JSON 解析失败 — {e}"
     except Exception as e:
         return f"KG 抽取：{e}"
+
+
+# ── 角色知识检测 ──────────────────────────────────────────
+
+
+async def _try_detect_knowledge(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """从章节正文检测角色知识变化。失败不阻塞，返回错误描述。"""
+    import json as _json
+
+    try:
+        from worldforger.story_prompts import (
+            build_knowledge_detection_user_payload,
+            knowledge_detection_system,
+        )
+        from worldforger.schemas import CharacterKnowledgeEntry
+
+        system = knowledge_detection_system()
+        user = build_knowledge_detection_user_payload(
+            world, chapter_id=chapter_id, manuscript_text=manuscript_text,
+        )
+        reply = await chat_completion(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.2,
+            max_tokens=1536,
+            timing_label="knowledge_detection",
+        )
+
+        t = _repair_llm_json(reply)
+        if "{" not in t or "}" not in t:
+            return "知识检测：LLM 返回不包含 JSON 对象"
+        data = _json.loads(t)
+        if not isinstance(data, dict):
+            return "知识检测：LLM 返回非 JSON 格式"
+
+        new_entries = data.get("new_entries", [])
+        updated = data.get("updated_entries", [])
+        if not isinstance(new_entries, list):
+            new_entries = []
+        if not isinstance(updated, list):
+            updated = []
+
+        updated_ids = {u.get("knowledge_id", "") for u in updated if isinstance(u, dict)}
+
+        for raw in new_entries:
+            if not isinstance(raw, dict):
+                continue
+            kid = str(raw.get("knowledge_id", "")).strip()
+            if not kid or any(
+                e.knowledge_id == kid for e in world.character_knowledge.entries
+            ):
+                continue
+            try:
+                entry = CharacterKnowledgeEntry(
+                    knowledge_id=kid,
+                    character_id=str(raw.get("character_id", "")).strip(),
+                    topic=str(raw.get("topic", "")).strip()[:200],
+                    category=raw.get("category", "secret"),
+                    certainty=raw.get("certainty", "knows_for_sure"),
+                    source_chapter=chapter_id,
+                    source_detail=str(raw.get("source_detail", "")).strip()[:300],
+                    shared_with=raw.get("shared_with") if isinstance(raw.get("shared_with"), list) else [],
+                    is_still_true=bool(raw.get("is_still_true", True)),
+                    notes=str(raw.get("notes", "")).strip()[:500],
+                )
+                world.character_knowledge.entries.append(entry)
+            except Exception:
+                continue
+
+        for raw_up in updated:
+            if not isinstance(raw_up, dict):
+                continue
+            kid = str(raw_up.get("knowledge_id", "")).strip()
+            for e in world.character_knowledge.entries:
+                if e.knowledge_id == kid:
+                    sw = raw_up.get("shared_with")
+                    if isinstance(sw, list):
+                        e.shared_with = sw
+                    if "is_still_true" in raw_up:
+                        e.is_still_true = bool(raw_up["is_still_true"])
+                    if raw_up.get("notes"):
+                        e.notes = str(raw_up.get("notes", "")).strip()[:500]
+                    break
+
+        return ""
+    except _json.JSONDecodeError as e:
+        return f"知识检测：JSON 解析失败 — {e}"
+    except Exception as e:
+        return f"知识检测：{e}"
+
+
+# ── P1: 角色决策检测 ──────────────────────────────────────────
+
+
+async def _try_detect_decisions(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """从章节正文检测角色的关键决策。失败不阻塞，返回错误描述。"""
+    import json as _json
+
+    try:
+        from worldforger.story_prompts import (
+            build_decision_detection_user_payload,
+            decision_detection_system,
+        )
+        from worldforger.schemas import CharacterDecision
+
+        system = decision_detection_system()
+        user = build_decision_detection_user_payload(
+            world, chapter_id=chapter_id, manuscript_text=manuscript_text,
+        )
+        reply = await chat_completion(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.2,
+            max_tokens=1536,
+            timing_label="decision_detection",
+        )
+
+        t = _repair_llm_json(reply)
+        if "{" not in t or "}" not in t:
+            return "决策检测：LLM 返回不包含 JSON 对象"
+        data = _json.loads(t)
+        if not isinstance(data, dict):
+            return "决策检测：LLM 返回非 JSON 格式"
+
+        decisions = data.get("decisions", [])
+        if not isinstance(decisions, list):
+            return "决策检测：decisions 非数组"
+
+        existing_ids = {d.decision_id for d in world.character_decisions}
+        added = 0
+        for raw in decisions:
+            if not isinstance(raw, dict):
+                continue
+            did = str(raw.get("decision_id", "")).strip()
+            if not did or did in existing_ids:
+                continue
+            try:
+                dec = CharacterDecision(
+                    decision_id=did,
+                    character_id=str(raw.get("character_id", "")).strip(),
+                    chapter=chapter_id,
+                    summary=str(raw.get("summary", "")).strip()[:200],
+                    decision_type=raw.get("decision_type", "moral_choice"),
+                    options_considered=raw.get("options_considered") if isinstance(raw.get("options_considered"), list) else [],
+                    option_chosen=str(raw.get("option_chosen", "")).strip()[:100],
+                    stated_reason=str(raw.get("stated_reason", "")).strip()[:200],
+                    actual_reason=str(raw.get("actual_reason", "")).strip()[:200],
+                    immediate_consequences=raw.get("immediate_consequences") if isinstance(raw.get("immediate_consequences"), list) else [],
+                    long_term_consequences=raw.get("long_term_consequences") if isinstance(raw.get("long_term_consequences"), list) else [],
+                    reflections=raw.get("reflections") if isinstance(raw.get("reflections"), list) else [],
+                    outcome_verdict=raw.get("outcome_verdict", "pending"),
+                )
+                world.character_decisions.append(dec)
+                added += 1
+            except Exception:
+                continue
+        return "" if added > 0 else "决策检测：未发现新的关键决策"
+    except _json.JSONDecodeError as e:
+        return f"决策检测：JSON 解析失败 — {e}"
+    except Exception as e:
+        return f"决策检测：{e}"
+
+
+# ── P1: 角色身体状况更新 ──────────────────────────────────────
+
+
+async def _try_update_physical_states(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """从章节正文提取角色身体状态变化。失败不阻塞，返回错误描述。"""
+    import json as _json
+
+    try:
+        from worldforger.story_prompts import (
+            build_physical_state_detection_user_payload,
+            physical_state_detection_system,
+        )
+        from worldforger.schemas import CharacterPhysicalState
+
+        system = physical_state_detection_system()
+        user = build_physical_state_detection_user_payload(
+            world, chapter_id=chapter_id, manuscript_text=manuscript_text,
+        )
+        reply = await chat_completion(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.2,
+            max_tokens=1536,
+            timing_label="physical_state_detection",
+        )
+
+        t = _repair_llm_json(reply)
+        if "{" not in t or "}" not in t:
+            return "身体状态检测：LLM 返回不包含 JSON 对象"
+        data = _json.loads(t)
+        if not isinstance(data, dict):
+            return "身体状态检测：LLM 返回非 JSON 格式"
+
+        states = data.get("physical_states", [])
+        if not isinstance(states, list):
+            return "身体状态检测：physical_states 非数组"
+
+        existing_map = {ps.character_id: ps for ps in world.character_physical_states}
+        updated = 0
+        for raw in states:
+            if not isinstance(raw, dict):
+                continue
+            cid = str(raw.get("character_id", "")).strip()
+            if not cid:
+                continue
+            try:
+                ps = CharacterPhysicalState(
+                    character_id=cid,
+                    active_injuries=raw.get("active_injuries") if isinstance(raw.get("active_injuries"), list) else [],
+                    permanent_marks=raw.get("permanent_marks") if isinstance(raw.get("permanent_marks"), list) else [],
+                    chronic_conditions=raw.get("chronic_conditions") if isinstance(raw.get("chronic_conditions"), list) else [],
+                    fatigue_level=raw.get("fatigue_level", "rested"),
+                    general_condition=str(raw.get("general_condition", "")).strip()[:300],
+                    last_updated_chapter=chapter_id,
+                )
+                if cid in existing_map:
+                    idx = next(i for i, s in enumerate(world.character_physical_states) if s.character_id == cid)
+                    world.character_physical_states[idx] = ps
+                else:
+                    world.character_physical_states.append(ps)
+                updated += 1
+            except Exception:
+                continue
+        return "" if updated > 0 else "身体状态检测：未发现新的身体状态变化"
+    except _json.JSONDecodeError as e:
+        return f"身体状态检测：JSON 解析失败 — {e}"
+    except Exception as e:
+        return f"身体状态检测：{e}"
+
+
+# ── P2: 角色个人时间线检测 ──────────────────────────────────────
+
+async def _try_detect_timeline_events(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """从章节正文检测角色的个人时间线事件。失败不阻塞，返回错误描述。"""
+    import json as _json
+
+    try:
+        from worldforger.story_prompts import (
+            build_personal_timeline_user_payload,
+            personal_timeline_detection_system,
+        )
+        from worldforger.schemas import CharacterPersonalTimeline, PersonalTimelineEvent
+
+        system = personal_timeline_detection_system()
+        user = build_personal_timeline_user_payload(
+            world, chapter_id=chapter_id, manuscript_text=manuscript_text,
+        )
+        reply = await chat_completion(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.2,
+            max_tokens=1536,
+            timing_label="personal_timeline_detection",
+        )
+
+        t = _repair_llm_json(reply)
+        if "{" not in t or "}" not in t:
+            return "时间线检测：LLM 返回不包含 JSON 对象"
+        data = _json.loads(t)
+        if not isinstance(data, dict):
+            return "时间线检测：LLM 返回非 JSON 格式"
+
+        events = data.get("timeline_events", [])
+        if not isinstance(events, list):
+            return "时间线检测：timeline_events 非数组"
+
+        existing_ids = set()
+        for tl in world.character_personal_timelines:
+            for e in tl.events:
+                existing_ids.add(e.event_id)
+
+        added = 0
+        for raw in events:
+            if not isinstance(raw, dict):
+                continue
+            eid = str(raw.get("event_id", "")).strip()
+            if not eid or eid in existing_ids:
+                continue
+            cid = str(raw.get("character_id", "")).strip()
+            if not cid:
+                continue
+            try:
+                evt = PersonalTimelineEvent(
+                    event_id=eid, character_id=cid,
+                    chapter=chapter_id,
+                    relative_timing=str(raw.get("relative_timing", "")).strip()[:60],
+                    event=str(raw.get("event", "")).strip()[:200],
+                    known_by=raw.get("known_by") if isinstance(raw.get("known_by"), list) else [],
+                    significance=str(raw.get("significance", "")).strip()[:200],
+                    linked_events=raw.get("linked_events") if isinstance(raw.get("linked_events"), list) else [],
+                )
+                # Upsert into the character's timeline
+                tl = next((t for t in world.character_personal_timelines if t.character_id == cid), None)
+                if tl is None:
+                    tl = CharacterPersonalTimeline(character_id=cid)
+                    world.character_personal_timelines.append(tl)
+                tl.events.append(evt)
+                added += 1
+            except Exception:
+                continue
+        return "" if added > 0 else "时间线检测：未发现新的个人时间线事件"
+    except _json.JSONDecodeError as e:
+        return f"时间线检测：JSON 解析失败 — {e}"
+    except Exception as e:
+        return f"时间线检测：{e}"
 
 
 # ── 收尾：一致性审校 ──────────────────────────────────────
