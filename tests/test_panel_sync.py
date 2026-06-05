@@ -1,5 +1,5 @@
-from worldforger.panel_merge import _merge_array_by_name_or_append, merge_section_conservative
-from worldforger.panel_sync import apply_structure_patch, parse_structure_json
+from worldforger.sync.panel_merge import _merge_array_by_name_or_append, merge_section_conservative
+from worldforger.sync.panel_sync import apply_structure_patch, parse_structure_json
 from worldforger.world_store import create_world
 
 

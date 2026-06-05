@@ -163,7 +163,7 @@ def migrate_json_files(world_id: str) -> int:
     Returns the number of rows migrated.  Idempotent — existing rows are
     left untouched (INSERT OR IGNORE).
     """
-    from worldforger.story_store import (
+    from worldforger.story.story_store import (
         consistency_dir,
         consistency_path,
         sentiment_dir,

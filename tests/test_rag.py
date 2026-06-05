@@ -133,13 +133,13 @@ def test_chunk_text_preserves_boundaries():
 
 
 def test_format_rag_chunks_empty():
-    from worldforger.story_prompts import format_rag_chunks
+    from worldforger.story.story_prompts import format_rag_chunks
 
     assert format_rag_chunks([]) == ""
 
 
 def test_format_rag_chunks_manuscript():
-    from worldforger.story_prompts import format_rag_chunks
+    from worldforger.story.story_prompts import format_rag_chunks
 
     chunks = [
         {
@@ -160,7 +160,7 @@ def test_format_rag_chunks_manuscript():
 
 
 def test_format_rag_chunks_character():
-    from worldforger.story_prompts import format_rag_chunks
+    from worldforger.story.story_prompts import format_rag_chunks
 
     chunks = [
         {
@@ -176,7 +176,7 @@ def test_format_rag_chunks_character():
 
 
 def test_format_rag_chunks_world_md():
-    from worldforger.story_prompts import format_rag_chunks
+    from worldforger.story.story_prompts import format_rag_chunks
 
     chunks = [
         {
@@ -192,7 +192,7 @@ def test_format_rag_chunks_world_md():
 
 
 def test_format_rag_chunks_truncates_long():
-    from worldforger.story_prompts import format_rag_chunks
+    from worldforger.story.story_prompts import format_rag_chunks
 
     long_text = "长文本" * 400
     chunks = [
@@ -211,7 +211,7 @@ def test_format_rag_chunks_truncates_long():
 
 
 def test_build_book_summary_has_structure(world):
-    from worldforger.story_prompts import build_book_summary
+    from worldforger.story.story_prompts import build_book_summary
 
     summary = build_book_summary(world)
     assert "RAG测试世界" in summary
@@ -222,14 +222,14 @@ def test_build_book_summary_has_structure(world):
 
 
 def test_rag_index_dir(world):
-    from worldforger.story_store import rag_index_dir
+    from worldforger.story.story_store import rag_index_dir
 
     d = rag_index_dir(world.meta.id)
     assert d.name == "rag_index"
 
 
 def test_book_summary_path(world):
-    from worldforger.story_store import book_summary_path
+    from worldforger.story.story_store import book_summary_path
 
     p = book_summary_path(world.meta.id)
     assert p.name == "book_summary.json"
@@ -360,8 +360,8 @@ def test_clear_all(indexer):
 
 
 def test_build_manuscript_user_payload_with_rag(world):
-    from worldforger.story_prompts import build_manuscript_user_payload
-    from worldforger.story_service import add_chapter
+    from worldforger.story.story_prompts import build_manuscript_user_payload
+    from worldforger.story.story_service import add_chapter
 
     ch = add_chapter(world, title="测试章")
 
@@ -387,14 +387,14 @@ def test_build_manuscript_user_payload_with_rag(world):
         include_world_md=False,
         rag_chunks=rag_chunks,
     )
-    assert "语义检索到的前情相关片段" in result
+    assert "前情检索" in result
     assert "前情片段" in result
     assert "长城风云" in result
 
 
 def test_build_manuscript_user_payload_without_rag(world):
-    from worldforger.story_prompts import build_manuscript_user_payload
-    from worldforger.story_service import add_chapter
+    from worldforger.story.story_prompts import build_manuscript_user_payload
+    from worldforger.story.story_service import add_chapter
 
     ch = add_chapter(world, title="测试章")
 
@@ -413,7 +413,7 @@ def test_build_manuscript_user_payload_without_rag(world):
 
 
 def test_character_extraction_from_beat(world):
-    from worldforger.story_service import _extract_character_ids_from_beat
+    from worldforger.story.story_service import _extract_character_ids_from_beat
 
     world.characters.entities = [
         {"id": "char_hero", "name": "李白", "cast_role": "主角"},
@@ -425,7 +425,7 @@ def test_character_extraction_from_beat(world):
 
 
 def test_foreshadowing_extraction(world):
-    from worldforger.story_service import _extract_foreshadowing_ids
+    from worldforger.story.story_service import _extract_foreshadowing_ids
     from worldforger.schemas import StoryForeshadowing
 
     world.story.foreshadowing = [
@@ -444,7 +444,7 @@ def test_foreshadowing_extraction(world):
 
 def test_remove_chapter_cleans_rag_index(world):
     from worldforger.chapter_indexer import ChapterIndexer
-    from worldforger.story_service import add_chapter, remove_chapter
+    from worldforger.story.story_service import add_chapter, remove_chapter
 
     ch = add_chapter(world, title="待删除章")
     assert ch.id

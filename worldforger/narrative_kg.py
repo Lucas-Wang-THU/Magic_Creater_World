@@ -6,7 +6,7 @@ Tracks character state evolution and key item flow across chapters.
 from __future__ import annotations
 
 from worldforger.schemas import CharacterStateSnapshot, KGEntity, KGEvent, NarrativeKG, World
-from worldforger.story_store import read_narrative_kg, write_narrative_kg
+from worldforger.story.story_store import read_narrative_kg, write_narrative_kg
 
 
 class NarrativeKGManager:

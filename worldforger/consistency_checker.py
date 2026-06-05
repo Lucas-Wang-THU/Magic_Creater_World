@@ -7,11 +7,11 @@ from datetime import datetime, timezone
 
 from worldforger.llm import chat_completion
 from worldforger.schemas import ConsistencyReport, World
-from worldforger.story_prompts import (
+from worldforger.story.story_prompts import (
     build_consistency_check_user_payload,
     consistency_check_system,
 )
-from worldforger.story_store import write_consistency_report
+from worldforger.story.story_store import write_consistency_report
 
 
 async def run_consistency_check(

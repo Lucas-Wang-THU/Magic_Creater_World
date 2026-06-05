@@ -87,6 +87,14 @@ def token_usage_path(world_id: str) -> Path:
     return story_dir(world_id) / "token_usage.json"
 
 
+def arc_summaries_dir(world_id: str) -> Path:
+    return story_dir(world_id) / "arc_summaries"
+
+
+def arc_summary_path(world_id: str, arc_start: int, arc_end: int) -> Path:
+    return arc_summaries_dir(world_id) / f"arc_{arc_start}_{arc_end}.md"
+
+
 def knowledge_graph_path(world_id: str) -> Path:
     return story_dir(world_id) / "knowledge_graph.json"
 
@@ -373,7 +381,10 @@ def write_summary_card(world_id: str, chapter_id: str, data: dict) -> None:
 
 
 def summaries_before(world_id: str, chapter_id: str, limit: int, world: World) -> list[dict]:
-    """获取目标章节之前最近 N 章的摘要卡片（已有摘要的章节）。"""
+    """获取目标章节之前最近 N 章的摘要卡片（已有摘要的章节）。
+
+    搜索范围限定在前 10 章内——超过此范围的摘要已不构成有效\"前情\"。
+    """
     from worldforger.schemas import ChapterSummaryCard
 
     ordered = sorted_chapters(world)
@@ -381,7 +392,8 @@ def summaries_before(world_id: str, chapter_id: str, limit: int, world: World) -
     if idx <= 0 or limit <= 0:
         return []
     results: list[dict] = []
-    for c in reversed(ordered[:idx]):
+    search_start = max(0, idx - 10)  # Only look back 10 chapters
+    for c in reversed(ordered[search_start:idx]):
         if len(results) >= limit:
             break
         card = read_summary_card(world_id, c.id)

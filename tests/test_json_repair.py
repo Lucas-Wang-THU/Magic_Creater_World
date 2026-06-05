@@ -1,5 +1,5 @@
 """Tests for JSON repair functions used by the structure sync pipeline."""
-from worldforger.panel_sync import (
+from worldforger.sync.panel_sync import (
     parse_structure_json,
 )
 

@@ -17,7 +17,7 @@ from starlette.requests import Request
 from worldforger.config import get_settings
 from worldforger.llm import chat_completion
 from worldforger.creative_modes import chat_guides_content, chat_mode_system, genre_tags_prompt_addon, normalize_chat_guides
-from worldforger.panel_sync import sync_panels_from_dialogue
+from worldforger.sync.panel_sync import sync_panels_from_dialogue
 from worldforger.relation_graph_refresh import (
     refresh_world_culture_relations,
     refresh_world_faction_relations,
@@ -30,11 +30,11 @@ from worldforger.prompts import (
     system_with_world_json,
 )
 from worldforger.schemas import StoryPerson, World
-from worldforger.foreshadow_apply import apply_foreshadow_operations
-from worldforger.story_agent import run_story_chat_agent
-from worldforger.story_chapter_sync import chapter_display_for_prompt, reconcile_story_chapters, title_from_beat_markdown
-from worldforger.story_prompts import story_chat_system_prompt
-from worldforger.story_service import (
+from worldforger.story.foreshadow_apply import apply_foreshadow_operations
+from worldforger.story.story_agent import run_story_chat_agent
+from worldforger.story.story_chapter_sync import chapter_display_for_prompt, reconcile_story_chapters, title_from_beat_markdown
+from worldforger.story.story_prompts import story_chat_system_prompt
+from worldforger.story.story_service import (
     add_chapter,
     apply_unit_label_from_mode,
     generate_chapter_beats,
@@ -44,7 +44,7 @@ from worldforger.story_service import (
     remove_chapter,
     try_import_legacy,
 )
-from worldforger.story_store import (
+from worldforger.story.story_store import (
     beat_path,
     macro_outline_path,
     manuscript_path,
@@ -220,6 +220,18 @@ class StoryWritingDefaultsPatchBody(BaseModel):
     enable_decision_track: bool | None = None
     enable_physical_state_track: bool | None = None
     enable_personal_timeline_track: bool | None = None
+    enable_speech_profile: bool | None = None
+    enable_aftermath_track: bool | None = None
+    enable_breathing_room: bool | None = None
+    enable_epic_density_check: bool | None = None
+    enable_flaw_track: bool | None = None
+    enable_micro_habit_track: bool | None = None
+    enable_mystery_manager: bool | None = None
+    enable_character_arc_engine: bool | None = None
+    enable_reader_memory: bool | None = None
+    enable_narrative_state_injection: bool | None = None
+    enable_scene_chunking: bool | None = None
+    enable_unified_extractors: bool | None = None
 
 
 class StoryGenerateManuscriptBody(BaseModel):
@@ -1078,7 +1090,7 @@ def api_put_chapter_manuscript(
     write_text(manuscript_path(world_id, chapter_id), body.content)
     n = sync_chapter_word_count(w, chapter_id)
     # P2-9: Auto-save version snapshot
-    from worldforger.story_store import save_chapter_snapshot
+    from worldforger.story.story_store import save_chapter_snapshot
     snap_v = save_chapter_snapshot(world_id, chapter_id)
     w.bump_version()
     save_world(w, export_markdown=False)
@@ -1125,8 +1137,11 @@ def api_batch_chapters(world_id: str, body: StoryChapterBatchBody) -> dict[str, 
 
     if action == "delete":
         ids = set(body.chapter_ids)
-        kept = [c for c in chapters if c.id not in ids]
-        w.story.chapters = kept
+        from worldforger.story.story_service import remove_chapter
+        for cid in ids:
+            remove_chapter(w, cid)
+        # Re-number remaining chapters
+        kept = w.story.chapters
         if kept:
             for i, c in enumerate(kept):
                 c.order = i + 1
@@ -1160,7 +1175,7 @@ def api_batch_chapters(world_id: str, body: StoryChapterBatchBody) -> dict[str, 
 @app.get("/api/worlds/{world_id}/story/chapters/{chapter_id}/snapshots")
 def api_list_chapter_snapshots(world_id: str, chapter_id: str) -> dict[str, Any]:
     """列出某章的所有版本快照。"""
-    from worldforger.story_store import list_chapter_snapshots
+    from worldforger.story.story_store import list_chapter_snapshots
     _story_world_or_404(world_id)
     return {"snapshots": list_chapter_snapshots(world_id, chapter_id)}
 
@@ -1168,7 +1183,7 @@ def api_list_chapter_snapshots(world_id: str, chapter_id: str) -> dict[str, Any]
 @app.get("/api/worlds/{world_id}/story/chapters/{chapter_id}/snapshots/{version}")
 def api_get_chapter_snapshot(world_id: str, chapter_id: str, version: int) -> dict[str, Any]:
     """获取某章某个版本的快照内容。"""
-    from worldforger.story_store import read_chapter_snapshot
+    from worldforger.story.story_store import read_chapter_snapshot
     _story_world_or_404(world_id)
     try:
         content = read_chapter_snapshot(world_id, chapter_id, version)
@@ -1183,7 +1198,7 @@ def api_chapter_snapshot_diff(
 ) -> dict[str, Any]:
     """对比章节两个版本之间的差异（left/right 为版本号或 'current'）。"""
     from worldforger.snapshot_diff import line_diff_text
-    from worldforger.story_store import manuscript_path, read_chapter_snapshot, read_text
+    from worldforger.story.story_store import manuscript_path, read_chapter_snapshot, read_text
 
     _story_world_or_404(world_id)
 
@@ -1355,7 +1370,7 @@ async def api_story_polish_only(
     world_id: str, body: StoryGenerateManuscriptBody
 ) -> dict[str, Any]:
     """Re-run the polish loop on an existing manuscript without regenerating."""
-    from worldforger.story_service import _run_polish_loop
+    from worldforger.story.story_service import _run_polish_loop
 
     w = _story_world_or_404(world_id)
     if not any(c.id == body.chapter_id for c in w.story.chapters):
@@ -1409,7 +1424,7 @@ def api_get_narrative_kg(world_id: str) -> dict[str, Any]:
 @app.get("/api/worlds/{world_id}/story/consistency-report/{chapter_id}")
 def api_get_consistency_report(world_id: str, chapter_id: str) -> dict[str, Any]:
     """返回指定章节的一致性审校报告。"""
-    from worldforger.story_store import read_consistency_report
+    from worldforger.story.story_store import read_consistency_report
 
     try:
         w = load_world(world_id)
@@ -1459,7 +1474,7 @@ def api_get_sentiment_arc(world_id: str) -> dict[str, Any]:
 @app.get("/api/worlds/{world_id}/story/usage-stats")
 def api_get_usage_stats(world_id: str) -> dict[str, Any]:
     """返回每章各类 LLM 调用的估算 token 消耗和总预算。"""
-    from worldforger.story_service import compute_usage_stats
+    from worldforger.story.story_service import compute_usage_stats
 
     try:
         w = load_world(world_id)
@@ -1474,7 +1489,7 @@ def api_get_usage_stats(world_id: str) -> dict[str, Any]:
 @app.get("/api/worlds/{world_id}/story/stats")
 def api_get_story_stats(world_id: str) -> dict[str, Any]:
     """聚合写作统计数据：字数、进度、伏笔、情感分布。"""
-    from worldforger.story_store import (
+    from worldforger.story.story_store import (
         count_words,
         manuscript_path,
         read_sentiment_log,
@@ -1586,6 +1601,42 @@ def api_patch_story_writing_defaults(
     if body.enable_personal_timeline_track is not None:
         wd.enable_personal_timeline_track = body.enable_personal_timeline_track
         changed = True
+    if body.enable_speech_profile is not None:
+        wd.enable_speech_profile = body.enable_speech_profile
+        changed = True
+    if body.enable_aftermath_track is not None:
+        wd.enable_aftermath_track = body.enable_aftermath_track
+        changed = True
+    if body.enable_breathing_room is not None:
+        wd.enable_breathing_room = body.enable_breathing_room
+        changed = True
+    if body.enable_epic_density_check is not None:
+        wd.enable_epic_density_check = body.enable_epic_density_check
+        changed = True
+    if body.enable_flaw_track is not None:
+        wd.enable_flaw_track = body.enable_flaw_track
+        changed = True
+    if body.enable_micro_habit_track is not None:
+        wd.enable_micro_habit_track = body.enable_micro_habit_track
+        changed = True
+    if body.enable_mystery_manager is not None:
+        wd.enable_mystery_manager = body.enable_mystery_manager
+        changed = True
+    if body.enable_character_arc_engine is not None:
+        wd.enable_character_arc_engine = body.enable_character_arc_engine
+        changed = True
+    if body.enable_reader_memory is not None:
+        wd.enable_reader_memory = body.enable_reader_memory
+        changed = True
+    if body.enable_narrative_state_injection is not None:
+        wd.enable_narrative_state_injection = body.enable_narrative_state_injection
+        changed = True
+    if body.enable_scene_chunking is not None:
+        wd.enable_scene_chunking = body.enable_scene_chunking
+        changed = True
+    if body.enable_unified_extractors is not None:
+        wd.enable_unified_extractors = body.enable_unified_extractors
+        changed = True
     if changed:
         w.bump_version()
         save_world(w, export_markdown=False)
@@ -1601,7 +1652,7 @@ def api_patch_story_writing_defaults(
 @app.get("/api/worlds/{world_id}/story/manuscript/{chapter_id}/polished")
 def api_get_polished_manuscript(world_id: str, chapter_id: str) -> dict[str, Any]:
     """获取某章的润色稿。"""
-    from worldforger.story_store import polished_path, read_text
+    from worldforger.story.story_store import polished_path, read_text
 
     try:
         w = load_world(world_id)
@@ -1626,7 +1677,7 @@ def api_get_polish_trace(world_id: str, chapter_id: str) -> dict[str, Any]:
     """获取某章的审校↔润色循环追踪记录。"""
     import json as _json
 
-    from worldforger.story_store import polish_trace_path
+    from worldforger.story.story_store import polish_trace_path
 
     try:
         w = load_world(world_id)
@@ -1653,7 +1704,7 @@ def api_token_usage(world_id: str) -> dict[str, Any]:
     records from ``token_usage.json``.
     """
     from worldforger.llm import get_token_usage
-    from worldforger.story_store import read_token_usage
+    from worldforger.story.story_store import read_token_usage
 
     try:
         _ = load_world(world_id)
@@ -1753,8 +1804,8 @@ async def api_extract_all_decisions(world_id: str) -> dict[str, Any]:
     if not chapters:
         return {"ok": True, "total_new": 0, "by_chapter": {}, "message": "没有可提取的章节"}
 
-    from worldforger.story_store import manuscript_path, read_text
-    from worldforger.story_service import _try_detect_decisions
+    from worldforger.story.story_store import manuscript_path, read_text
+    from worldforger.story.story_service import _try_detect_decisions
 
     results = {}
     sem = _asyncio.Semaphore(3)
@@ -1805,8 +1856,8 @@ async def api_extract_all_physical_states(world_id: str) -> dict[str, Any]:
     if not chapters:
         return {"ok": True, "total_new": 0, "by_chapter": {}, "message": "没有可提取的章节"}
 
-    from worldforger.story_store import manuscript_path, read_text
-    from worldforger.story_service import _try_update_physical_states
+    from worldforger.story.story_store import manuscript_path, read_text
+    from worldforger.story.story_service import _try_update_physical_states
 
     results = {}
     sem = _asyncio.Semaphore(3)
@@ -1847,6 +1898,46 @@ def api_get_personal_timelines(world_id: str) -> dict[str, Any]:
     }
 
 
+# ── Phase 1: Emotional Aftermath ──────────────────────────────
+
+@app.post("/api/worlds/{world_id}/aftermaths/extract-all")
+async def api_extract_all_aftermaths(world_id: str) -> dict[str, Any]:
+    """Scan all existing chapter manuscripts and extract emotional aftermaths."""
+    import asyncio as _asyncio
+
+    w = _story_world_or_404(world_id)
+    chapters = [c for c in w.story.chapters if c.status not in ("planned", "outline")]
+    if not chapters:
+        return {"ok": True, "total_new": 0, "by_chapter": {}}
+
+    from worldforger.story.story_store import manuscript_path, read_text
+    from worldforger.story.story_service import _try_extract_aftermaths
+
+    results = {}
+    sem = _asyncio.Semaphore(3)
+
+    async def _extract_one(ch) -> dict:
+        async with sem:
+            ms = read_text(manuscript_path(world_id, ch.id))
+            if not ms.strip():
+                return {"chapter_id": ch.id, "skipped": True}
+            await _asyncio.sleep(3)
+            prev = len(w.character_aftermaths)
+            err = await _try_extract_aftermaths(w, ch.id, ms)
+            new_count = len(w.character_aftermaths) - prev
+            return {"chapter_id": ch.id, "new": new_count, "error": err} if err else {"chapter_id": ch.id, "new": new_count}
+
+    chapter_results = await _asyncio.gather(*[_extract_one(ch) for ch in chapters])
+    total_new = 0
+    for r in chapter_results:
+        results[r["chapter_id"]] = {k: v for k, v in r.items() if k != "chapter_id"}
+        total_new += r.get("new", 0)
+
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {"ok": True, "total_new": total_new, "total": len(w.character_aftermaths), "by_chapter": results, "world": w.model_dump(mode="json")}
+
+
 @app.post("/api/worlds/{world_id}/personal-timelines/extract-all")
 async def api_extract_all_timelines(world_id: str) -> dict[str, Any]:
     """Scan all existing chapter manuscripts and extract personal timeline events."""
@@ -1857,8 +1948,8 @@ async def api_extract_all_timelines(world_id: str) -> dict[str, Any]:
     if not chapters:
         return {"ok": True, "total_new": 0, "by_chapter": {}, "message": "没有可提取的章节"}
 
-    from worldforger.story_store import manuscript_path, read_text
-    from worldforger.story_service import _try_detect_timeline_events
+    from worldforger.story.story_store import manuscript_path, read_text
+    from worldforger.story.story_service import _try_detect_timeline_events
 
     results = {}
     sem = _asyncio.Semaphore(3)
@@ -1900,8 +1991,8 @@ async def api_extract_all_knowledge(world_id: str) -> dict[str, Any]:
     if not chapters:
         return {"ok": True, "total_new": 0, "by_chapter": {}, "message": "没有可提取的章节"}
 
-    from worldforger.story_store import manuscript_path, read_text
-    from worldforger.story_service import _try_detect_knowledge
+    from worldforger.story.story_store import manuscript_path, read_text
+    from worldforger.story.story_service import _try_detect_knowledge
 
     results = {}
     sem = _asyncio.Semaphore(3)  # limit concurrency to avoid rate limiting

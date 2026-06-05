@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from worldforger.schemas import StoryChapter, World
-from worldforger.story_store import (
+from worldforger.story.story_store import (
     beat_path,
     ensure_story_dirs,
     macro_outline_path,

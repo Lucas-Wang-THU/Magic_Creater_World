@@ -345,6 +345,14 @@ function renderCharCastCardEditHtml(ent, variant = "protagonists") {
   const aliasesTxt = aliases.map((a) => String(a).trim()).filter(Boolean).join("，");
   const fac = Array.isArray(ent?.faction_ids) ? ent.faction_ids.map((x) => String(x).trim()).filter(Boolean) : [];
   const home = String(ent?.home_region_id ?? "").trim();
+  const sp = (ent?.speech_profile && typeof ent.speech_profile === "object") ? ent.speech_profile : {};
+  const spSent = String(sp.avg_sentence_length || "mixed");
+  const spExpr = String(sp.emotional_expression || "direct");
+  const spConf = String(sp.confrontation_style || "faces_it");
+  const spTics = Array.isArray(sp.verbal_tics) ? sp.verbal_tics.join("，") : "";
+  const spAvoid = Array.isArray(sp.avoidance_topics) ? sp.avoidance_topics.join("，") : "";
+  const spSilence = String(sp.silence_meaning || "");
+  const spStress = String(sp.under_stress || "");
   const avIc = variant === "supporting" ? "person" : "badge";
   return `<article class="char-roster-card char-roster-card--edit" data-char-edit-card="1" data-char-entity-id="${escapeAttr(
     idRaw
@@ -397,6 +405,17 @@ function renderCharCastCardEditHtml(ent, variant = "protagonists") {
             home
           )}" autocomplete="off" /></label>
       </section>
+      <details class="char-roster-block char-roster-block--edit char-roster-speech"><summary class="char-roster-block-hd" style="cursor:pointer">🎤 语言风格 · speech_profile</summary>
+        <div class="speech-card-inline">
+          <label class="muted tiny">句式 <select data-char-field="sp_avg_sentence_length" style="font-size:0.74rem"><option value="mixed"${spSent==="mixed"?" selected":""}>混合</option><option value="short"${spSent==="short"?" selected":""}>短句</option><option value="medium"${spSent==="medium"?" selected":""}>中等</option><option value="long"${spSent==="long"?" selected":""}>长句</option></select></label>
+          <label class="muted tiny">情绪表达 <select data-char-field="sp_emotional_expression" style="font-size:0.74rem"><option value="direct"${spExpr==="direct"?" selected":""}>直接表达</option><option value="indirect"${spExpr==="indirect"?" selected":""}>间接暗示</option><option value="suppressed"${spExpr==="suppressed"?" selected":""}>压抑型</option><option value="explosive"${spExpr==="explosive"?" selected":""}>爆发型</option><option value="sarcastic"${spExpr==="sarcastic"?" selected":""}>讽刺型</option></select></label>
+          <label class="muted tiny">对抗 <select data-char-field="sp_confrontation_style" style="font-size:0.74rem"><option value="faces_it"${spConf==="faces_it"?" selected":""}>直接面对</option><option value="deflects"${spConf==="deflects"?" selected":""}>转移话题</option><option value="withdraws"${spConf==="withdraws"?" selected":""}>沉默离开</option><option value="escalates"${spConf==="escalates"?" selected":""}>升级冲突</option></select></label>
+          <label class="muted tiny">口头禅 <input type="text" data-char-field="sp_verbal_tics" value="${escapeAttr(spTics)}" placeholder="啧, ……算了" style="font-size:0.74rem;width:100%" /></label>
+          <label class="muted tiny">回避话题 <input type="text" data-char-field="sp_avoidance_topics" value="${escapeAttr(spAvoid)}" placeholder="家庭, 过去" style="font-size:0.74rem;width:100%" /></label>
+          <label class="muted tiny">沉默含义 <input type="text" data-char-field="sp_silence_meaning" value="${escapeAttr(spSilence)}" placeholder="在思考，不是冷漠" style="font-size:0.74rem;width:100%" /></label>
+          <label class="muted tiny">压力下 <input type="text" data-char-field="sp_under_stress" value="${escapeAttr(spStress)}" placeholder="开始说短句" style="font-size:0.74rem;width:100%" /></label>
+        </div>
+      </details>
     </div>
   </article>`;
 }
@@ -436,7 +455,25 @@ function readCharEditCardFromDom(article) {
     .map((s) => s.trim())
     .filter(Boolean);
   const home_region_id = (g("home_region_id")?.value ?? "").trim();
-  return { id, name, cast_role, one_line_hook, notes, aliases, notable_skills, faction_ids, home_region_id };
+  // Speech profile
+  const spSent = (g("sp_avg_sentence_length")?.value ?? "mixed").trim();
+  const spExpr = (g("sp_emotional_expression")?.value ?? "direct").trim();
+  const spConf = (g("sp_confrontation_style")?.value ?? "faces_it").trim();
+  const spTics = (g("sp_verbal_tics")?.value ?? "").trim();
+  const spAvoid = (g("sp_avoidance_topics")?.value ?? "").trim();
+  const spSilence = (g("sp_silence_meaning")?.value ?? "").trim();
+  const spStress = (g("sp_under_stress")?.value ?? "").trim();
+  const speech_profile = {
+    avg_sentence_length: spSent,
+    emotional_expression: spExpr,
+    confrontation_style: spConf,
+    verbal_tics: spTics ? spTics.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [],
+    avoidance_topics: spAvoid ? spAvoid.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [],
+    silence_meaning: spSilence,
+    under_stress: spStress,
+    verbosity: "normal",
+  };
+  return { id, name, cast_role, one_line_hook, notes, aliases, notable_skills, faction_ids, home_region_id, speech_profile };
 }
 
 function persistCharRosterCards(panelId) {
@@ -473,6 +510,9 @@ function persistCharRosterCards(panelId) {
     else delete next.faction_ids;
     if (patch.home_region_id) next.home_region_id = patch.home_region_id;
     else delete next.home_region_id;
+    if (patch.speech_profile && Object.values(patch.speech_profile).some(v => v && (!Array.isArray(v) || v.length))) {
+      next.speech_profile = patch.speech_profile;
+    }
     entities[idx] = next;
   });
   $("charEntitiesJson").value = JSON.stringify(entities, null, 2);
@@ -3960,12 +4000,15 @@ function storyMetaToForm() {
   if ($("storyPolishMaxRounds")) $("storyPolishMaxRounds").value = String(wd.polish_max_rounds ?? 2);
   if ($("storyChatTogglePolisher")) $("storyChatTogglePolisher").checked = wd.enable_polisher !== false;
   if ($("storyChatPolishMaxRounds")) $("storyChatPolishMaxRounds").value = String(wd.polish_max_rounds ?? 2);
+  if ($("storyToggleChunking")) $("storyToggleChunking").checked = wd.enable_scene_chunking !== false;
+  if ($("storyChatToggleChunking")) $("storyChatToggleChunking").checked = wd.enable_scene_chunking !== false;
+  if ($("storyToggleUnified")) $("storyToggleUnified").checked = wd.enable_unified_extractors === true;
+  if ($("storyChatToggleUnified")) $("storyChatToggleUnified").checked = wd.enable_unified_extractors === true;
   if ($("storyToggleKnowledge")) $("storyToggleKnowledge").checked = wd.enable_knowledge_track !== false;
   if ($("storyToggleDecisions")) $("storyToggleDecisions").checked = wd.enable_decision_track !== false;
   if ($("storyTogglePhysical")) $("storyTogglePhysical").checked = wd.enable_physical_state_track !== false;
   if ($("storyToggleTimeline")) $("storyToggleTimeline").checked = wd.enable_personal_timeline_track !== false;
   void refreshUsageStats();
-  void renderKnowledgePanel();
   refreshStoryNarratorSelect(n.character_id || "");
   refreshStoryChapterSelects();
   syncStoryChatWritingControlsFromForm();
@@ -4013,7 +4056,8 @@ function storyChatActiveChapterId() {
     $("storyBeatChapterSelect")?.value ||
     $("storyMsChapterSelect")?.value ||
     $("storyWriteChapterSelect")?.value ||
-    sortedStoryChapters()[0]?.id ||
+    // Don't blindly fall back to chapter 1 — it causes confusion.
+    // Return "" so callers can show a helpful error.
     ""
   );
 }
@@ -4750,6 +4794,8 @@ async function _saveWritingDefaultsFromForm() {
     polish_max_rounds: parseInt(
       $("storyPolishMaxRounds")?.value || $("storyChatPolishMaxRounds")?.value || "2", 10
     ),
+    enable_scene_chunking: $("storyToggleChunking")?.checked ?? $("storyChatToggleChunking")?.checked,
+    enable_unified_extractors: $("storyToggleUnified")?.checked ?? $("storyChatToggleUnified")?.checked,
   };
   try {
     const res = await api(`/api/worlds/${state.world.meta.id}/story/writing-defaults`, {
@@ -4841,10 +4887,15 @@ async function savePolishToggle(sourceId) {
 	    const activeId = state.storyActiveChapterId;
 	    const activeIdx = chapters.findIndex(c => c.id === activeId);
 	    if (activeIdx > 0) {
-	      const prev = chapters[activeIdx - 1];
-	      if (prev.summary_card && prev.summary_card.main_events) {
-	        prevBody.innerHTML = `<strong>第${prev.order}章 ${escapeHtml(prev.title || prev.id)}</strong><br>${escapeHtml(prev.summary_card.main_events)}`;
+	      let found = null;
+	      for (let i = activeIdx - 1; i >= Math.max(0, activeIdx - 5); i--) {
+	        const pc = chapters[i];
+	        if (pc.summary_card && pc.summary_card.main_events) { found = pc; break; }
+	      }
+	      if (found) {
+	        prevBody.innerHTML = `<strong>第${found.order}章 ${escapeHtml(found.title || found.id)}</strong><br>${escapeHtml(found.summary_card.main_events)}`;
 	      } else {
+	        const prev = chapters[activeIdx - 1];
 	        prevBody.textContent = `第${prev.order}章 ${escapeHtml(prev.title || prev.id)}（暂无摘要）`;
 	      }
 	    } else if (activeIdx === 0) {
@@ -4938,11 +4989,37 @@ function initStoryPanelBindings() {
 
   $("btnStoryAddChapterSide")?.addEventListener("click", () => $("btnStoryAddChapter")?.click());
   $("btnStoryAddChapterChat")?.addEventListener("click", () => $("btnStoryAddChapter")?.click());
+  let _lastCheckCid = null;
   for (const navId of STORY_CHAPTER_NAV_IDS) {
     $(navId)?.addEventListener("click", (e) => {
       const btn = e.target.closest("[data-story-chapter-id]");
       if (!btn?.dataset.storyChapterId) return;
-      void selectStoryChapter(btn.dataset.storyChapterId);
+      const cid = btn.dataset.storyChapterId;
+      const nav = btn.closest(".story-chapter-nav");
+
+      const clickedOnCb = e.target.closest(".story-ch-cb");
+      if (e.shiftKey && _lastCheckCid && _lastCheckCid !== cid) {
+        e.preventDefault();
+        const allBtns = [...(nav || document).querySelectorAll("[data-story-chapter-id]")];
+        const lastBtn = allBtns.find(b => b.dataset.storyChapterId === _lastCheckCid);
+        const thisIdx = allBtns.indexOf(btn);
+        const lastIdx = allBtns.indexOf(lastBtn);
+        if (thisIdx >= 0 && lastIdx >= 0) {
+          const [lo, hi] = [Math.min(thisIdx, lastIdx), Math.max(thisIdx, lastIdx)];
+          const targetState = lastBtn ? !(lastBtn.querySelector(".story-ch-cb")?.checked ?? false) : true;
+          for (let i = lo; i <= hi; i++) {
+            const bc = allBtns[i]?.querySelector(".story-ch-cb");
+            if (bc) bc.checked = targetState;
+          }
+        }
+      } else if (clickedOnCb) {
+        // Click on checkbox: let browser toggle it, don't navigate
+      } else if (!e.shiftKey) {
+        void selectStoryChapter(cid);
+        return;
+      }
+      _lastCheckCid = cid;
+      refreshBatchBar();
     });
   }
   $("btnStoryChatOpenChapter")?.addEventListener("click", () => {
@@ -5195,6 +5272,10 @@ function initStoryPanelBindings() {
   $("storyPolishMaxRounds")?.addEventListener("change", () => void savePolishToggle("storyPolishMaxRounds"));
   $("storyChatTogglePolisher")?.addEventListener("change", () => void savePolishToggle("storyChatTogglePolisher"));
   $("storyChatPolishMaxRounds")?.addEventListener("change", () => void savePolishToggle("storyChatPolishMaxRounds"));
+  $("storyToggleChunking")?.addEventListener("change", () => void _saveWritingDefaultsFromForm());
+  $("storyChatToggleChunking")?.addEventListener("change", () => void _saveWritingDefaultsFromForm());
+  $("storyToggleUnified")?.addEventListener("change", () => void _saveWritingDefaultsFromForm());
+  $("storyChatToggleUnified")?.addEventListener("change", () => void _saveWritingDefaultsFromForm());
   // Toggle checkboxes: save to backend + refresh budget estimate
   for (const id of ["storyToggleKG", "storyToggleConsistency", "storyToggleSentiment",
                      "storyTogglePolisher", "storyPolishMaxRounds"]) {
@@ -5206,18 +5287,22 @@ function initStoryPanelBindings() {
 
   // Knowledge detection toggle
   $("storyToggleKnowledge")?.addEventListener("change", () => void saveKnowledgeToggle());
+  $("storyToggleDecisions")?.addEventListener("change", () => void saveKnowledgeToggle());
+  $("storyTogglePhysical")?.addEventListener("change", () => void saveKnowledgeToggle());
+  $("storyToggleTimeline")?.addEventListener("change", () => void saveKnowledgeToggle());
+  $("storyToggleSpeech")?.addEventListener("change", () => void saveKnowledgeToggle());
+  $("storyToggleAftermath")?.addEventListener("change", () => void saveKnowledgeToggle());
   $("charKnowledgeFilterChar")?.addEventListener("change", () => renderKnowledgePanel());
   $("btnClearKnowledge")?.addEventListener("click", () => void clearKnowledgeGraph());
   $("btnExtractAllKnowledge")?.addEventListener("click", () => void extractAllKnowledge());
-  $("storyToggleDecisions")?.addEventListener("change", () => void saveKnowledgeToggle());
   // Tab switching
   document.querySelectorAll(".knowledge-tab").forEach(tab => {
     tab.addEventListener("click", () => {
       document.querySelectorAll(".knowledge-tab").forEach(t => t.classList.remove("active"));
       tab.classList.add("active");
       const show = tab.dataset.knowledgeTab;
-      const allLists = ["charKnowledgeList", "charDecisionsList", "charPhysicalList", "charTimelineList"];
-      const tabMap = { knowledge: "charKnowledgeList", decisions: "charDecisionsList", physical: "charPhysicalList", timeline: "charTimelineList" };
+      const allLists = ["charKnowledgeList", "charDecisionsList", "charPhysicalList", "charTimelineList", "charSpeechList", "charAftermathList"];
+      const tabMap = { knowledge: "charKnowledgeList", decisions: "charDecisionsList", physical: "charPhysicalList", timeline: "charTimelineList", speech: "charSpeechList", aftermath: "charAftermathList" };
       allLists.forEach(id => {
         const el = $(id);
         if (el) el.classList.toggle("hidden", tabMap[show] !== id);
@@ -5227,8 +5312,6 @@ function initStoryPanelBindings() {
       if (show === "timeline") renderTimelinePanel();
     });
   });
-
-  $("storyTogglePhysical")?.addEventListener("change", () => void saveKnowledgeToggle());
 
 }
 
@@ -6275,11 +6358,17 @@ function renderChapterStatusList() {
   </div>` +
     chapters.map(c => {
       const opts = STATUS_OPTS.map(([v, lab]) => `<option value="${v}"${c.status === v ? " selected" : ""}>${lab}</option>`).join("");
+      const actual = c.word_count || 0;
+      const target = c.target_word_count || 0;
+      const wcDisplay = target > 0
+        ? `<span class="story-ch-status-wc muted tiny">${actual.toLocaleString()} / <strong>${target.toLocaleString()}</strong> 字</span>`
+        : `<span class="story-ch-status-wc muted tiny">${actual.toLocaleString()} 字</span>`;
       return `<div class="story-ch-status-row">
         <span class="story-ch-status-dot" style="background:${DOT_COLORS[c.status] || '#94a3b8'}" title="${c.status}"></span>
         <span class="story-ch-status-order">${c.order}.</span>
         <span class="story-ch-status-title">${escapeHtml(c.title || c.id)}</span>
-        <span class="story-ch-status-wc muted tiny">${(c.word_count || 0).toLocaleString()} 字</span>
+        ${wcDisplay}
+        <input type="number" class="story-ch-target-wc" data-chapter-id="${escapeAttr(c.id)}" value="${target || ''}" placeholder="目标" min="0" step="500" style="width:5em" title="目标字数（0=不限制）" aria-label="目标字数" />
         <select class="story-ch-status-sel" data-chapter-id="${escapeAttr(c.id)}" aria-label="状态">${opts}</select>
       </div>`;
     }).join("");
@@ -6298,6 +6387,19 @@ function renderChapterStatusList() {
         renderChapterStatusList();
         setDirty(false);
       } catch (e) { toast("更新失败：" + e.message); }
+    });
+  });
+  // Wire up target word count inputs
+  host.querySelectorAll(".story-ch-target-wc").forEach(inp => {
+    inp.addEventListener("change", async () => {
+      const cid = inp.dataset.chapterId;
+      const target = Math.max(0, parseInt(inp.value, 10) || 0);
+      const ch = (state.world?.story?.chapters || []).find(c => c.id === cid);
+      if (!ch) return;
+      ch.target_word_count = target;
+      setDirty(true);
+      renderChapterStatusList();
+      renderStoryChapterNav();
     });
   });
 }
@@ -6329,7 +6431,11 @@ function renderStoryChapterNav(activeId) {
           const title = (c.title || "").trim() || id;
           const sl = STATUS_LABELS[c.status] || c.status || STATUS_LABELS.planned;
           const dotClass = STATUS_DOTS[c.status] || STATUS_DOTS.planned;
-          const wc = c.word_count ? ` <span class="story-ch-status-label">${c.word_count} 字</span>` : "";
+          const actual = c.word_count || 0;
+          const target = c.target_word_count || 0;
+          const wc = target > 0
+            ? ` <span class="story-ch-status-label">${actual.toLocaleString()}/${target.toLocaleString()} 字</span>`
+            : actual > 0 ? ` <span class="story-ch-status-label">${actual.toLocaleString()} 字</span>` : "";
           const summaryDot = c.summary_card ? ' <span class="story-ch-status-dot" style="background:#0d9488" title="有摘要卡片"></span>' : "";
           const cr = c.consistency_report;
           const crBadge = cr
@@ -6348,10 +6454,6 @@ function renderStoryChapterNav(activeId) {
     if (!nav) continue;
     anyNav = true;
     nav.innerHTML = listHtml;
-    // Re-wire checkbox clicks
-    nav.querySelectorAll(".story-ch-cb").forEach(cb => {
-      cb.addEventListener("click", e => { e.stopPropagation(); refreshBatchBar(); });
-    });
   }
   if (!anyNav) return;
   // Batch bar
@@ -6420,6 +6522,10 @@ async function batchDeleteChapters() {
       body: JSON.stringify({ action: "delete", chapter_ids: ids }),
     });
     state.world = res.world;
+    // Clear active chapter if it was deleted
+    if (ids.includes(state.storyActiveChapterId)) {
+      state.storyActiveChapterId = "";
+    }
     storyMetaToForm();
     renderStoryChapterNav();
     toast(`已删除 ${ids.length} 章`);
@@ -8461,24 +8567,149 @@ async function extractAllKnowledge() {
     const tRes = await api(`/api/worlds/${wid}/personal-timelines/extract-all`, { method: "POST" });
     state.world = tRes.world || state.world;
     const tTotal = tRes.total_new || 0;
+    btn.textContent = `时间线 ${tTotal}…`;
+
+    const aRes = await api(`/api/worlds/${wid}/aftermaths/extract-all`, { method: "POST" });
+    state.world = aRes.world || state.world;
+    const aTotal = aRes.total_new || 0;
 
     storyMetaToForm();
-    renderKnowledgePanel();
     renderDecisionsPanel();
     renderPhysicalStatesPanel();
     renderTimelinePanel();
+    renderSpeechPanel();
+    renderAftermathPanel();
 
     const parts = [];
     if (kTotal > 0) parts.push(`${kTotal} 条知识`);
     if (dTotal > 0) parts.push(`${dTotal} 个决策`);
     if (pTotal > 0) parts.push(`${pTotal} 个状态`);
     if (tTotal > 0) parts.push(`${tTotal} 个时间线`);
+    if (aTotal > 0) parts.push(`${aTotal} 个后遗症`);
     toast(parts.length > 0 ? `已提取 ${parts.join(" + ")}` : "未发现新的内容");
   } catch (e) {
     toast("提取失败：" + e.message);
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = '<span class="ms" aria-hidden="true">auto_awesome</span>从已有章节提取'; }
   }
+}
+
+function renderSpeechPanel() {
+  const listEl = $("charSpeechList");
+  const countEl = $("speechTabCount");
+  if (!listEl) return;
+  const entities = state.world?.characters?.entities || [];
+  const withProfiles = entities.filter(e => e && typeof e === "object" && e.speech_profile && typeof e.speech_profile === "object" && Object.keys(e.speech_profile).length > 0);
+  if (countEl) countEl.textContent = withProfiles.length ? `(${withProfiles.length})` : "";
+
+  const SENT_OPTS = ["mixed","short","medium","long"];
+  const EXPR_OPTS = ["direct","indirect","suppressed","explosive","sarcastic"];
+  const CONF_OPTS = ["faces_it","deflects","withdraws","escalates"];
+  const EXPR_LABELS = { direct:"直接表达", indirect:"间接暗示", suppressed:"压抑型", explosive:"爆发型", sarcastic:"讽刺型" };
+  const CONF_LABELS = { faces_it:"直接面对", deflects:"转移话题", withdraws:"沉默离开", escalates:"升级冲突" };
+  const SENT_LABELS = { short:"短句", medium:"中等", long:"长句", mixed:"混合" };
+
+  if (!entities.length) {
+    listEl.innerHTML = '<p class="muted tiny">暂无角色数据。</p>';
+    return;
+  }
+
+  listEl.innerHTML = entities.map(e => {
+    if (!e || typeof e !== "object") return "";
+    const sp = (e.speech_profile && typeof e.speech_profile === "object") ? e.speech_profile : {};
+    const cid = e.id || "";
+    const sentSel = SENT_OPTS.map(v => `<option value="${v}"${(sp.avg_sentence_length||"mixed")===v?" selected":""}>${SENT_LABELS[v]||v}</option>`).join("");
+    const exprSel = EXPR_OPTS.map(v => `<option value="${v}"${(sp.emotional_expression||"direct")===v?" selected":""}>${EXPR_LABELS[v]||v}</option>`).join("");
+    const confSel = CONF_OPTS.map(v => `<option value="${v}"${(sp.confrontation_style||"faces_it")===v?" selected":""}>${CONF_LABELS[v]||v}</option>`).join("");
+
+    return `<div class="speech-card" data-char-id="${escapeAttr(cid)}">
+      <div class="speech-card-head">
+        <span class="ms">record_voice_over</span>
+        <strong>${escapeHtml(e.name || cid)}</strong>
+        <button type="button" class="ghost tiny speech-save-btn" data-char-id="${escapeAttr(cid)}">保存风格</button>
+      </div>
+      <div class="speech-edit-grid">
+        <label class="muted tiny">句式 <select class="speech-edit-sent">${sentSel}</select></label>
+        <label class="muted tiny">情绪表达 <select class="speech-edit-expr">${exprSel}</select></label>
+        <label class="muted tiny">对抗风格 <select class="speech-edit-conf">${confSel}</select></label>
+        <label class="muted tiny">啰嗦度 <select class="speech-edit-verb"><option value="normal"${(sp.verbosity||"normal")==="normal"?" selected":""}>正常</option><option value="terse"${sp.verbosity==="terse"?" selected":""}>简短</option><option value="verbose"${sp.verbosity==="verbose"?" selected":""}>啰嗦</option></select></label>
+      </div>
+      <div class="speech-edit-row">
+        <label class="muted tiny">口头禅（逗号分隔）<input type="text" class="speech-edit-tics" value="${escapeAttr((sp.verbal_tics||[]).join("，"))}" placeholder="啧，……算了" /></label>
+      </div>
+      <div class="speech-edit-row">
+        <label class="muted tiny">填充词（逗号分隔）<input type="text" class="speech-edit-filler" value="${escapeAttr((sp.filler_words||[]).join("，"))}" placeholder="那个……，嗯" /></label>
+      </div>
+      <div class="speech-edit-row">
+        <label class="muted tiny">回避话题（逗号分隔）<input type="text" class="speech-edit-avoid" value="${escapeAttr((sp.avoidance_topics||[]).join("，"))}" placeholder="家庭，过去" /></label>
+      </div>
+      <div class="speech-edit-row">
+        <label class="muted tiny">沉默含义 <input type="text" class="speech-edit-silence" value="${escapeAttr(sp.silence_meaning||"")}" placeholder="在思考，不是冷漠" /></label>
+        <label class="muted tiny">压力下 <input type="text" class="speech-edit-stress" value="${escapeAttr(sp.under_stress||"")}" placeholder="开始说短句" /></label>
+      </div>
+    </div>`;
+  }).join("");
+
+  // Wire save buttons
+  listEl.querySelectorAll(".speech-save-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const cid = btn.dataset.charId;
+      const card = btn.closest(".speech-card");
+      if (!card) return;
+      const ent = (state.world?.characters?.entities || []).find(e => (typeof e === "object" ? e.id : "") === cid);
+      if (!ent) return;
+      if (!ent.speech_profile || typeof ent.speech_profile !== "object") ent.speech_profile = {};
+      ent.speech_profile.avg_sentence_length = card.querySelector(".speech-edit-sent")?.value || "mixed";
+      ent.speech_profile.emotional_expression = card.querySelector(".speech-edit-expr")?.value || "direct";
+      ent.speech_profile.confrontation_style = card.querySelector(".speech-edit-conf")?.value || "faces_it";
+      ent.speech_profile.verbosity = card.querySelector(".speech-edit-verb")?.value || "normal";
+      ent.speech_profile.verbal_tics = (card.querySelector(".speech-edit-tics")?.value || "").split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      ent.speech_profile.filler_words = (card.querySelector(".speech-edit-filler")?.value || "").split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      ent.speech_profile.avoidance_topics = (card.querySelector(".speech-edit-avoid")?.value || "").split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      ent.speech_profile.silence_meaning = card.querySelector(".speech-edit-silence")?.value || "";
+      ent.speech_profile.under_stress = card.querySelector(".speech-edit-stress")?.value || "";
+      setDirty(true);
+      toast(`${ent.name || cid} 语言风格已更新`);
+    });
+  });
+}
+
+function renderAftermathPanel() {
+  const listEl = $("charAftermathList");
+  const countEl = $("aftermathTabCount");
+  if (!listEl) return;
+  const aftermaths = state.world?.character_aftermaths || [];
+  const active = aftermaths.filter(a => a.current_status === "active");
+  if (countEl) countEl.textContent = active.length ? `(${active.length})` : "";
+
+  if (!active.length) {
+    listEl.innerHTML = `<div class="knowledge-empty">
+      <span class="ms knowledge-empty-icon">psychology_alt</span>
+      <p class="muted">暂无活跃后遗症</p>
+      <p class="muted tiny">角色经历重大事件后系统自动检测。</p>
+    </div>`;
+    return;
+  }
+
+  const FATIGUE = { rested:"精力充沛", tired:"疲惫", exhausted:"极度疲劳", collapse_imminent:"即将崩溃" };
+  const chars = state.world?.characters?.entities || [];
+  const charMap = {};
+  chars.forEach(c => { const id = typeof c === "object" ? (c.id || "") : String(c); charMap[id] = typeof c === "object" ? (c.name || id) : id; });
+
+  listEl.innerHTML = active.map(a => {
+    const cname = charMap[a.character_id] || a.character_id;
+    return `<div class="aftermath-card ${a.intensity > 7 ? 'aftermath-card--severe' : ''}">
+      <div class="aftermath-card-head">
+        <span class="ms">psychology_alt</span>
+        <strong>${escapeHtml(cname)}</strong>
+        <span class="aftermath-badge">强度 ${a.intensity}/10</span>
+      </div>
+      <div class="aftermath-intensity"><div class="aftermath-intensity-fill" style="width:${a.intensity*10}%;background:${a.intensity>7?'#dc2626':a.intensity>4?'#ea580c':'#f59e0b'}"></div></div>
+      <p class="aftermath-source">📖 ${escapeHtml(a.source_event)}（${escapeHtml(a.source_chapter)}）</p>
+      ${a.symptoms.length ? `<div class="speech-tags">${a.symptoms.map(s => `<span class="speech-chip speech-chip--aftermath">${escapeHtml(s)}</span>`).join(" ")}</div>` : ""}
+      ${a.trigger_conditions.length ? `<div class="speech-tags"><span class="speech-label">触发</span>${a.trigger_conditions.map(t => `<span class="speech-chip speech-chip--avoid">${escapeHtml(t)}</span>`).join(" ")}</div>` : ""}
+    </div>`;
+  }).join("");
 }
 
 function renderDecisionsPanel() {

@@ -19,7 +19,7 @@ from worldforger.schemas import (
     StoryWritingDefaults,
     World,
 )
-from worldforger.story_store import (
+from worldforger.story.story_store import (
     consistency_path,
     ensure_story_dirs,
     narrative_kg_path,
@@ -268,7 +268,7 @@ class TestLayer3ReadWrite:
         world_id = "test_kg_rw"
         root = tmp_path / "worlds_root"
         root.mkdir(parents=True, exist_ok=True)
-        from worldforger.story_store import story_dir
+        from worldforger.story.story_store import story_dir
         story = story_dir(world_id)
         # Override world_root to use tmp_path
         import worldforger.world_store as ws
@@ -911,7 +911,7 @@ class TestStoryServiceHooks:
         original = ws.world_root
         ws.world_root = lambda wid: root / wid
         try:
-            from worldforger.story_service import _try_extract_kg_events
+            from worldforger.story.story_service import _try_extract_kg_events
             ensure_story_dirs(world_id)
             w = create_world("KG Hook 测试")
             w.story.chapters = [StoryChapter(id="ch_01", order=1, title="测试")]
@@ -924,7 +924,7 @@ class TestStoryServiceHooks:
                 "foreshadowing_planted": [],
                 "foreshadowing_resolved": [],
             })
-            with patch("worldforger.story_service.chat_completion",
+            with patch("worldforger.story.story_service.chat_completion",
                        new_callable=AsyncMock, return_value=mock_raw):
                 await _try_extract_kg_events(w, "ch_01", "正文")
                 assert len(w.story.narrative_kg.entities) == 1
@@ -940,11 +940,11 @@ class TestStoryServiceHooks:
         original = ws.world_root
         ws.world_root = lambda wid: root / wid
         try:
-            from worldforger.story_service import _try_extract_kg_events
+            from worldforger.story.story_service import _try_extract_kg_events
             ensure_story_dirs(world_id)
             w = create_world("KG Hook Fail")
             w.story.chapters = [StoryChapter(id="ch_01", order=1, title="测试")]
-            with patch("worldforger.story_service.chat_completion",
+            with patch("worldforger.story.story_service.chat_completion",
                        new_callable=AsyncMock, side_effect=RuntimeError("fail")):
                 # Should not raise
                 await _try_extract_kg_events(w, "ch_01", "正文")
@@ -960,7 +960,7 @@ class TestStoryServiceHooks:
         original = ws.world_root
         ws.world_root = lambda wid: root / wid
         try:
-            from worldforger.story_service import _try_track_sentiment
+            from worldforger.story.story_service import _try_track_sentiment
             ensure_story_dirs(world_id)
             w = create_world("情感 Hook 测试")
             w.story.chapters = [StoryChapter(id="ch_01", order=1, title="测试章")]
@@ -969,7 +969,7 @@ class TestStoryServiceHooks:
                 "overall_tone": "tense", "ending_tone": "tense",
                 "transition_from_prev": "first_chapter",
             })
-            with patch("worldforger.story_service.chat_completion",
+            with patch("worldforger.story.story_service.chat_completion",
                        new_callable=AsyncMock, return_value=mock_raw):
                 await _try_track_sentiment(w, "ch_01", "正文")
                 ch = w.story.chapters[0]
@@ -986,10 +986,10 @@ class TestStoryServiceHooks:
         original = ws.world_root
         ws.world_root = lambda wid: root / wid
         try:
-            from worldforger.story_service import _try_track_sentiment
+            from worldforger.story.story_service import _try_track_sentiment
             ensure_story_dirs(world_id)
             w = create_world("情感 Hook Fail")
-            with patch("worldforger.story_service.chat_completion",
+            with patch("worldforger.story.story_service.chat_completion",
                        new_callable=AsyncMock, side_effect=RuntimeError("fail")):
                 await _try_track_sentiment(w, "ch_01", "正文")
         finally:
@@ -1004,12 +1004,12 @@ class TestStoryServiceHooks:
         original = ws.world_root
         ws.world_root = lambda wid: root / wid
         try:
-            from worldforger.story_service import _try_run_consistency_check
+            from worldforger.story.story_service import _try_run_consistency_check
             ensure_story_dirs(world_id)
             w = create_world("审校 Hook 测试")
             w.story.chapters = [StoryChapter(id="ch_01", order=1, title="测试")]
             mock_raw = json.dumps({"verdict": "clean", "issues": []})
-            with patch("worldforger.story_service.chat_completion",
+            with patch("worldforger.story.story_service.chat_completion",
                        new_callable=AsyncMock, return_value=mock_raw):
                 await _try_run_consistency_check(w, "ch_01", "正文")
                 ch = w.story.chapters[0]
@@ -1026,10 +1026,10 @@ class TestStoryServiceHooks:
         original = ws.world_root
         ws.world_root = lambda wid: root / wid
         try:
-            from worldforger.story_service import _try_run_consistency_check
+            from worldforger.story.story_service import _try_run_consistency_check
             ensure_story_dirs(world_id)
             w = create_world("审校 Hook Fail")
-            with patch("worldforger.story_service.chat_completion",
+            with patch("worldforger.story.story_service.chat_completion",
                        new_callable=AsyncMock, side_effect=RuntimeError("fail")):
                 await _try_run_consistency_check(w, "ch_01", "正文")
         finally:
@@ -1044,7 +1044,7 @@ class TestStoryServiceHooks:
         original = ws.world_root
         ws.world_root = lambda wid: root / wid
         try:
-            from worldforger.story_service import (
+            from worldforger.story.story_service import (
                 _try_extract_kg_events,
                 _try_run_consistency_check,
                 _try_track_sentiment,
@@ -1062,7 +1062,7 @@ class TestStoryServiceHooks:
             # They'll still run, but without persist.
             # Let's verify they don't crash with toggles off.
             mock_raw = json.dumps({"entities": [], "events": [], "foreshadowing_planted": [], "foreshadowing_resolved": []})
-            with patch("worldforger.story_service.chat_completion",
+            with patch("worldforger.story.story_service.chat_completion",
                        new_callable=AsyncMock, return_value=mock_raw):
                 await _try_extract_kg_events(w, "ch_01", "正文")
             # Should not raise
@@ -1196,28 +1196,28 @@ class TestLayer3ApiEndpoints:
 
 class TestLayer3Prompts:
     def test_kg_extraction_system(self):
-        from worldforger.story_prompts import kg_extraction_system
+        from worldforger.story.story_prompts import kg_extraction_system
         sys = kg_extraction_system()
         assert "JSON" in sys
         assert "entities" in sys
         assert "events" in sys
 
     def test_consistency_check_system(self):
-        from worldforger.story_prompts import consistency_check_system
+        from worldforger.story.story_prompts import consistency_check_system
         sys = consistency_check_system()
         assert "7" in sys or "七个" in sys or "一致性" in sys
         assert "position" in sys
         assert "timeline" in sys
 
     def test_sentiment_analysis_system(self):
-        from worldforger.story_prompts import sentiment_analysis_system
+        from worldforger.story.story_prompts import sentiment_analysis_system
         sys = sentiment_analysis_system()
         assert "JSON" in sys
         assert "segments" in sys
         assert "intensity" in sys
 
     def test_build_kg_extraction_user_payload(self):
-        from worldforger.story_prompts import build_kg_extraction_user_payload
+        from worldforger.story.story_prompts import build_kg_extraction_user_payload
         w = create_world("KG prompt test")
         w.story.chapters = [StoryChapter(id="ch_01", order=1, title="测试")]
         payload = build_kg_extraction_user_payload(w, chapter_id="ch_01", manuscript_text="正文内容")
@@ -1225,7 +1225,7 @@ class TestLayer3Prompts:
         assert "正文内容" in payload
 
     def test_build_consistency_check_user_payload(self):
-        from worldforger.story_prompts import build_consistency_check_user_payload
+        from worldforger.story.story_prompts import build_consistency_check_user_payload
         w = create_world("CC prompt test")
         w.story.chapters = [StoryChapter(id="ch_01", order=1, title="测试")]
         payload = build_consistency_check_user_payload(w, chapter_id="ch_01", manuscript_text="正文")
@@ -1233,7 +1233,7 @@ class TestLayer3Prompts:
         assert "正文" in payload
 
     def test_build_sentiment_analysis_user_payload(self):
-        from worldforger.story_prompts import build_sentiment_analysis_user_payload
+        from worldforger.story.story_prompts import build_sentiment_analysis_user_payload
         w = create_world("SA prompt test")
         w.story.chapters = [StoryChapter(id="ch_01", order=1, title="测试")]
         payload = build_sentiment_analysis_user_payload(w, chapter_id="ch_01", manuscript_text="正文")
@@ -1241,7 +1241,7 @@ class TestLayer3Prompts:
         assert "正文" in payload
 
     def test_format_kg_states_for_prompt(self):
-        from worldforger.story_prompts import format_kg_states_for_prompt
+        from worldforger.story.story_prompts import format_kg_states_for_prompt
         w = create_world("KG format test")
         w.story.narrative_kg = NarrativeKG(
             entities=[KGEntity(entity_id="char_01", name="爱丽丝", entity_type="character",
@@ -1252,12 +1252,12 @@ class TestLayer3Prompts:
         assert "王都" in text
 
     def test_format_kg_states_for_prompt_empty(self):
-        from worldforger.story_prompts import format_kg_states_for_prompt
+        from worldforger.story.story_prompts import format_kg_states_for_prompt
         w = create_world("KG format empty")
         assert format_kg_states_for_prompt(w, "ch_01") == ""
 
     def test_format_previous_sentiment_for_prompt(self):
-        from worldforger.story_prompts import format_previous_sentiment_for_prompt
+        from worldforger.story.story_prompts import format_previous_sentiment_for_prompt
         w = create_world("Sent prompt test")
         w.story.chapters = [
             StoryChapter(id="ch_01", order=1, title="第一章",
@@ -1271,7 +1271,7 @@ class TestLayer3Prompts:
         assert "情感过渡" in text
 
     def test_format_previous_sentiment_for_prompt_none(self):
-        from worldforger.story_prompts import format_previous_sentiment_for_prompt
+        from worldforger.story.story_prompts import format_previous_sentiment_for_prompt
         w = create_world("Sent prompt none")
         w.story.chapters = [StoryChapter(id="ch_01", order=1, title="第一章")]
         assert format_previous_sentiment_for_prompt(w, "ch_01") == ""

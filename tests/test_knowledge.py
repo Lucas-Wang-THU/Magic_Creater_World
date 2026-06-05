@@ -16,7 +16,7 @@ from worldforger.schemas import (
     World,
     Meta,
 )
-from worldforger.story_prompts import (
+from worldforger.story.story_prompts import (
     knowledge_detection_system,
     build_knowledge_detection_user_payload,
     format_knowledge_boundaries,
@@ -148,12 +148,12 @@ class TestKnowledgePrompts:
         e1 = CharacterKnowledgeEntry(
             knowledge_id="k1", character_id="char_1",
             topic="翠绿议会的秘密", category="secret",
-            certainty="knows_for_sure",
+            certainty="knows_for_sure", source_chapter="ch_1",
         )
         e2 = CharacterKnowledgeEntry(
             knowledge_id="k2", character_id="char_2",
             topic="芬恩的真实身份", category="suspicion",
-            certainty="strongly_suspects",
+            certainty="strongly_suspects", source_chapter="ch_1",
         )
         sample_world.character_knowledge.entries = [e1, e2]
         sample_world.characters.entities = [
@@ -176,15 +176,15 @@ class TestKnowledgeStorage:
     def test_knowledge_graph_path_format(self, tmp_path):
         """knowledge_graph_path returns correct file name."""
         # We test the import and function signature
-        from worldforger.story_store import knowledge_graph_path as kgp
+        from worldforger.story.story_store import knowledge_graph_path as kgp
         assert callable(kgp)
 
     def test_read_write_roundtrip(self, tmp_path):
         """Read/write roundtrip with patched path function."""
         test_file = tmp_path / "knowledge_graph.json"
 
-        with patch("worldforger.story_store.knowledge_graph_path", return_value=test_file):
-            from worldforger.story_store import read_knowledge_graph, write_knowledge_graph
+        with patch("worldforger.story.story_store.knowledge_graph_path", return_value=test_file):
+            from worldforger.story.story_store import read_knowledge_graph, write_knowledge_graph
             data = {"entries": [{"knowledge_id": "k1", "character_id": "c1", "topic": "测试"}]}
             write_knowledge_graph("test_id", data)
             result = read_knowledge_graph("test_id")
@@ -192,8 +192,8 @@ class TestKnowledgeStorage:
 
     def test_read_missing_file_returns_empty(self, tmp_path):
         test_file = tmp_path / "nonexistent.json"
-        with patch("worldforger.story_store.knowledge_graph_path", return_value=test_file):
-            from worldforger.story_store import read_knowledge_graph
+        with patch("worldforger.story.story_store.knowledge_graph_path", return_value=test_file):
+            from worldforger.story.story_store import read_knowledge_graph
             result = read_knowledge_graph("test_id")
             assert result == {}
 
@@ -203,7 +203,7 @@ class TestKnowledgeStorage:
 class TestKnowledgeService:
     @pytest.mark.asyncio
     async def test_detect_knowledge_new_entries(self, sample_world):
-        from worldforger.story_service import _try_detect_knowledge
+        from worldforger.story.story_service import _try_detect_knowledge
 
         mock_reply = json.dumps({
             "new_entries": [
@@ -223,7 +223,7 @@ class TestKnowledgeService:
             "updated_entries": [],
         }, ensure_ascii=False)
 
-        with patch("worldforger.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
+        with patch("worldforger.story.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
             err = await _try_detect_knowledge(sample_world, "ch_1", "测试正文")
             assert err == ""
             assert len(sample_world.character_knowledge.entries) == 1
@@ -231,17 +231,17 @@ class TestKnowledgeService:
 
     @pytest.mark.asyncio
     async def test_detect_knowledge_no_changes(self, sample_world):
-        from worldforger.story_service import _try_detect_knowledge
+        from worldforger.story.story_service import _try_detect_knowledge
 
         mock_reply = json.dumps({"new_entries": [], "updated_entries": []})
-        with patch("worldforger.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
+        with patch("worldforger.story.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
             err = await _try_detect_knowledge(sample_world, "ch_1", "测试正文")
             assert err == ""
             assert len(sample_world.character_knowledge.entries) == 0
 
     @pytest.mark.asyncio
     async def test_detect_knowledge_dedup(self, sample_world):
-        from worldforger.story_service import _try_detect_knowledge
+        from worldforger.story.story_service import _try_detect_knowledge
 
         existing = CharacterKnowledgeEntry(
             knowledge_id="know_secret", character_id="char_1",
@@ -267,14 +267,14 @@ class TestKnowledgeService:
             "updated_entries": [],
         }, ensure_ascii=False)
 
-        with patch("worldforger.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
+        with patch("worldforger.story.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
             err = await _try_detect_knowledge(sample_world, "ch_1", "测试正文")
             assert err == ""
             assert len(sample_world.character_knowledge.entries) == 1
 
     @pytest.mark.asyncio
     async def test_detect_knowledge_update_existing(self, sample_world):
-        from worldforger.story_service import _try_detect_knowledge
+        from worldforger.story.story_service import _try_detect_knowledge
 
         existing = CharacterKnowledgeEntry(
             knowledge_id="know_secret", character_id="char_1",
@@ -293,7 +293,7 @@ class TestKnowledgeService:
             ],
         }, ensure_ascii=False)
 
-        with patch("worldforger.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
+        with patch("worldforger.story.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
             err = await _try_detect_knowledge(sample_world, "ch_1", "测试正文")
             assert err == ""
             assert sample_world.character_knowledge.entries[0].is_still_true is False
@@ -301,37 +301,37 @@ class TestKnowledgeService:
 
     @pytest.mark.asyncio
     async def test_detect_knowledge_markdown_wrapped_json(self, sample_world):
-        from worldforger.story_service import _try_detect_knowledge
+        from worldforger.story.story_service import _try_detect_knowledge
 
         mock_reply = '```json\n{"new_entries": [{"knowledge_id": "k1", "character_id": "c1", "topic": "测试", "category": "secret", "certainty": "knows_for_sure", "source_chapter": "ch_1", "source_detail": "", "shared_with": [], "is_still_true": true, "notes": ""}], "updated_entries": []}\n```'
 
-        with patch("worldforger.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
+        with patch("worldforger.story.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
             err = await _try_detect_knowledge(sample_world, "ch_1", "测试正文")
             assert err == ""
             assert len(sample_world.character_knowledge.entries) == 1
 
     @pytest.mark.asyncio
     async def test_detect_knowledge_invalid_json(self, sample_world):
-        from worldforger.story_service import _try_detect_knowledge
+        from worldforger.story.story_service import _try_detect_knowledge
 
         mock_reply = "这不是有效的 JSON 格式"
 
-        with patch("worldforger.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
+        with patch("worldforger.story.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
             err = await _try_detect_knowledge(sample_world, "ch_1", "测试正文")
             assert err != ""
             assert "知识检测" in err
 
     @pytest.mark.asyncio
     async def test_detect_knowledge_empty_response(self, sample_world):
-        from worldforger.story_service import _try_detect_knowledge
+        from worldforger.story.story_service import _try_detect_knowledge
 
-        with patch("worldforger.story_service.chat_completion", new=AsyncMock(return_value="")):
+        with patch("worldforger.story.story_service.chat_completion", new=AsyncMock(return_value="")):
             err = await _try_detect_knowledge(sample_world, "ch_1", "测试正文")
             assert err != ""
 
     @pytest.mark.asyncio
     async def test_detect_knowledge_shared_with_update(self, sample_world):
-        from worldforger.story_service import _try_detect_knowledge
+        from worldforger.story.story_service import _try_detect_knowledge
 
         existing = CharacterKnowledgeEntry(
             knowledge_id="know_secret", character_id="char_1",
@@ -349,14 +349,14 @@ class TestKnowledgeService:
             ],
         }, ensure_ascii=False)
 
-        with patch("worldforger.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
+        with patch("worldforger.story.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
             err = await _try_detect_knowledge(sample_world, "ch_2", "测试正文")
             assert err == ""
             assert len(sample_world.character_knowledge.entries[0].shared_with) == 1
 
     @pytest.mark.asyncio
     async def test_detect_knowledge_both_new_and_update(self, sample_world):
-        from worldforger.story_service import _try_detect_knowledge
+        from worldforger.story.story_service import _try_detect_knowledge
 
         existing = CharacterKnowledgeEntry(
             knowledge_id="old_knowledge", character_id="char_1",
@@ -384,7 +384,7 @@ class TestKnowledgeService:
             ],
         }, ensure_ascii=False)
 
-        with patch("worldforger.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
+        with patch("worldforger.story.story_service.chat_completion", new=AsyncMock(return_value=mock_reply)):
             err = await _try_detect_knowledge(sample_world, "ch_2", "测试正文")
             assert err == ""
             assert len(sample_world.character_knowledge.entries) == 2
@@ -400,7 +400,7 @@ class TestKnowledgeIntegration:
         assert w.story.writing_defaults.enable_knowledge_track is True
 
     def test_format_boundaries_with_entries(self, sample_world):
-        e = CharacterKnowledgeEntry(knowledge_id="k1", character_id="c1", topic="测试")
+        e = CharacterKnowledgeEntry(knowledge_id="k1", character_id="c1", topic="测试", source_chapter="ch_1")
         sample_world.character_knowledge.entries.append(e)
         result = format_knowledge_boundaries(sample_world, "ch_1")
         assert result != ""

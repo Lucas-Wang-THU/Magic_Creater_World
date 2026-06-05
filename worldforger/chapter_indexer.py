@@ -171,7 +171,7 @@ def get_embedding_dim() -> int:
 
 
 def _story_dir(world_id: str) -> Path:
-    from worldforger.story_store import story_dir
+    from worldforger.story.story_store import story_dir
 
     return story_dir(world_id)
 
@@ -353,7 +353,7 @@ class ChapterIndexer:
 
     def index_all(self, world) -> int:
         """全量索引：所有章节手稿 + world.md + 人物卡。返回总 chunk 数。"""
-        from worldforger.story_store import manuscript_path, read_text
+        from worldforger.story.story_store import manuscript_path, read_text
         from worldforger.world_store import load_world_markdown_optional, world_root
 
         total = 0
@@ -481,7 +481,7 @@ class ChapterIndexer:
 
         组合查询来源：节拍大纲关键词 + 出场人物名 + 待推进伏笔 ID。
         """
-        from worldforger.story_store import read_text
+        from worldforger.story.story_store import read_text
         from worldforger.world_store import load_world
 
         queries: list[str] = []

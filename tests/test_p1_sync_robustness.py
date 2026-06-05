@@ -19,7 +19,7 @@ from worldforger.world_store import create_world, load_world, save_world
 
 class TestCulturesNormalize:
     def test_entities_single_dict_wrapped_to_array(self):
-        from worldforger.structure_normalize import _normalize_cultures_dict
+        from worldforger.sync.structure_normalize import _normalize_cultures_dict
 
         result = _normalize_cultures_dict({"entities": {"id": "cu_a", "name": "龙裔文化"}})
         ents = result.get("entities", [])
@@ -28,7 +28,7 @@ class TestCulturesNormalize:
         assert ents[0]["id"] == "cu_a"
 
     def test_traditions_fallback_when_entities_missing(self):
-        from worldforger.structure_normalize import _normalize_cultures_dict
+        from worldforger.sync.structure_normalize import _normalize_cultures_dict
 
         result = _normalize_cultures_dict(
             {"traditions": [{"id": "tr_x", "name": "冬至祭"}]}
@@ -38,7 +38,7 @@ class TestCulturesNormalize:
         assert ents[0]["id"] == "tr_x"
 
     def test_non_dict_non_list_entities_stripped(self):
-        from worldforger.structure_normalize import _normalize_cultures_dict
+        from worldforger.sync.structure_normalize import _normalize_cultures_dict
 
         # string entities → 不是 list，返回空（无 entities 键）
         result = _normalize_cultures_dict({"summary": "X", "entities": "not_a_list"})
@@ -46,14 +46,14 @@ class TestCulturesNormalize:
         assert result["summary"] == "X"
 
     def test_summary_preserved(self):
-        from worldforger.structure_normalize import _normalize_cultures_dict
+        from worldforger.sync.structure_normalize import _normalize_cultures_dict
 
         result = _normalize_cultures_dict({"summary": "文化总览"})
         assert result["summary"] == "文化总览"
         assert "entities" not in result
 
     def test_kind_maps_chinese_heuristics(self):
-        from worldforger.structure_normalize import _normalize_culture_entity
+        from worldforger.sync.structure_normalize import _normalize_culture_entity
 
         # 教/神 → religion
         r1 = _normalize_culture_entity({"id": "r1", "name": "圣教", "kind": "宗教"})
@@ -66,13 +66,13 @@ class TestCulturesNormalize:
         assert r3["kind"] == "culture"
 
     def test_entity_missing_id_returns_none(self):
-        from worldforger.structure_normalize import _normalize_culture_entity
+        from worldforger.sync.structure_normalize import _normalize_culture_entity
 
         assert _normalize_culture_entity({"name": "无名"}) is None
         assert _normalize_culture_entity({"id": "  "}) is None
 
     def test_sacred_sites_from_string_split_by_newline(self):
-        from worldforger.structure_normalize import _normalize_culture_entity
+        from worldforger.sync.structure_normalize import _normalize_culture_entity
 
         r = _normalize_culture_entity(
             {"id": "s1", "name": "圣地文化", "sacred_sites": "圣殿\n祭坛\n神木"}
@@ -80,7 +80,7 @@ class TestCulturesNormalize:
         assert r["sacred_sites"] == ["圣殿", "祭坛", "神木"]
 
     def test_relations_none_empty_dict_wrap(self):
-        from worldforger.structure_normalize import _normalize_culture_relations
+        from worldforger.sync.structure_normalize import _normalize_culture_relations
 
         assert _normalize_culture_relations(None) == []
         assert _normalize_culture_relations("invalid") == []
@@ -92,14 +92,14 @@ class TestCulturesNormalize:
         assert rel[0]["target_id"] == "cu_b"
 
     def test_relation_missing_target_id_skipped(self):
-        from worldforger.structure_normalize import _normalize_culture_relation_item
+        from worldforger.sync.structure_normalize import _normalize_culture_relation_item
 
         assert _normalize_culture_relation_item({"type": "trade"}) is None
         assert _normalize_culture_relation_item(None) is None
         assert _normalize_culture_relation_item("invalid") is None
 
     def test_culture_entity_aliases_fields(self):
-        from worldforger.structure_normalize import _normalize_culture_entity
+        from worldforger.sync.structure_normalize import _normalize_culture_entity
 
         # culture_id, title, desc 等别名字段
         r = _normalize_culture_entity(
@@ -131,7 +131,7 @@ class TestCulturesNormalize:
 
 class TestEconomyNormalize:
     def test_non_dict_section_returns_default(self):
-        from worldforger.structure_normalize import _normalize_economy_dict
+        from worldforger.sync.structure_normalize import _normalize_economy_dict
 
         result = _normalize_economy_dict("invalid")
         assert result["summary"] == ""
@@ -141,7 +141,7 @@ class TestEconomyNormalize:
         assert result["trade_goods"] == []
 
     def test_currency_from_string_auto_id(self):
-        from worldforger.structure_normalize import _normalize_economy_dict
+        from worldforger.sync.structure_normalize import _normalize_economy_dict
 
         result = _normalize_economy_dict({"currencies": ["金币"]})
         cur = result["currencies"][0]
@@ -150,7 +150,7 @@ class TestEconomyNormalize:
         assert len(cur["id"]) > 4
 
     def test_currency_dict_with_alias_fields(self):
-        from worldforger.structure_normalize import _normalize_economy_dict
+        from worldforger.sync.structure_normalize import _normalize_economy_dict
 
         result = _normalize_economy_dict(
             {
@@ -173,7 +173,7 @@ class TestEconomyNormalize:
         assert cur["exchange_notes"] == "1G = 10S"
 
     def test_market_with_comma_separated_region_ids(self):
-        from worldforger.structure_normalize import _normalize_economy_dict
+        from worldforger.sync.structure_normalize import _normalize_economy_dict
 
         result = _normalize_economy_dict(
             {
@@ -190,7 +190,7 @@ class TestEconomyNormalize:
         assert set(mkt["linked_region_ids"]) == {"北境", "南域", "东海"}
 
     def test_trade_routes_from_routes_key(self):
-        from worldforger.structure_normalize import _normalize_economy_dict
+        from worldforger.sync.structure_normalize import _normalize_economy_dict
 
         result = _normalize_economy_dict(
             {"routes": [{"id": "r1", "name": "丝绸之路", "from": "长安", "to": "罗马"}]}
@@ -200,7 +200,7 @@ class TestEconomyNormalize:
         assert result["trade_routes"][0]["from_region_id"] == "长安"
 
     def test_trade_goods_from_goods_key(self):
-        from worldforger.structure_normalize import _normalize_economy_dict
+        from worldforger.sync.structure_normalize import _normalize_economy_dict
 
         result = _normalize_economy_dict(
             {
@@ -214,7 +214,7 @@ class TestEconomyNormalize:
         assert result["trade_goods"][0]["category"] == "奢侈品"
 
     def test_empty_arrays_preserved(self):
-        from worldforger.structure_normalize import _normalize_economy_dict
+        from worldforger.sync.structure_normalize import _normalize_economy_dict
 
         result = _normalize_economy_dict({"summary": "无经济"})
         assert result["currencies"] == []
@@ -223,7 +223,7 @@ class TestEconomyNormalize:
         assert result["trade_goods"] == []
 
     def test_string_fields_stripped(self):
-        from worldforger.structure_normalize import _normalize_economy_dict
+        from worldforger.sync.structure_normalize import _normalize_economy_dict
 
         result = _normalize_economy_dict(
             {"labor_notes": " 苦役  ", "taxation_notes": " 重税 "}
@@ -232,7 +232,7 @@ class TestEconomyNormalize:
         assert result["taxation_notes"] == "重税"
 
     def test_non_dict_market_skipped(self):
-        from worldforger.structure_normalize import _normalize_economy_dict
+        from worldforger.sync.structure_normalize import _normalize_economy_dict
 
         result = _normalize_economy_dict({"markets": ["not_a_dict", {"id": "m1", "name": "OK"}]})
         assert len(result["markets"]) == 1
@@ -246,7 +246,7 @@ class TestEconomyNormalize:
 
 class TestCharactersNormalize:
     def test_non_dict_section_returns_safe_defaults(self):
-        from worldforger.structure_normalize import _normalize_characters_dict
+        from worldforger.sync.structure_normalize import _normalize_characters_dict
 
         result = _normalize_characters_dict("invalid")
         assert result["summary"] == ""
@@ -255,7 +255,7 @@ class TestCharactersNormalize:
         assert result["relations"] == []
 
     def test_entities_single_dict_wrapped_to_array(self):
-        from worldforger.structure_normalize import _normalize_characters_dict
+        from worldforger.sync.structure_normalize import _normalize_characters_dict
 
         result = _normalize_characters_dict({"entities": {"id": "ch_x", "name": "英雄"}})
         ents = result["entities"]
@@ -263,7 +263,7 @@ class TestCharactersNormalize:
         assert ents[0]["id"] == "ch_x"
 
     def test_missing_id_auto_generated_from_name(self):
-        from worldforger.structure_normalize import _normalize_characters_dict
+        from worldforger.sync.structure_normalize import _normalize_characters_dict
 
         result = _normalize_characters_dict({"entities": [{"name": "路人甲"}]})
         e = result["entities"][0]
@@ -272,7 +272,7 @@ class TestCharactersNormalize:
         assert len(e["id"]) > 3
 
     def test_missing_name_falls_back_to_unnamed(self):
-        from worldforger.structure_normalize import _normalize_characters_dict
+        from worldforger.sync.structure_normalize import _normalize_characters_dict
 
         result = _normalize_characters_dict({"entities": [{}]})
         e = result["entities"][0]
@@ -280,7 +280,7 @@ class TestCharactersNormalize:
         assert e["id"].startswith("ch_")
 
     def test_cast_role_from_alias_fields(self):
-        from worldforger.structure_normalize import _normalize_characters_dict
+        from worldforger.sync.structure_normalize import _normalize_characters_dict
 
         result = _normalize_characters_dict(
             {"entities": [{"id": "c1", "name": "主角", "role": "Protagonist"}]}
@@ -288,7 +288,7 @@ class TestCharactersNormalize:
         assert result["entities"][0]["cast_role"] == "protagonist"
 
     def test_relations_missing_source_or_target_skipped(self):
-        from worldforger.structure_normalize import _normalize_characters_dict
+        from worldforger.sync.structure_normalize import _normalize_characters_dict
 
         result = _normalize_characters_dict(
             {
@@ -306,7 +306,7 @@ class TestCharactersNormalize:
         assert rels[0]["target_id"] == "b1"
 
     def test_relations_single_dict_wrapped(self):
-        from worldforger.structure_normalize import _normalize_characters_dict
+        from worldforger.sync.structure_normalize import _normalize_characters_dict
 
         result = _normalize_characters_dict(
             {
@@ -317,7 +317,7 @@ class TestCharactersNormalize:
         assert len(result["relations"]) == 1
 
     def test_entities_from_roster_fallback(self):
-        from worldforger.structure_normalize import _normalize_characters_dict
+        from worldforger.sync.structure_normalize import _normalize_characters_dict
 
         result = _normalize_characters_dict(
             {"roster": [{"id": "ch_ro", "name": "编队角色"}]}
@@ -326,7 +326,7 @@ class TestCharactersNormalize:
         assert result["entities"][0]["id"] == "ch_ro"
 
     def test_entities_from_cast_fallback(self):
-        from worldforger.structure_normalize import _normalize_characters_dict
+        from worldforger.sync.structure_normalize import _normalize_characters_dict
 
         result = _normalize_characters_dict(
             {"cast": [{"id": "ch_ca", "name": "卡司角色"}]}
@@ -335,7 +335,7 @@ class TestCharactersNormalize:
         assert result["entities"][0]["id"] == "ch_ca"
 
     def test_non_dict_entity_items_skipped(self):
-        from worldforger.structure_normalize import _normalize_characters_dict
+        from worldforger.sync.structure_normalize import _normalize_characters_dict
 
         result = _normalize_characters_dict(
             {"entities": ["not_a_dict", {"id": "ok", "name": "有效"}]}
@@ -344,7 +344,7 @@ class TestCharactersNormalize:
         assert result["entities"][0]["id"] == "ok"
 
     def test_relations_from_character_relations_key(self):
-        from worldforger.structure_normalize import _normalize_characters_dict
+        from worldforger.sync.structure_normalize import _normalize_characters_dict
 
         result = _normalize_characters_dict(
             {
@@ -361,7 +361,7 @@ class TestCharactersNormalize:
         assert rel["visibility"] == "公开"
 
     def test_entity_chinese_alias_fields(self):
-        from worldforger.structure_normalize import _normalize_characters_dict
+        from worldforger.sync.structure_normalize import _normalize_characters_dict
 
         result = _normalize_characters_dict(
             {
@@ -433,7 +433,7 @@ class TestStorySaveLoadRoundtrip:
         assert s.foreshadowing[1].payoff_chapter_id == "ch_r02"
 
     def test_chapter_summary_card_survives_roundtrip(self):
-        from worldforger.story_store import ensure_story_dirs, write_summary_card, read_summary_card
+        from worldforger.story.story_store import ensure_story_dirs, write_summary_card, read_summary_card
 
         w = create_world("摘要卡片保存")
         wid = w.meta.id
@@ -455,7 +455,7 @@ class TestStorySaveLoadRoundtrip:
         assert card["main_events"] == "主角离开京城。"
 
     def test_character_runtime_state_survives_roundtrip(self):
-        from worldforger.story_store import update_character_runtime_state, get_character_runtime_states
+        from worldforger.story.story_store import update_character_runtime_state, get_character_runtime_states
 
         w = create_world("运行时状态保存")
         w.characters.entities = [
@@ -523,7 +523,7 @@ class TestPerScopeSyncNormalize:
 
     @pytest.mark.parametrize("scope", SCOPES)
     def test_normalize_accepts_scope_key(self, scope):
-        from worldforger.structure_normalize import normalize_structure_patch_detailed
+        from worldforger.sync.structure_normalize import normalize_structure_patch_detailed
 
         patch = _scope_test_patch(scope)
         normalized, notes = normalize_structure_patch_detailed(patch)
@@ -532,7 +532,7 @@ class TestPerScopeSyncNormalize:
 
     @pytest.mark.parametrize("scope", SCOPES)
     def test_apply_structure_patch_for_scope(self, scope):
-        from worldforger.panel_sync import apply_structure_patch
+        from worldforger.sync.panel_sync import apply_structure_patch
 
         w = create_world(f"scope-{scope}")
         patch = _scope_test_patch(scope)
@@ -541,7 +541,7 @@ class TestPerScopeSyncNormalize:
         assert len(warnings) == 0
 
     def test_structure_system_for_scope_all(self):
-        from worldforger.panel_sync import structure_system_for_scope
+        from worldforger.sync.panel_sync import structure_system_for_scope
 
         s = structure_system_for_scope(None)
         assert "本轮同步范围" not in s
@@ -549,20 +549,20 @@ class TestPerScopeSyncNormalize:
         assert "本轮同步范围" not in s2
 
     def test_structure_system_for_specific_scope(self):
-        from worldforger.panel_sync import structure_system_for_scope
+        from worldforger.sync.panel_sync import structure_system_for_scope
 
         s = structure_system_for_scope("geography")
         assert "本轮同步范围" in s
         assert "geography" in s
 
     def test_structure_system_for_factions_has_extra_hint(self):
-        from worldforger.panel_sync import structure_system_for_scope
+        from worldforger.sync.panel_sync import structure_system_for_scope
 
         s = structure_system_for_scope("factions")
         assert "ally|enemy|neutral|complex" in s
 
     def test_structure_system_for_unknown_scope_falls_back(self):
-        from worldforger.panel_sync import structure_system_for_scope
+        from worldforger.sync.panel_sync import structure_system_for_scope
 
         s = structure_system_for_scope("unknown_scope_xyz")
         assert "本轮同步范围" not in s  # 回退到 BASE
@@ -586,7 +586,7 @@ class TestPerScopeSyncNormalize:
         mock_reply = _json.dumps(patch_data, ensure_ascii=False)
 
         with patch(
-            "worldforger.panel_sync.chat_completion", new_callable=AsyncMock
+            "worldforger.sync.panel_sync.chat_completion", new_callable=AsyncMock
         ) as mock_chat:
             mock_chat.return_value = mock_reply
             c = TestClient(app)

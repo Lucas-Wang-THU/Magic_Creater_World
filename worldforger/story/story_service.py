@@ -7,10 +7,11 @@ from collections.abc import AsyncIterator
 
 from worldforger.llm import chat_completion, chat_completion_stream, drain_timing_log, drain_token_usage
 from worldforger.schemas import StoryChapter, StoryPerson, World
-from worldforger.story_prompts import (
+from worldforger.story.story_prompts import (
     build_chapter_summary_user_payload,
     build_character_state_user_payload,
     build_consistency_check_user_payload,
+    build_hard_context,
     build_kg_extraction_user_payload,
     build_manuscript_user_payload,
     build_sentiment_analysis_user_payload,
@@ -23,10 +24,11 @@ from worldforger.story_prompts import (
     kg_extraction_system,
     macro_outline_system,
     manuscript_system,
+    narrator_block,
     person_instruction,
     sentiment_analysis_system,
 )
-from worldforger.story_store import (
+from worldforger.story.story_store import (
     accumulate_token_usage,
     beat_path,
     chapters_before,
@@ -145,10 +147,12 @@ async def generate_chapter_beats(
     mode_eff = creative_mode or world.meta.creative_mode
     # ── Shared context computed ONCE ──
     macro = read_text(macro_outline_path(world.meta.id))
-    if len(macro) > 4000:
-        macro = macro[:4000] + "\n…(粗纲已截断)"
+    if len(macro) > 3000:
+        macro = macro[:3000] + "\n…(粗纲已截断)"
     system = chapter_beats_system(world, creative_mode=mode_eff)
     ctx = compact_world_snippet(world, include_markdown=include_world_md)
+    if len(ctx) > 2000:
+        ctx = ctx[:2000] + "\n…(世界设定已截断)"
     chapter_list = chapter_list_for_prompt(world)  # computed once
     user_prompt = prompt.strip()
 
@@ -184,6 +188,23 @@ async def generate_chapter_beats(
                 max_tokens=2048,
                 timing_label=f"chapter_beat:{cid}",
             )
+
+            # Detect refusal and retry with minimal prompt
+            _REFUSAL = ["无法给到", "无法提供", "不能提供", "抱歉", "我无法", "我不能"]
+            if reply and len(reply.strip()) < 100 and any(m in reply for m in _REFUSAL):
+                retry_user = (
+                    f"请为「{ch.title or cid}」撰写细纲。\n"
+                    f"场景目标、冲突、出场人物、伏笔衔接——用 Markdown 输出。\n"
+                    "直接开始写，不要解释："
+                )
+                reply = await chat_completion(
+                    [{"role": "system", "content": "你是一位专业策划师。请直接输出细纲，不要拒绝。"},
+                     {"role": "user", "content": retry_user}],
+                    temperature=0.5,
+                    max_tokens=2048,
+                    timing_label=f"chapter_beat_retry:{cid}",
+                )
+
             write_text(beat_path(world.meta.id, cid), reply)
             return cid, reply
 
@@ -237,12 +258,28 @@ async def generate_manuscript(
     if len(user) > 60000:
         user_effective = user[:60000] + "\n…(上下文已截断，请基于已有设定写作)"
 
-    reply = await chat_completion(
-        [{"role": "system", "content": system}, {"role": "user", "content": user_effective}],
-        temperature=0.75,
-        max_tokens=8192,
-        timing_label="manuscript_generation",
-    )
+    # ── P1: Scene chunking path (for long chapters) ──
+    target_words = ch.target_word_count if ch else 0
+    if world.story.writing_defaults.enable_scene_chunking and beat.strip() and target_words >= 4000:
+        hard_ctx = build_hard_context(world, chapter_id, beat)
+        chunked = await _generate_manuscript_chunked(
+            world, chapter_id, beat, target_words, hard_ctx, person_eff,
+        )
+        if chunked and len(chunked) > 500:
+            reply = chunked
+        else:
+            # Fall through to normal generation
+            reply = await chat_completion(
+                [{"role": "system", "content": system}, {"role": "user", "content": user_effective}],
+                temperature=0.75, max_tokens=8192,
+                timing_label="manuscript_generation",
+            )
+    else:
+        reply = await chat_completion(
+            [{"role": "system", "content": system}, {"role": "user", "content": user_effective}],
+            temperature=0.75, max_tokens=8192,
+            timing_label="manuscript_generation",
+        )
 
     # Detect refusal — retry once with a minimal prompt
     _REFUSAL_MARKERS = ["无法给到", "无法提供", "不能提供", "抱歉", "我无法", "我不能"]
@@ -296,6 +333,26 @@ async def generate_manuscript(
 
     if world.story.writing_defaults.enable_personal_timeline_track:
         post_hooks.append(_try_detect_timeline_events(world, chapter_id, reply))
+
+    # Arc summary generation (every ~10 chapters)
+    post_hooks.append(_try_generate_arc_summary(world, chapter_id))
+
+    # Emotional aftermath extraction
+    if world.story.writing_defaults.enable_aftermath_track:
+        post_hooks.append(_try_extract_aftermaths(world, chapter_id, reply))
+
+    # Epic density check (no LLM, just regex)
+    if world.story.writing_defaults.enable_epic_density_check:
+        _run_epic_density_check(chapter_id, reply)
+
+    # ── P2: Unified extractors path (when enabled) ──
+    if world.story.writing_defaults.enable_unified_extractors and post_hooks:
+        # Skip individual hooks; use 3 unified extractors in parallel
+        post_hooks = [
+            _unified_narrative_state_extractor(world, chapter_id, reply),
+            _unified_knowledge_plot_extractor(world, chapter_id, reply),
+            _unified_quality_reviewer(world, chapter_id, reply),
+        ]
 
     hook_errors: list[str] = []
     if post_hooks:
@@ -406,6 +463,17 @@ async def generate_manuscript_stream(
     if world.story.writing_defaults.enable_personal_timeline_track:
         post_hooks.append(_try_detect_timeline_events(world, chapter_id, reply))
 
+    # Arc summary generation (every ~10 chapters)
+    post_hooks.append(_try_generate_arc_summary(world, chapter_id))
+
+    # Emotional aftermath extraction
+    if world.story.writing_defaults.enable_aftermath_track:
+        post_hooks.append(_try_extract_aftermaths(world, chapter_id, reply))
+
+    # Epic density check (no LLM, just regex)
+    if world.story.writing_defaults.enable_epic_density_check:
+        _run_epic_density_check(chapter_id, reply)
+
     hook_errors: list[str] = []
     if post_hooks:
         yield {"type": "step", "phase": "posthooks", "label": "正在执行后处理（摘要/状态/审校/情感分析）…", "index": 2, "total": total_steps}
@@ -444,6 +512,340 @@ def try_import_legacy(world: World) -> bool:
     return import_legacy_plot_outline(world)
 
 
+# ── P1: 场景级分块生成 ──────────────────────────────────────
+
+async def _generate_scene_plan(
+    world: World, chapter_id: str, beat_text: str, target_words: int,
+    person: StoryPerson | None,
+) -> list[dict]:
+    """Step 1: Generate a scene plan from the beat."""
+    ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+    system = (
+        "你是小说场景规划师。你只需要输出 JSON 场景列表，不要输出正文。\n"
+        'JSON 格式: {"scenes": [{"order":1,"type":"opening|conflict|revelation|transition|climax|resolution|breathing",'
+        '"chars":["char_id"],"goal":"场景目标(20-30字)","est_words":600}]}\n'
+        "场景类型: opening=开场, conflict=冲突, revelation=揭示, transition=过渡, climax=高潮, resolution=收尾, breathing=留白\n"
+        f"目标总字数: {target_words} 字。场景数 3-6 个为宜。"
+    )
+    user = (
+        f"为以下细纲生成场景规划：\n"
+        f"章节: {ch.title if ch else chapter_id}\n"
+        f"目标: {target_words} 字\n"
+        f"【细纲】\n{beat_text[:3000]}"
+    )
+    reply = await chat_completion(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        temperature=0.3, max_tokens=1024, timing_label="scene_plan",
+    )
+    import json as _json, re as _re
+    t = _re.sub(r"^```[a-zA-Z0-9]*\s*|```$", "", reply.strip()).strip()
+    s, e = t.find("{"), t.rfind("}")
+    if s < 0 or e < 0:
+        return []
+    try:
+        data = _json.loads(t[s:e + 1])
+        return data.get("scenes", [])
+    except _json.JSONDecodeError:
+        return []
+
+
+async def _generate_scene_draft(
+    world: World, scene: dict, prev_scene_end: str,
+    hard_context: str, person: StoryPerson | None,
+) -> str:
+    """Step 2: Generate a single scene draft."""
+    goal = scene.get("goal", "")
+    chars = scene.get("chars", [])
+    est = scene.get("est_words", 600)
+    system = (
+        "你正在写小说的一个场景，不是整章。只写这个场景的正文。"
+        "不要写场景标题、章节号。"
+        f"目标字数约 {est} 字。直接开始叙述。"
+    )
+    user = f"【场景目标】{goal}\n【出场角色】{', '.join(chars[:5])}\n"
+    if prev_scene_end:
+        user += f"【衔接】上一场景结尾: {prev_scene_end[:200]}\n"
+    if hard_context.strip():
+        user += f"\n{hard_context}"
+    reply = await chat_completion(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        temperature=0.7, max_tokens=max(1024, int(est * 2.5)),
+        timing_label=f"scene_draft_{scene.get('order',0)}",
+    )
+    return reply.strip()
+
+
+async def _merge_scenes(
+    world: World, scenes_text: list[str], chapter_id: str,
+    person: StoryPerson | None,
+) -> str:
+    """Step 3: Merge scenes with continuity polish."""
+    joined = "\n\n".join(scenes_text)
+    ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+    system = (
+        "你是小说编辑。请合并以下场景片段为完整的章节正文。\n"
+        "仅做: 场景间过渡句补充、人称一致性检查、重复内容删除、标点规范化。\n"
+        "不要改变情节内容、角色对白、叙事顺序。"
+    )
+    user = (
+        f"合并以下场景为「{ch.title if ch else chapter_id}」的完整章节:\n\n{joined[:12000]}"
+    )
+    reply = await chat_completion(
+        [{"role": "system", "content": system}, {"role": "user", "content": user}],
+        temperature=0.3, max_tokens=8192, timing_label="merge_scenes",
+    )
+    return reply.strip() if reply.strip() else joined
+
+
+async def _generate_manuscript_chunked(
+    world: World, chapter_id: str, beat_text: str, target_words: int,
+    hard_context: str, person: StoryPerson | None,
+) -> str:
+    """Scene-chunked manuscript generation: Plan → Draft → Merge."""
+    # Step 1: Scene plan
+    scenes = await _generate_scene_plan(world, chapter_id, beat_text, target_words, person)
+    if len(scenes) < 2:
+        return ""  # Fall through to normal generation
+
+    # Step 2: Generate each scene in parallel
+    import asyncio as _asyncio
+    prev_ends = [""]
+    async def _draft_one(i, sc):
+        return await _generate_scene_draft(
+            world, sc, prev_ends[i] if i < len(prev_ends) else "", hard_context, person,
+        )
+    drafts = await _asyncio.gather(*[_draft_one(i, sc) for i, sc in enumerate(scenes)])
+    drafts = [d for d in drafts if d and len(d) > 50]
+
+    if len(drafts) < 2:
+        return ""
+
+    # Step 3: Merge
+    return await _merge_scenes(world, drafts, chapter_id, person)
+
+
+# ── P2: Unified Post-Processing Extractors ─────────────────────
+
+async def _unified_narrative_state_extractor(
+    world: World, chapter_id: str, manuscript_text: str,
+) -> str:
+    """Narrative State Extractor: summary + runtime + timeline + physical (1 LLM call)."""
+    import json as _json
+    try:
+        ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+        chars = []
+        for ent in world.characters.entities[:15]:
+            if isinstance(ent, dict):
+                chars.append(f"- id={ent.get('id','')} name={ent.get('name','')}")
+        system = (
+            "你是叙事状态抽取器。从章节正文中一次性提取以下四类信息。只输出JSON。\n"
+            'JSON格式: {"summary_card":{"main_events":"...","character_state_changes":[],'
+            '"foreshadowing_planted":[],"foreshadowing_resolved":[],"ending_hook":"..."},'
+            '"runtime_states":{"char_id":{"current_location":"...","current_goal":"...","emotional_state":"..."}},'
+            '"physical_states":[{"character_id":"char_id","active_injuries":[],"fatigue_level":"rested"}],'
+            '"timeline_events":[{"event_id":"ptl_001","character_id":"char_id","event":"..."}]}\n'
+        )
+        user = f"章节id={chapter_id}，标题={ch.title if ch else ''}\n角色:\n" + "\n".join(chars)
+        user += f"\n正文(截断):\n{manuscript_text[:8000]}"
+        reply = await chat_completion(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.2, max_tokens=3072, timing_label="unified_narrative_state",
+        )
+        t = _repair_llm_json(reply)
+        if "{" not in t: return "narrative_state: no JSON"
+        data = _json.loads(t)
+
+        # Distribute to individual systems
+        sc = data.get("summary_card")
+        if sc and isinstance(sc, dict):
+            sc["chapter_id"] = chapter_id
+            if ch: sc["title"] = ch.title
+            from worldforger.schemas import ChapterSummaryCard
+            try: ch.summary_card = ChapterSummaryCard(**sc)
+            except: pass
+            from worldforger.story.story_store import write_summary_card
+            write_summary_card(world.meta.id, chapter_id, sc)
+
+        rs = data.get("runtime_states")
+        if isinstance(rs, dict):
+            from worldforger.story.story_store import update_character_runtime_state
+            for cid, state in rs.items():
+                if isinstance(state, dict):
+                    update_character_runtime_state(world, cid, state, chapter_id)
+
+        ps = data.get("physical_states")
+        if isinstance(ps, list):
+            from worldforger.schemas import CharacterPhysicalState
+            existing = {p.character_id: p for p in world.character_physical_states}
+            for raw in ps:
+                if isinstance(raw, dict) and raw.get("character_id"):
+                    cid2 = raw["character_id"]
+                    st = CharacterPhysicalState(character_id=cid2,
+                        active_injuries=raw.get("active_injuries") if isinstance(raw.get("active_injuries"),list) else [],
+                        fatigue_level=raw.get("fatigue_level","rested"),
+                        general_condition=str(raw.get("general_condition",""))[:200],
+                        last_updated_chapter=chapter_id)
+                    if cid2 in existing:
+                        idx2 = next(i for i,p in enumerate(world.character_physical_states) if p.character_id==cid2)
+                        world.character_physical_states[idx2] = st
+                    else:
+                        world.character_physical_states.append(st)
+
+        te = data.get("timeline_events")
+        if isinstance(te, list):
+            from worldforger.schemas import PersonalTimelineEvent, CharacterPersonalTimeline
+            for raw in te:
+                if isinstance(raw, dict) and raw.get("event_id"):
+                    evt = PersonalTimelineEvent(
+                        event_id=raw["event_id"], character_id=raw.get("character_id",""),
+                        chapter=chapter_id, event=str(raw.get("event",""))[:200])
+                    tl = next((t for t in world.character_personal_timelines if t.character_id==evt.character_id), None)
+                    if tl is None:
+                        tl = CharacterPersonalTimeline(character_id=evt.character_id)
+                        world.character_personal_timelines.append(tl)
+                    tl.events.append(evt)
+        return ""
+    except Exception as e:
+        return f"unified_narrative_state: {e}"
+
+
+async def _unified_knowledge_plot_extractor(
+    world: World, chapter_id: str, manuscript_text: str,
+) -> str:
+    """Knowledge & Plot Extractor: knowledge + decisions + KG events (1 LLM call)."""
+    import json as _json
+    try:
+        chars_list = []
+        for ent in world.characters.entities[:15]:
+            if isinstance(ent, dict):
+                chars_list.append(f"- id={ent.get('id','')} name={ent.get('name','')}")
+        system = (
+            "你是知识与剧情抽取器。从章节正文中一次性提取三类信息。只输出JSON。\n"
+            'JSON格式: {"knowledge_entries":[{"knowledge_id":"know_001","character_id":"char_id","topic":"...","category":"secret","certainty":"knows_for_sure","source_chapter":"ch_id","source_detail":"..."}],'
+            '"decisions":[{"decision_id":"dec_001","character_id":"char_id","summary":"...","decision_type":"moral_choice","options_considered":[],"option_chosen":"","stated_reason":"","actual_reason":"","immediate_consequences":[],"outcome_verdict":"pending"}],'
+            '"kg_events":[{"event_id":"evt_001","chapter_id":"ch_id","event_type":"revelation","summary":"...","participants":[],"location":"...","consequences":[]}]}\n'
+        )
+        user = f"章节id={chapter_id}\n角色:\n" + "\n".join(chars_list)
+        user += f"\n正文(截断):\n{manuscript_text[:8000]}"
+        reply = await chat_completion(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.2, max_tokens=3072, timing_label="unified_knowledge_plot",
+        )
+        t = _repair_llm_json(reply)
+        if "{" not in t: return "knowledge_plot: no JSON"
+        data = _json.loads(t)
+
+        ke = data.get("knowledge_entries")
+        if isinstance(ke, list):
+            from worldforger.schemas import CharacterKnowledgeEntry
+            existing_ids = {e.knowledge_id for e in world.character_knowledge.entries}
+            for raw in ke:
+                if isinstance(raw, dict) and raw.get("knowledge_id") not in existing_ids:
+                    try:
+                        world.character_knowledge.entries.append(CharacterKnowledgeEntry(
+                            knowledge_id=raw["knowledge_id"], character_id=raw.get("character_id",""),
+                            topic=raw.get("topic","")[:200], category=raw.get("category","secret"),
+                            certainty=raw.get("certainty","knows_for_sure"), source_chapter=chapter_id,
+                            source_detail=raw.get("source_detail","")[:200]))
+                    except: pass
+
+        decs = data.get("decisions")
+        if isinstance(decs, list):
+            from worldforger.schemas import CharacterDecision
+            existing_dec_ids = {d.decision_id for d in world.character_decisions}
+            for raw in decs:
+                if isinstance(raw, dict) and raw.get("decision_id") not in existing_dec_ids:
+                    try:
+                        world.character_decisions.append(CharacterDecision(
+                            decision_id=raw["decision_id"], character_id=raw.get("character_id",""),
+                            chapter=chapter_id, summary=raw.get("summary","")[:200],
+                            decision_type=raw.get("decision_type","moral_choice"),
+                            options_considered=raw.get("options_considered") if isinstance(raw.get("options_considered"),list) else [],
+                            option_chosen=raw.get("option_chosen","")[:100],
+                            stated_reason=raw.get("stated_reason","")[:200],
+                            actual_reason=raw.get("actual_reason","")[:200],
+                            immediate_consequences=raw.get("immediate_consequences") if isinstance(raw.get("immediate_consequences"),list) else [],
+                            outcome_verdict=raw.get("outcome_verdict","pending")))
+                    except: pass
+
+        kg_evts = data.get("kg_events")
+        if isinstance(kg_evts, list):
+            from worldforger.schemas import KGEvent
+            from worldforger.narrative_kg import NarrativeKGManager
+            mgr = NarrativeKGManager(world.meta.id)
+            for raw in kg_evts:
+                if isinstance(raw, dict) and raw.get("event_id"):
+                    try:
+                        world.story.narrative_kg.events.append(KGEvent(
+                            event_id=raw["event_id"], chapter_id=chapter_id,
+                            event_type=raw.get("event_type","other"),
+                            summary=raw.get("summary","")[:200],
+                            participants=raw.get("participants") if isinstance(raw.get("participants"),list) else [],
+                            location=raw.get("location",""),
+                            consequences=raw.get("consequences") if isinstance(raw.get("consequences"),list) else []))
+                    except: pass
+        return ""
+    except Exception as e:
+        return f"unified_knowledge_plot: {e}"
+
+
+async def _unified_quality_reviewer(
+    world: World, chapter_id: str, manuscript_text: str,
+) -> str:
+    """Consistency & Quality Reviewer: consistency + sentiment + aftermaths (1 LLM call)."""
+    import json as _json
+    try:
+        ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+        chars_list = []
+        for ent in world.characters.entities[:15]:
+            if isinstance(ent, dict):
+                chars_list.append(f"- id={ent.get('id','')} name={ent.get('name','')}")
+        system = (
+            "你是叙事质量审阅器。从章节正文中一次性提取三类信息。只输出JSON。\n"
+            'JSON格式: {"consistency_report":{"verdict":"clean|minor_issues|needs_review","issues":[{"category":"position|personality|item_state|pov|foreshadowing|emotional_continuity|timeline|knowledge_boundary","severity":"critical|warning|info","description":"...","excerpt":"...","suggestion":"..."}]},'
+            '"sentiment":{"segments":[{"segment_index":1,"label":"开篇|中段|高潮|尾声","tone":"positive|negative|tense|calm|mixed","intensity":5,"summary":"..."}],"overall_tone":"...","ending_tone":"...","transition_from_prev":"smooth|abrupt|intentional_contrast|first_chapter"},'
+            '"aftermaths":[{"aftermath_id":"am_001","character_id":"char_id","source_event":"...","symptoms":[],"intensity":5,"trigger_conditions":[]}]}\n'
+        )
+        user = f"章节id={chapter_id}，标题={ch.title if ch else ''}，叙事设置={narrator_block(world)}\n角色:\n" + "\n".join(chars_list)
+        user += f"\n正文(截断):\n{manuscript_text[:8000]}"
+        reply = await chat_completion(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.2, max_tokens=3072, timing_label="unified_quality_review",
+        )
+        t = _repair_llm_json(reply)
+        if "{" not in t: return "quality_review: no JSON"
+        data = _json.loads(t)
+
+        cr = data.get("consistency_report")
+        if isinstance(cr, dict) and ch:
+            from worldforger.schemas import ConsistencyReport
+            try: ch.consistency_report = ConsistencyReport(chapter_id=chapter_id, **cr)
+            except: pass
+
+        sent = data.get("sentiment")
+        if isinstance(sent, dict) and ch:
+            from worldforger.schemas import SentimentLog
+            try: ch.sentiment_log = SentimentLog(chapter_id=chapter_id, **sent)
+            except: pass
+
+        ams = data.get("aftermaths")
+        if isinstance(ams, list):
+            from worldforger.schemas import EmotionalAftermath
+            for raw in ams:
+                if isinstance(raw, dict) and raw.get("aftermath_id"):
+                    try:
+                        world.character_aftermaths.append(EmotionalAftermath(
+                            aftermath_id=raw["aftermath_id"], character_id=raw.get("character_id",""),
+                            source_event=raw.get("source_event","")[:200], source_chapter=chapter_id,
+                            symptoms=raw.get("symptoms") if isinstance(raw.get("symptoms"),list) else [],
+                            intensity=max(1,min(10,raw.get("intensity",5))),
+                            trigger_conditions=raw.get("trigger_conditions") if isinstance(raw.get("trigger_conditions"),list) else []))
+                    except: pass
+        return ""
+    except Exception as e:
+        return f"unified_quality_review: {e}"
+
+
 # ── 收尾：章节摘要卡片 ──────────────────────────────────────
 
 
@@ -453,26 +855,52 @@ async def _try_generate_summary_card(world: World, chapter_id: str, manuscript_t
 
     try:
         system = chapter_summary_system(world)
+        # Truncate manuscript to keep prompt small
+        short_ms = manuscript_text.strip()
+        if len(short_ms) > 6000:
+            short_ms = short_ms[:6000] + "\n…(截断)"
         user = build_chapter_summary_user_payload(
-            world, chapter_id=chapter_id, manuscript_text=manuscript_text
+            world, chapter_id=chapter_id, manuscript_text=short_ms
         )
+        # Truncate user payload if too large
+        if len(user) > 8000:
+            user = user[:8000] + "\n…(截断)"
         reply = await chat_completion(
             [{"role": "system", "content": system}, {"role": "user", "content": user}],
             temperature=0.4,
             max_tokens=2048,
             timing_label="summary_card",
         )
-        # 尝试解析 JSON
-        data = _json.loads(reply.strip())
+
+        # Detect refusal and retry with minimal prompt
+        _REFUSAL = ["无法给到", "无法提供", "不能提供", "抱歉", "我无法", "正文内容缺失"]
+        if reply and len(reply.strip()) < 100 and any(m in reply for m in _REFUSAL):
+            ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+            retry_user = (
+                f"为以下章节撰写摘要卡片：\nid={chapter_id}，标题={ch.title if ch else ''}\n"
+                f"【正文前4000字】\n{short_ms[:4000]}"
+            )
+            reply = await chat_completion(
+                [{"role": "system", "content": "你是叙事分析助手。请输出JSON格式的章节摘要。直接输出，不要拒绝。"},
+                 {"role": "user", "content": retry_user}],
+                temperature=0.4,
+                max_tokens=2048,
+                timing_label="summary_card_retry",
+            )
+
+        # Parse JSON with repair
+        t = _repair_llm_json(reply)
+        data = _json.loads(t)
         if not isinstance(data, dict):
             return "摘要卡片：LLM 返回非 JSON 格式"
+        # Skip if the summary is a refusal placeholder
+        if "无法提取" in str(data.get("main_events", "")):
+            return "摘要卡片：LLM 无法提取内容"
         data["chapter_id"] = chapter_id
         ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
         if ch:
             data["title"] = ch.title
-            # 同步到内存模型
             from worldforger.schemas import ChapterSummaryCard
-
             try:
                 ch.summary_card = ChapterSummaryCard(**data)
             except Exception:
@@ -671,7 +1099,7 @@ async def _try_detect_knowledge(world: World, chapter_id: str, manuscript_text: 
     import json as _json
 
     try:
-        from worldforger.story_prompts import (
+        from worldforger.story.story_prompts import (
             build_knowledge_detection_user_payload,
             knowledge_detection_system,
         )
@@ -759,7 +1187,7 @@ async def _try_detect_decisions(world: World, chapter_id: str, manuscript_text: 
     import json as _json
 
     try:
-        from worldforger.story_prompts import (
+        from worldforger.story.story_prompts import (
             build_decision_detection_user_payload,
             decision_detection_system,
         )
@@ -830,7 +1258,7 @@ async def _try_update_physical_states(world: World, chapter_id: str, manuscript_
     import json as _json
 
     try:
-        from worldforger.story_prompts import (
+        from worldforger.story.story_prompts import (
             build_physical_state_detection_user_payload,
             physical_state_detection_system,
         )
@@ -898,7 +1326,7 @@ async def _try_detect_timeline_events(world: World, chapter_id: str, manuscript_
     import json as _json
 
     try:
-        from worldforger.story_prompts import (
+        from worldforger.story.story_prompts import (
             build_personal_timeline_user_payload,
             personal_timeline_detection_system,
         )
@@ -965,6 +1393,145 @@ async def _try_detect_timeline_events(world: World, chapter_id: str, manuscript_
         return f"时间线检测：JSON 解析失败 — {e}"
     except Exception as e:
         return f"时间线检测：{e}"
+
+
+# ── P2: 滚动阶段摘要 ───────────────────────────────────────────
+
+async def _try_generate_arc_summary(world: World, chapter_id: str) -> str:
+    """Generate a rolling arc summary every ~10 chapters.
+
+    Only fires when the chapter order is a multiple of 10.  Reads
+    the last 10 chapters' summaries and generates a compressed arc
+    overview stored in ``story/arc_summaries/arc_X_Y.md``.
+    """
+    ARC_INTERVAL = 10
+    ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+    if not ch or ch.order % ARC_INTERVAL != 0:
+        return ""
+    if ch.order < ARC_INTERVAL:
+        return ""  # Not enough chapters yet
+
+    arc_start = ch.order - ARC_INTERVAL + 1
+    arc_end = ch.order
+
+    from worldforger.story.story_store import (
+        arc_summaries_dir, arc_summary_path, summaries_before, write_text,
+    )
+    arc_summaries_dir(world.meta.id).mkdir(parents=True, exist_ok=True)
+
+    # Skip if already exists
+    if arc_summary_path(world.meta.id, arc_start, arc_end).is_file():
+        return ""
+
+    # Collect summaries for chapters in this arc
+    summary_parts = []
+    for c in world.story.chapters:
+        if arc_start <= c.order <= arc_end:
+            cards = summaries_before(world.meta.id, c.id, 0, world)
+            if cards:
+                card = cards[0]
+                summary_parts.append(
+                    f"第{c.order}章 {c.title}：{card.get('main_events', '')} "
+                    f"结尾：{card.get('ending_hook', '')}"
+                )
+            else:
+                summary_parts.append(f"第{c.order}章 {c.title}：（摘要缺失）")
+
+    if not summary_parts:
+        return ""
+
+    user_text = (
+        f"为以下 {len(summary_parts)} 个章节撰写一个 200-500 字的阶段摘要，概括主要事件发展、角色变化和伏笔进展：\n"
+        + "\n".join(summary_parts)
+    )
+    try:
+        reply = await chat_completion(
+            [{"role": "system", "content": "你是故事编辑，负责为多个章节撰写阶段性摘要。直接输出摘要文字，不要JSON。"},
+             {"role": "user", "content": user_text}],
+            temperature=0.3,
+            max_tokens=600,
+            timing_label=f"arc_summary_{arc_start}_{arc_end}",
+        )
+        if reply and len(reply.strip()) > 30:
+            write_text(arc_summary_path(world.meta.id, arc_start, arc_end), reply.strip())
+        return ""
+    except Exception as e:
+        return f"阶段摘要生成：{e}"
+
+
+# ── Phase 2: 金句密度检测 ──────────────────────────────────────
+
+def _run_epic_density_check(chapter_id: str, text: str) -> None:
+    """Detect epic quote density in manuscript (non-blocking, regex only)."""
+    try:
+        from worldforger.story.story_prompts import detect_epic_density
+        result = detect_epic_density(text)
+        if result.get("warning"):
+            print(f"[MCW-DENSITY] Chapter {chapter_id}: {result['warning']}")
+    except Exception:
+        pass
+
+
+# ── Phase 1: 情绪后遗症提取 ──────────────────────────────────
+
+async def _try_extract_aftermaths(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """从章节正文提取角色的情绪后遗症。失败不阻塞。"""
+    import json as _json
+    try:
+        from worldforger.story.story_prompts import aftermath_extraction_system, build_aftermath_user_payload
+        from worldforger.schemas import EmotionalAftermath
+
+        system = aftermath_extraction_system()
+        user = build_aftermath_user_payload(world, chapter_id=chapter_id, manuscript_text=manuscript_text)
+        reply = await chat_completion(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            temperature=0.2, max_tokens=1536, timing_label="aftermath_extraction",
+        )
+        t = _repair_llm_json(reply)
+        if "{" not in t or "}" not in t:
+            return ""
+        data = _json.loads(t)
+        aftermaths = data.get("aftermaths", [])
+        if not isinstance(aftermaths, list):
+            return ""
+
+        existing_ids = {a.aftermath_id for a in world.character_aftermaths}
+        added = 0
+        for raw in aftermaths:
+            if not isinstance(raw, dict):
+                continue
+            aid = str(raw.get("aftermath_id", "")).strip()
+            if not aid or aid in existing_ids:
+                continue
+            try:
+                cid = str(raw.get("character_id", "")).strip()
+                am = EmotionalAftermath(
+                    aftermath_id=aid,
+                    character_id=cid,
+                    source_event=str(raw.get("source_event", "")).strip()[:200],
+                    source_chapter=chapter_id,
+                    symptoms=raw.get("symptoms") if isinstance(raw.get("symptoms"), list) else [],
+                    intensity=max(1, min(10, int(raw.get("intensity", 5)))),
+                    trigger_conditions=raw.get("trigger_conditions") if isinstance(raw.get("trigger_conditions"), list) else [],
+                    current_status="active",
+                )
+                world.character_aftermaths.append(am)
+                added += 1
+            except Exception:
+                continue
+
+        # Decay existing active aftermaths
+        for am in world.character_aftermaths:
+            if am.current_status == "active":
+                am.intensity = max(1, int(am.intensity - am.decay_rate))
+                if am.intensity <= 2:
+                    ch_order = next((c.order for c in world.story.chapters if c.id == chapter_id), 0)
+                    src_order = next((c.order for c in world.story.chapters if c.id == am.source_chapter), 0)
+                    if ch_order - src_order >= 5:
+                        am.current_status = "became_trait"
+        return "" if added > 0 else ""
+    except Exception:
+        return ""
 
 
 # ── 收尾：一致性审校 ──────────────────────────────────────
@@ -1108,7 +1675,7 @@ async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) 
             }
 
             # ── Step 2: Build polisher input (ALWAYS, even for clean text) ──
-            from worldforger.story_prompts import (
+            from worldforger.story.story_prompts import (
                 build_polisher_user_payload,
                 format_consistency_issues_for_polisher,
                 polisher_system,
@@ -1205,10 +1772,18 @@ async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) 
         if not trace["termination_reason"]:
             trace["termination_reason"] = "max_rounds"
 
-        from worldforger.story_store import polished_path, polish_trace_path, write_text
+        from worldforger.story.story_store import polished_path, polish_trace_path, write_text
 
-        # Persist polished text (polished/ only — keep original manuscript intact for diff)
+        # Persist polished text to both polished/ and manuscript/
         write_text(polished_path(world.meta.id, chapter_id), current_text)
+        # Save snapshot of original before overwriting (for diff comparison)
+        try:
+            from worldforger.story.story_store import save_chapter_snapshot
+            save_chapter_snapshot(world.meta.id, chapter_id)
+        except Exception:
+            pass
+        write_text(manuscript_path(world.meta.id, chapter_id), current_text)
+        sync_chapter_word_count(world, chapter_id)
 
         # Write trace
         polish_trace_path(world.meta.id, chapter_id).write_text(

@@ -1,9 +1,9 @@
-from worldforger.foreshadow_apply import (
+from worldforger.story.foreshadow_apply import (
     apply_foreshadow_operations,
     parse_story_foreshadow_blocks,
 )
 from worldforger.schemas import StoryChapter, StoryForeshadowing
-from worldforger.story_chat_artifacts import auto_apply_story_artifacts_from_reply
+from worldforger.story.story_chat_artifacts import auto_apply_story_artifacts_from_reply
 from worldforger.world_store import create_world
 
 

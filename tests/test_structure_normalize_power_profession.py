@@ -1,4 +1,4 @@
-from worldforger.structure_normalize import normalize_structure_patch_detailed
+from worldforger.sync.structure_normalize import normalize_structure_patch_detailed
 
 
 def test_hoist_root_profession_system_into_power_system():

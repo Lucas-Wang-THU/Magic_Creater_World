@@ -1,8 +1,8 @@
-from worldforger.structure_normalize import (
+from worldforger.sync.structure_normalize import (
     normalize_structure_patch,
     normalize_structure_patch_detailed,
 )
-from worldforger.panel_sync import apply_structure_patch
+from worldforger.sync.panel_sync import apply_structure_patch
 from worldforger.world_store import create_world
 
 

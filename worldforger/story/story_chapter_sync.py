@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 
 from worldforger.schemas import StoryChapter, World
-from worldforger.story_store import (
+from worldforger.story.story_store import (
     default_beat_rel,
     default_manuscript_rel,
     read_text,
@@ -65,10 +65,10 @@ def reconcile_story_chapters(world: World) -> tuple[World, list[str]]:
             if not (ch.manuscript_file or "").strip():
                 ch.manuscript_file = default_manuscript_rel(cid)
 
-        if beat_title and beat_title != (ch.title or "").strip():
-            prev = (ch.title or "").strip() or "（空）"
+        # Only auto-set title from beat if chapter title is empty (don't overwrite user-set titles)
+        if beat_title and not (ch.title or "").strip():
             ch.title = beat_title
-            notes.append(f"{cid} 标题对齐细纲：{prev} → {beat_title}")
+            notes.append(f"{cid} 标题从细纲补全：→ {beat_title}")
 
     return world, notes
 

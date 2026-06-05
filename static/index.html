@@ -406,6 +406,14 @@
                       </select></label
                     >
                   </div>
+              <div class="row story-write-row">
+                <label class="muted lbl-ic tiny"
+                  ><input type="checkbox" id="storyChatToggleChunking" checked /> 场景分块生成</label
+                >
+                <label class="muted lbl-ic tiny"
+                  ><input type="checkbox" id="storyChatToggleUnified" /> 统一后处理</label
+                >
+              </div>
                   <div class="story-budget-bar" id="storyChatBudgetBar" style="display:none">
                     <span class="story-budget-total" id="storyChatBudgetTotal"></span>
                     <span class="story-budget-detail" id="storyChatBudgetDetail"></span>
@@ -1163,6 +1171,8 @@
               <label class="muted lbl-ic tiny"><input type="checkbox" id="storyToggleDecisions" checked /> 决策检测</label>
               <label class="muted lbl-ic tiny"><input type="checkbox" id="storyTogglePhysical" checked /> 身体追踪</label>
               <label class="muted lbl-ic tiny"><input type="checkbox" id="storyToggleTimeline" checked /> 时间线</label>
+              <label class="muted lbl-ic tiny"><input type="checkbox" id="storyToggleSpeech" checked /> 语言风格</label>
+              <label class="muted lbl-ic tiny"><input type="checkbox" id="storyToggleAftermath" checked /> 后遗症</label>
               <span class="knowledge-toolbar-spacer"></span>
               <button type="button" class="ghost tiny btn-ic" id="btnExtractAllKnowledge" title="扫描已有章节，提取知识和决策"><span class="ms" aria-hidden="true">auto_awesome</span>从已有章节提取</button>
               <button type="button" class="ghost tiny" id="btnClearKnowledge" title="清空所有条目（不可撤销）">清空</button>
@@ -1173,11 +1183,15 @@
               <button type="button" class="knowledge-tab" data-knowledge-tab="decisions">关键决策 <span id="decisionsTabCount" class="muted tiny"></span></button>
               <button type="button" class="knowledge-tab" data-knowledge-tab="physical">身体状况 <span id="physicalTabCount" class="muted tiny"></span></button>
               <button type="button" class="knowledge-tab" data-knowledge-tab="timeline">个人时间线 <span id="timelineTabCount" class="muted tiny"></span></button>
+              <button type="button" class="knowledge-tab" data-knowledge-tab="speech">语言风格 <span id="speechTabCount" class="muted tiny"></span></button>
+              <button type="button" class="knowledge-tab" data-knowledge-tab="aftermath">情绪后遗症 <span id="aftermathTabCount" class="muted tiny"></span></button>
             </div>
             <div id="charKnowledgeList" class="char-knowledge-list"></div>
             <div id="charDecisionsList" class="char-knowledge-list hidden"></div>
             <div id="charPhysicalList" class="char-knowledge-list hidden"></div>
             <div id="charTimelineList" class="char-knowledge-list hidden"></div>
+            <div id="charSpeechList" class="char-knowledge-list hidden"></div>
+            <div id="charAftermathList" class="char-knowledge-list hidden"></div>
           </div>
         </section>
 
@@ -1446,6 +1460,14 @@
                     <option value="2" selected>2</option>
                     <option value="3">3</option>
                   </select></label
+                >
+              </div>
+              <div class="row story-write-row">
+                <label class="muted lbl-ic tiny"
+                  ><input type="checkbox" id="storyToggleChunking" checked /> 场景分块生成</label
+                >
+                <label class="muted lbl-ic tiny"
+                  ><input type="checkbox" id="storyToggleUnified" /> 统一后处理</label
                 >
               </div>
               <div class="story-budget-bar" id="storyBudgetBar" style="display:none">

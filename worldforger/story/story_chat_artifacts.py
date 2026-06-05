@@ -5,10 +5,10 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from worldforger.foreshadow_apply import apply_foreshadow_operations, parse_story_foreshadow_blocks
+from worldforger.story.foreshadow_apply import apply_foreshadow_operations, parse_story_foreshadow_blocks
 from worldforger.schemas import StoryChapter, World
-from worldforger.story_chapter_sync import title_from_beat_markdown
-from worldforger.story_store import (
+from worldforger.story.story_chapter_sync import title_from_beat_markdown
+from worldforger.story.story_store import (
     beat_path,
     default_beat_rel,
     default_manuscript_rel,
@@ -102,6 +102,18 @@ def auto_apply_story_artifacts_from_reply(
             if ch:
                 ch.status = "drafting"
             applied.append(f"写入文稿 manuscript/{cid}.md")
+            # Trigger post-generation hooks asynchronously (fire-and-forget)
+            try:
+                import asyncio as _asyncio
+                from worldforger.story.story_service import (
+                    _try_generate_summary_card, _try_track_sentiment,
+                    _try_update_runtime_states, _try_index_chapter,
+                )
+                for hook in [_try_generate_summary_card, _try_track_sentiment,
+                             _try_update_runtime_states, _try_index_chapter]:
+                    _asyncio.ensure_future(hook(world, cid, content))
+            except Exception:
+                pass  # best-effort
 
     fs_ops = parse_story_foreshadow_blocks(text)
     if fs_ops:

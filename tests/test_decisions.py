@@ -12,7 +12,7 @@ from worldforger.schemas import (
     World,
     Meta,
 )
-from worldforger.story_prompts import (
+from worldforger.story.story_prompts import (
     decision_detection_system,
     build_decision_detection_user_payload,
     format_decision_history,
@@ -102,7 +102,7 @@ class TestDecisionPrompts:
 class TestDecisionService:
     @pytest.mark.asyncio
     async def test_detect_new(self, sample_world):
-        from worldforger.story_service import _try_detect_decisions
+        from worldforger.story.story_service import _try_detect_decisions
         reply = json.dumps({"decisions": [{
             "decision_id": "dec_001", "character_id": "char_a", "chapter": "ch_1",
             "summary": "测试决策", "decision_type": "moral_choice",
@@ -111,35 +111,35 @@ class TestDecisionService:
             "immediate_consequences": [], "long_term_consequences": [],
             "reflections": [], "outcome_verdict": "pending",
         }]}, ensure_ascii=False)
-        with patch("worldforger.story_service.chat_completion", new=AsyncMock(return_value=reply)):
+        with patch("worldforger.story.story_service.chat_completion", new=AsyncMock(return_value=reply)):
             err = await _try_detect_decisions(sample_world, "ch_1", "测试正文")
             assert err == ""
             assert len(sample_world.character_decisions) == 1
 
     @pytest.mark.asyncio
     async def test_detect_no_decisions(self, sample_world):
-        from worldforger.story_service import _try_detect_decisions
+        from worldforger.story.story_service import _try_detect_decisions
         reply = json.dumps({"decisions": []})
-        with patch("worldforger.story_service.chat_completion", new=AsyncMock(return_value=reply)):
+        with patch("worldforger.story.story_service.chat_completion", new=AsyncMock(return_value=reply)):
             err = await _try_detect_decisions(sample_world, "ch_1", "测试")
             assert "未发现" in err
 
     @pytest.mark.asyncio
     async def test_detect_dedup(self, sample_world):
-        from worldforger.story_service import _try_detect_decisions
+        from worldforger.story.story_service import _try_detect_decisions
         sample_world.character_decisions.append(
             CharacterDecision(decision_id="dec_001", character_id="char_a", chapter="ch_1", summary="existing")
         )
         reply = json.dumps({"decisions": [{"decision_id": "dec_001", "character_id": "char_a", "summary": "dup"}]})
-        with patch("worldforger.story_service.chat_completion", new=AsyncMock(return_value=reply)):
+        with patch("worldforger.story.story_service.chat_completion", new=AsyncMock(return_value=reply)):
             err = await _try_detect_decisions(sample_world, "ch_1", "test")
             assert len(sample_world.character_decisions) == 1  # no dup
 
     @pytest.mark.asyncio
     async def test_detect_markdown_wrapped(self, sample_world):
-        from worldforger.story_service import _try_detect_decisions
+        from worldforger.story.story_service import _try_detect_decisions
         reply = '```json\n{"decisions": [{"decision_id": "d1", "character_id": "c1", "summary": "test", "decision_type": "sacrifice", "options_considered": [], "option_chosen": "", "stated_reason": "", "actual_reason": "", "immediate_consequences": [], "long_term_consequences": [], "reflections": [], "outcome_verdict": "pending"}]}\n```'
-        with patch("worldforger.story_service.chat_completion", new=AsyncMock(return_value=reply)):
+        with patch("worldforger.story.story_service.chat_completion", new=AsyncMock(return_value=reply)):
             err = await _try_detect_decisions(sample_world, "ch_1", "test")
             assert err == ""
             assert len(sample_world.character_decisions) == 1

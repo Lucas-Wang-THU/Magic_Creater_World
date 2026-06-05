@@ -4809,15 +4809,18 @@ textarea.json-editor-tiny {
 .knowledge-empty p { margin: 2px 0; }
 
 /* Knowledge page: constrained height from panel → card → list */
-#view-charKnowledge.panel {
-  max-height: calc(100vh - 110px);
+#view-charKnowledge.panel.active {
+  height: calc(100vh - 110px);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 #view-charKnowledge .card {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
   overflow: hidden;
+  min-height: 0;
 }
 
 .char-knowledge-list {
@@ -5538,11 +5541,11 @@ textarea.json-editor-tiny {
 
 .story-ch-cb {
   flex-shrink: 0;
-  width: 14px;
-  height: 14px;
+  width: 15px;
+  height: 15px;
   accent-color: var(--primary);
   cursor: pointer;
-  opacity: 0;
+  opacity: 0.45;
   transition: opacity 0.15s;
 }
 .story-ch-nav-btn:hover .story-ch-cb,
@@ -6311,6 +6314,13 @@ textarea.json-editor-tiny {
   flex-shrink: 0;
 }
 .story-ch-status-sel:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(61,90,128,0.15); }
+.story-ch-target-wc {
+  font-size: 0.72rem; padding: 2px 6px; border-radius: 5px;
+  border: 1px solid #d1d5db; background: #fff; color: #374151;
+  text-align: right; flex-shrink: 0;
+}
+.story-ch-target-wc:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(61,90,128,0.15); }
+.story-ch-target-wc::placeholder { color: #cbd5e1; font-size: 0.68rem; }
 
 /* ── 章节导航微标题 ─────────────────────────────────────── */
 
@@ -7305,3 +7315,59 @@ textarea.json-editor-tiny {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+
+/* ── Phase 1/2: Speech profile editor & aftermath cards ─────── */
+
+.speech-card { padding: 14px 16px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fafbfc; margin-bottom: 10px; }
+.speech-card-head { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.speech-card-head .ms { color: #7c3aed; }
+.speech-card-head strong { font-size: 0.88rem; color: #1e293b; }
+.speech-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; margin-bottom: 8px; }
+.speech-edit-grid select, .speech-edit-row input { font-size: 0.76rem; padding: 3px 6px; border-radius: 5px; border: 1px solid #d1d5db; background: #fff; width: 100%; box-sizing: border-box; }
+.speech-edit-grid select:focus, .speech-edit-row input:focus { outline: none; border-color: var(--primary); }
+.speech-edit-row { margin-bottom: 4px; }
+.speech-edit-row label { display: flex; flex-direction: column; gap: 2px; }
+.speech-save-btn { margin-left: auto; font-size: 0.72rem !important; }
+.speech-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; font-size: 0.74rem; }
+.speech-chip { display: inline-block; padding: 1px 8px; border-radius: 5px; font-size: 0.72rem; background: #ede9fe; color: #7c3aed; }
+.speech-chip--filler { background: #fef3c7; color: #92400e; }
+.speech-chip--avoid { background: #fee2e2; color: #991b1b; }
+.speech-chip--aftermath { background: #fce7f3; color: #9d174d; }
+.speech-label { font-size: 0.66rem; font-weight: 600; color: #94a3b8; text-transform: uppercase; letter-spacing: 0.05em; display: inline-block; margin-right: 6px; min-width: 4.5em; }
+
+.aftermath-card { padding: 14px 16px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; margin-bottom: 10px; border-left: 3px solid #f59e0b; }
+.aftermath-card--severe { border-left-color: #dc2626; background: #fef2f2; }
+.aftermath-card-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.aftermath-card-head .ms { color: #ea580c; }
+.aftermath-card-head strong { font-size: 0.88rem; color: #1e293b; }
+.aftermath-badge { margin-left: auto; font-size: 0.7rem; font-weight: 600; padding: 1px 8px; border-radius: 4px; background: #fef3c7; color: #92400e; }
+.aftermath-source { font-size: 0.78rem; color: #64748b; margin: 4px 0; }
+.aftermath-intensity { height: 4px; border-radius: 2px; overflow: hidden; background: #e2e8f0; margin: 6px 0; }
+.aftermath-intensity-fill { height: 100%; border-radius: 2px; transition: width 0.3s; }
+
+.decision-card { padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 10px; background: #fafbfc; margin-bottom: 8px; transition: box-shadow 0.15s; }
+.decision-card:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
+.decision-card-top { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.decision-verdict { margin-left: auto; font-size: 0.68rem; font-weight: 500; padding: 1px 8px; border-radius: 4px; background: #f1f5f9; color: #64748b; }
+
+.phys-card { padding: 14px 16px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; margin-bottom: 10px; }
+.phys-card-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.phys-card-head .ms { color: #6366f1; }
+.phys-card-head strong { font-size: 0.88rem; color: #1e293b; }
+.phys-fatigue { margin-left: auto; font-size: 0.74rem; font-weight: 600; }
+.phys-general { font-size: 0.82rem; color: #475569; margin: 4px 0 8px; }
+
+.timeline-track { position: relative; padding-left: 18px; margin-top: 8px; }
+.timeline-track::before { content: ""; position: absolute; left: 6px; top: 0; bottom: 0; width: 2px; background: #e2e8f0; border-radius: 1px; }
+.timeline-event { position: relative; display: flex; gap: 10px; padding: 6px 0; }
+.timeline-event-dot { position: absolute; left: -15px; top: 10px; width: 8px; height: 8px; border-radius: 50%; background: #6366f1; border: 2px solid #fff; box-shadow: 0 0 0 1px #c7d2fe; flex-shrink: 0; }
+.timeline-event-body { flex: 1; min-width: 0; }
+.timeline-event-head { display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
+.timeline-event-ch { font-size: 0.7rem; font-weight: 600; color: #6366f1; background: #eef2ff; padding: 1px 7px; border-radius: 4px; }
+.timeline-event-text { margin: 2px 0; font-size: 0.82rem; color: #334155; line-height: 1.5; }
+
+.char-roster-speech { margin-top: 4px; border-top: 1px dashed #e2e8f0; padding-top: 8px; }
+.char-roster-speech summary { font-size: 0.78rem; color: #7c3aed; }
+.speech-card-inline { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 10px; padding: 8px 0; }
+.speech-card-inline label { display: flex; flex-direction: column; gap: 2px; }
+.speech-card-inline select, .speech-card-inline input { font-size: 0.76rem; padding: 3px 6px; border-radius: 5px; border: 1px solid #d1d5db; background: #fff; }

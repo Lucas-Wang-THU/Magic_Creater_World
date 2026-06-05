@@ -7,7 +7,7 @@ from io import BytesIO
 from pathlib import Path
 
 from worldforger.schemas import World
-from worldforger.story_store import (
+from worldforger.story.story_store import (
     macro_outline_path,
     manuscript_path,
     read_text,

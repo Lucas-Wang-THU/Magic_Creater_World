@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from worldforger.panel_sync import (
+from worldforger.sync.panel_sync import (
     _try_parse_with_format_recovery,
     _run_format_proofreader,
     _run_synchronizer_self_correct,
@@ -23,7 +23,7 @@ async def test_format_proofreader_fixes_missing_commas():
     fixed = '{"a": 1,\n"b": 2}'
 
     with patch(
-        "worldforger.panel_sync.chat_completion",
+        "worldforger.sync.panel_sync.chat_completion",
         new=AsyncMock(return_value=fixed),
     ):
         result = await _run_format_proofreader(
@@ -37,7 +37,7 @@ async def test_format_proofreader_fixes_missing_commas():
 async def test_format_proofreader_reports_unfixable():
     """Format proofreader returns _format_error when it cannot fix the JSON."""
     with patch(
-        "worldforger.panel_sync.chat_completion",
+        "worldforger.sync.panel_sync.chat_completion",
         new=AsyncMock(return_value='{"_format_error": true, "reason": "too corrupted"}'),
     ):
         result = await _run_format_proofreader(
@@ -52,7 +52,7 @@ async def test_format_proofreader_reports_unfixable():
 async def test_format_proofreader_output_unparseable():
     """Format proofreader returns garbage that parse_structure_json cannot handle."""
     with patch(
-        "worldforger.panel_sync.chat_completion",
+        "worldforger.sync.panel_sync.chat_completion",
         new=AsyncMock(return_value="this is not json either"),
     ):
         result = await _run_format_proofreader(
@@ -70,7 +70,7 @@ async def test_synchronizer_self_correct_succeeds():
     fixed = '{"geography": {"summary": "A continent"}, "factions": {"entities": []}}'
 
     with patch(
-        "worldforger.panel_sync.chat_completion",
+        "worldforger.sync.panel_sync.chat_completion",
         new=AsyncMock(return_value=fixed),
     ):
         result = await _run_synchronizer_self_correct(
@@ -86,7 +86,7 @@ async def test_synchronizer_self_correct_succeeds():
 async def test_synchronizer_self_correct_still_fails():
     """Synchronizer self-correct still outputs broken JSON → ValueError."""
     with patch(
-        "worldforger.panel_sync.chat_completion",
+        "worldforger.sync.panel_sync.chat_completion",
         new=AsyncMock(return_value="still broken {{{"),
     ):
         with pytest.raises(ValueError):
@@ -107,7 +107,7 @@ async def test_stage0_succeeds_no_llm_called():
 
     # chat_completion should never be called
     mock_chat = AsyncMock()
-    with patch("worldforger.panel_sync.chat_completion", mock_chat):
+    with patch("worldforger.sync.panel_sync.chat_completion", mock_chat):
         result = await _try_parse_with_format_recovery(
             raw=valid,
             world_json="{}",
@@ -123,7 +123,7 @@ async def test_stage0_repairs_missing_commas_no_llm_called():
     broken = '{"geography": {"summary": "test"}\n"factions": {"entities": []}}'
 
     mock_chat = AsyncMock()
-    with patch("worldforger.panel_sync.chat_completion", mock_chat):
+    with patch("worldforger.sync.panel_sync.chat_completion", mock_chat):
         result = await _try_parse_with_format_recovery(
             raw=broken,
             world_json="{}",
@@ -148,7 +148,7 @@ async def test_stage0_fails_stage1_format_proofreader_succeeds():
         call_count += 1
         return fixed
 
-    with patch("worldforger.panel_sync.chat_completion", mock_chat):
+    with patch("worldforger.sync.panel_sync.chat_completion", mock_chat):
         result = await _try_parse_with_format_recovery(
             raw=broken,
             world_json="{}",
@@ -171,7 +171,7 @@ async def test_stage0_fails_stage1_fails_stage2_succeeds():
     async def mock_chat(*args, **kwargs):
         return call_responses.pop(0)
 
-    with patch("worldforger.panel_sync.chat_completion", mock_chat):
+    with patch("worldforger.sync.panel_sync.chat_completion", mock_chat):
         result = await _try_parse_with_format_recovery(
             raw=broken,
             world_json="{}",
@@ -194,7 +194,7 @@ async def test_all_stages_fail_raises_value_error():
     async def mock_chat(*args, **kwargs):
         return call_responses.pop(0)
 
-    with patch("worldforger.panel_sync.chat_completion", mock_chat):
+    with patch("worldforger.sync.panel_sync.chat_completion", mock_chat):
         with pytest.raises(ValueError):
             await _try_parse_with_format_recovery(
                 raw=broken,

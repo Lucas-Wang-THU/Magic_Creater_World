@@ -506,23 +506,139 @@ class CharacterDecision(BaseModel):
     ] = "pending"
 
 
+# ── 文学呼吸感 Phase 1: 角色语言风格档案 ──────────────────────────
+
+class CharacterSpeechProfile(BaseModel):
+    """角色语言风格档案——让每个角色说话方式不同。"""
+    avg_sentence_length: Literal["short", "medium", "long", "mixed"] = "mixed"
+    verbosity: Literal["terse", "normal", "verbose"] = "normal"
+    verbal_tics: list[str] = Field(default_factory=list)
+    filler_words: list[str] = Field(default_factory=list)
+    emotional_expression: Literal["direct", "indirect", "suppressed", "explosive", "sarcastic"] = "direct"
+    confrontation_style: Literal["faces_it", "deflects", "withdraws", "escalates"] = "faces_it"
+    avoidance_topics: list[str] = Field(default_factory=list)
+    silence_meaning: str = ""
+    address_patterns: dict[str, str] = Field(default_factory=dict)
+    under_stress: str = ""
+
+
+# ── Phase 1: 情绪后遗症 ─────────────────────────────────────────
+
+class EmotionalAftermath(BaseModel):
+    """重大事件后角色的持续性心理/生理后遗症。"""
+    aftermath_id: str = ""
+    character_id: str = ""
+    source_event: str = ""
+    source_chapter: str = ""
+    symptoms: list[str] = Field(default_factory=list)
+    intensity: int = Field(default=5, ge=1, le=10)
+    trigger_conditions: list[str] = Field(default_factory=list)
+    peak_chapter: str = ""
+    current_status: Literal["active", "dormant", "resolved", "became_trait"] = "active"
+    decay_rate: float = 0.3
+
+
 # ── P1: 角色身体状况追踪 ──────────────────────────────────────
 
 class CharacterPhysicalState(BaseModel):
     """角色身体状况 — 身体承载叙事历史。"""
     character_id: str = ""
     active_injuries: list[dict] = Field(default_factory=list)
-    # [{"injury_id": "inj_001", "type": "箭伤", "location": "左肩",
-    #   "caused_in_chapter": "ch_1", "severity": "moderate",
-    #   "healing_progress": "60%", "functional_impact": "左手抬不过肩"}]
     permanent_marks: list[dict] = Field(default_factory=list)
-    # [{"mark_id": "scar_001", "type": "疤痕", "location": "左前臂",
-    #   "origin": "ch_1 箭伤愈合", "visibility": "noticeable"}]
     chronic_conditions: list[dict] = Field(default_factory=list)
-    # [{"condition": "左肩旧伤——阴雨天酸痛", "since_chapter": "ch_2"}]
     fatigue_level: Literal["rested", "tired", "exhausted", "collapse_imminent"] = "rested"
     general_condition: str = ""
     last_updated_chapter: str = ""
+
+
+# ── Phase 2: 人性缺陷 ─────────────────────────────────────────
+
+class CharacterFlaw(BaseModel):
+    """角色人性缺陷——不只是标签，而是会真实伤害关系的人格问题"""
+    flaw_id: str = ""
+    name: str = ""
+    category: Literal["emotional", "cognitive", "behavioral", "relational", "moral"] = "emotional"
+    severity: Literal["mild", "moderate", "severe"] = "moderate"
+    description: str = ""
+    damages_caused: list[dict] = Field(default_factory=list)
+    self_awareness: Literal["unaware", "beginning_to_see", "struggling", "accepted"] = "unaware"
+    triggers: list[str] = Field(default_factory=list)
+    arc_status: Literal["worsening", "stable", "slowly_improving"] = "stable"
+
+
+# ── Narrative State Engine: Mystery Manager ─────────────────────
+
+class MysteryTracker(BaseModel):
+    """核心谜题生命周期管理。"""
+    mystery_id: str = ""
+    title: str = ""
+    status: Literal["active", "dormant", "revealed", "resolved"] = "active"
+    introduced_chapter: str = ""
+    last_touched_chapter: str = ""
+    reader_knowledge: Literal["none", "hint", "partial", "misleading", "clear"] = "none"
+    protagonist_knowledge: Literal["none", "hint", "partial", "wrong", "clear"] = "none"
+    truth: str = ""
+    planned_reveal_chapter: str = ""
+    related_entities: list[str] = Field(default_factory=list)
+    related_foreshadows: list[str] = Field(default_factory=list)
+    next_action: Literal["seed", "reinforce", "mislead", "reveal_part", "reveal_full", "pause"] = "seed"
+    salience: float = Field(default=0.5, ge=0.0, le=1.0)
+
+
+# ── Narrative State Engine: Character Arc ────────────────────────
+
+class CharacterArc(BaseModel):
+    """角色长期成长曲线。"""
+    character_id: str = ""
+    current_arc: str = ""
+    arc_stage: Literal["denial", "pressure", "rupture", "choice", "transformation"] = "denial"
+    core_desire: str = ""
+    core_fear: str = ""
+    core_flaw: str = ""
+    beliefs: list[dict] = Field(default_factory=list)
+    relationship_arcs: dict[str, str] = Field(default_factory=dict)
+    next_pressure: str = ""
+    last_updated_chapter: str = ""
+
+
+# ── Narrative State Engine: Reader Memory ─────────────────────────
+
+class ReaderMemoryEntry(BaseModel):
+    """模拟读者记忆中的概念。"""
+    concept: str = ""
+    type: Literal["mystery", "character", "item", "faction", "location", "rule"] = "mystery"
+    first_seen: int = 0
+    last_seen: int = 0
+    mention_count: int = 0
+    reader_salience: float = Field(default=0.5, ge=0.0, le=1.0)
+    confusion_risk: float = Field(default=0.0, ge=0.0, le=1.0)
+    needs_refresh: bool = False
+    refresh_strategy: str = ""
+
+
+# ── Phase 2: 微观习惯 ─────────────────────────────────────────
+
+class CharacterMicroHabit(BaseModel):
+    """角色的微观习惯——让角色存在的细节"""
+    habit_id: str = ""
+    character_id: str = ""
+    habit: str = ""
+    category: Literal["physical", "behavioral", "preference", "memory_anchor", "relationship_detail"] = "physical"
+    visibility: Literal["subtle", "noticeable", "signature"] = "subtle"
+    first_shown_chapter: str = ""
+    callback_chapters: list[str] = Field(default_factory=list)
+    known_by_characters: list[str] = Field(default_factory=list)
+    emotional_weight: str = ""
+
+
+class SmallMemory(BaseModel):
+    """角色之间的小尺度情感记忆"""
+    character_id: str = ""
+    about_char_id: str = ""
+    memory: str = ""
+    category: Literal["first_impression", "small_kindness", "argument", "shared_silence", "noticed_detail"] = "small_kindness"
+    chapter: str = ""
+    callback_count: int = 0
 
 
 # ── P2: 角色个人时间线 ──────────────────────────────────────────
@@ -571,6 +687,23 @@ class StoryWritingDefaults(BaseModel):
     enable_physical_state_track: bool = True
     # P2: Personal timeline tracking
     enable_personal_timeline_track: bool = True
+    # Phase 1: Literary aliveness
+    enable_speech_profile: bool = True
+    enable_aftermath_track: bool = True
+    # Phase 2: Literary aliveness
+    enable_breathing_room: bool = True
+    enable_epic_density_check: bool = True
+    enable_flaw_track: bool = True
+    enable_micro_habit_track: bool = True
+    # Narrative State Engine
+    enable_mystery_manager: bool = True
+    enable_character_arc_engine: bool = True
+    enable_reader_memory: bool = True
+    enable_narrative_state_injection: bool = True
+    # P1: Scene-level chunked generation
+    enable_scene_chunking: bool = True
+    # P2: Unified post-processing extractors (3 calls instead of 12+)
+    enable_unified_extractors: bool = True
 
 
 class StoryOutlineMacro(BaseModel):
@@ -586,6 +719,7 @@ class StoryChapter(BaseModel):
     beat_file: str = ""
     manuscript_file: str = ""
     word_count: int = 0
+    target_word_count: int = Field(default=0, ge=0, description="目标字数（0=不限制）")
     reader_synopsis: str = ""
     author_notes: str = ""
     summary_card: ChapterSummaryCard | None = Field(default=None, description="本章收尾摘要卡片")
@@ -642,6 +776,13 @@ class World(BaseModel):
     character_decisions: list[CharacterDecision] = Field(default_factory=list)
     character_physical_states: list[CharacterPhysicalState] = Field(default_factory=list)
     character_personal_timelines: list[CharacterPersonalTimeline] = Field(default_factory=list)
+    character_aftermaths: list[EmotionalAftermath] = Field(default_factory=list)
+    character_flaws: list[CharacterFlaw] = Field(default_factory=list)
+    character_micro_habits: list[CharacterMicroHabit] = Field(default_factory=list)
+    character_small_memories: list[SmallMemory] = Field(default_factory=list)
+    narrative_mysteries: list[MysteryTracker] = Field(default_factory=list)
+    character_arcs: list[CharacterArc] = Field(default_factory=list)
+    reader_memory: list[ReaderMemoryEntry] = Field(default_factory=list)
 
     def bump_version(self) -> None:
         self.meta.version = int(self.meta.version) + 1

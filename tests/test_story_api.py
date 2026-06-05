@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from worldforger.schemas import StoryChapter, StoryForeshadowing, World
-from worldforger.story_store import (
+from worldforger.story.story_store import (
     macro_outline_path,
     summary_path,
     unit_label_for_mode,
@@ -201,10 +201,10 @@ def test_foreshadow_apply_api_delete():
 
 
 @pytest.mark.anyio
-@patch("worldforger.story_agent.chat_completion_with_tools", new_callable=AsyncMock)
+@patch("worldforger.story.story_agent.chat_completion_with_tools", new_callable=AsyncMock)
 async def test_agent_tool_list_foreshadowing(mock_chat):
     """Agent 调用 list_foreshadowing 工具。"""
-    from worldforger.story_agent import run_story_chat_agent
+    from worldforger.story.story_agent import run_story_chat_agent
 
     w = create_world("Agent 伏笔查询")
     ch = StoryChapter(id="ch_agt01", order=1, title="第一章")
@@ -235,11 +235,11 @@ async def test_agent_tool_list_foreshadowing(mock_chat):
 
 
 @pytest.mark.anyio
-@patch("worldforger.story_agent.chat_completion_with_tools", new_callable=AsyncMock)
-@patch("worldforger.story_agent.generate_manuscript", new_callable=AsyncMock)
+@patch("worldforger.story.story_agent.chat_completion_with_tools", new_callable=AsyncMock)
+@patch("worldforger.story.story_agent.generate_manuscript", new_callable=AsyncMock)
 async def test_agent_tool_generate_manuscript(mock_gen_manuscript, mock_chat):
     """Agent 调用 generate_manuscript 工具后，验证章节状态更新。"""
-    from worldforger.story_agent import run_story_chat_agent
+    from worldforger.story.story_agent import run_story_chat_agent
 
     w = create_world("Agent 文稿生成")
     ch = StoryChapter(id="ch_agt02", order=1, title="待写章")
@@ -274,7 +274,7 @@ def test_chapter_summary_card_write_and_read():
     """章节摘要卡片写入磁盘并正确读取。"""
     w = create_world("摘要卡片")
     wid = w.meta.id
-    from worldforger.story_store import ensure_story_dirs, read_summary_card
+    from worldforger.story.story_store import ensure_story_dirs, read_summary_card
 
     ensure_story_dirs(wid)
     data = {
@@ -309,7 +309,7 @@ def test_chapter_summary_card_write_and_read():
 
 def test_character_runtime_state_update():
     """角色运行时状态更新并持久化在 world.json 中。"""
-    from worldforger.story_store import update_character_runtime_state, get_character_runtime_states
+    from worldforger.story.story_store import update_character_runtime_state, get_character_runtime_states
 
     w = create_world("运行时状态")
     w.characters.entities = [
@@ -341,7 +341,7 @@ def test_character_runtime_state_update():
 
 def test_summaries_before_retrieval():
     """验证 summaries_before 按章节顺序正确获取前文章节摘要。"""
-    from worldforger.story_store import summaries_before, ensure_story_dirs
+    from worldforger.story.story_store import summaries_before, ensure_story_dirs
 
     w = create_world("摘要检索")
     wid = w.meta.id
@@ -363,7 +363,7 @@ def test_summaries_before_retrieval():
 
 def test_beat_continuity_checks_prompt_includes_checklist():
     """验证细纲 system prompt 包含叙事连贯性检查清单。"""
-    from worldforger.story_prompts import chapter_beats_system
+    from worldforger.story.story_prompts import chapter_beats_system
 
     w = create_world("节拍检查")
     w.meta.creative_mode = "novel"
@@ -376,8 +376,8 @@ def test_beat_continuity_checks_prompt_includes_checklist():
 
 def test_compact_world_snippet_includes_runtime_states():
     """验证 compact_world_snippet 注入角色运行时状态。"""
-    from worldforger.story_prompts import compact_world_snippet
-    from worldforger.story_store import update_character_runtime_state
+    from worldforger.story.story_prompts import compact_world_snippet
+    from worldforger.story.story_store import update_character_runtime_state
 
     w = create_world("运行时状态注入")
     w.characters.entities = [
@@ -395,11 +395,11 @@ def test_compact_world_snippet_includes_runtime_states():
 
 
 @pytest.mark.anyio
-@patch("worldforger.story_service.chat_completion", new_callable=AsyncMock)
+@patch("worldforger.story.story_service.chat_completion", new_callable=AsyncMock)
 async def test_generate_manuscript_triggers_summary_card(mock_chat):
     """验证 generate_manuscript 后自动生成摘要卡片。"""
-    from worldforger.story_service import generate_manuscript
-    from worldforger.story_store import read_summary_card, ensure_story_dirs
+    from worldforger.story.story_service import generate_manuscript
+    from worldforger.story.story_store import read_summary_card, ensure_story_dirs
 
     w = create_world("文稿摘要联调")
     wid = w.meta.id
@@ -416,6 +416,9 @@ async def test_generate_manuscript_triggers_summary_card(mock_chat):
     w.story.writing_defaults.enable_decision_track = False
     w.story.writing_defaults.enable_physical_state_track = False
     w.story.writing_defaults.enable_personal_timeline_track = False
+    w.story.writing_defaults.enable_aftermath_track = False
+    w.story.writing_defaults.enable_scene_chunking = False
+    w.story.writing_defaults.enable_unified_extractors = False
 
     # 第一次调用：正文生成
     # 第二次调用：摘要卡片生成（由 _try_generate_summary_card 触发）

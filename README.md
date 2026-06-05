@@ -316,6 +316,9 @@ flowchart TB
 | **RAG 语义检索** | 本地向量索引（ChromaDB + BGE embedding），智能检索相关前文片段注入写作上下文 |\n| **叙事知识图谱** | 轻量事件-实体-时间三元组，追踪角色状态演变和关键物品流转 |\n| **一致性审校** | 7 维度自动审校（位置/性格/物品/POV/伏笔/情感/时间线），非阻塞式章节后检查 |\n| **情感弧线追踪** | 逐章情感分析 + Mermaid 曲线可视化，确保跨章情感过渡自然 |\n| **润色者 Agent** | 审校↔润色反馈闭环（至多 N 轮），9 条硬规则去 AI 化（破折号节制/段落合并/句式破形/情绪具象化等），原稿↔润色稿分栏 diff 对比 |
 | **创作模式** | 小说 / 游戏 / CoC / DnD，注入不同 system prompt 与词汇表 |
 | **一键生态生成** | 基于当前世界观上下文自动生成生态设定 |
+| **叙事状态引擎** | MysteryManager（谜题生命周期）+ CharacterArcEngine（弧线5级）+ ReaderMemory（读者记忆模拟） |
+| **场景分块生成** | 长章节自动分场景 → 并行Draft → Merge，突破8192输出上限 |
+| **统一后处理提取器** | 3次LLM调用替代12+次独立钩子（Narrative State / Knowledge & Plot / Quality Review） |
 
 ### 🔧 数据工具
 
@@ -504,6 +507,57 @@ python -m uvicorn app.main:app --host 127.0.0.1 --port 8765
 
 ---
 
+## 源码目录结构
+
+```
+worldforger/
+  ├─ schemas.py              ← 所有 Pydantic 数据模型
+  ├─ config.py               ← Settings / API 配置
+  ├─ llm.py                  ← LLM 调用（chat_completion / stream / tools）
+  ├─ world_store.py          ← 世界 CRUD
+  ├─ creative_modes.py       ← novel / game / coc / dnd 模式
+  ├─ chapter_indexer.py      ← ChromaDB RAG 向量索引
+  ├─ consistency_checker.py  ← 8 维度一致性审校
+  ├─ sentiment_tracker.py    ← 情感弧线追踪
+  ├─ narrative_kg.py         ← 叙事知识图谱
+  ├─ reference_linter.py     ← 引用一致性校验
+  ├─ world_search.py         ← 全文搜索
+  ├─ markdown_export.py      ← world.md 导出
+  ├─ export_format.py        ← EPUB / DOCX 导出
+  ├─ snapshot_diff.py        ← JSON diff
+  ├─ sqlite_store.py         ← SQLite 存储
+  ├─ relation_graph_refresh.py ← 关系图刷新
+  │
+  ├─ story/                   ← 情节系统（7 个文件）
+  │   ├─ story_service.py     ← 情节生成核心（generate_manuscript / beats / hooks）
+  │   ├─ story_agent.py       ← 故事对话 Agent（工具调用）
+  │   ├─ story_prompts.py     ← 所有 LLM prompt（~1700 行）
+  │   ├─ story_store.py       ← 情节文件 IO（路径 / 读写）
+  │   ├─ story_chapter_sync.py ← 章节协调与标题对齐
+  │   ├─ story_chat_artifacts.py ← 代码块自动落盘
+  │   └─ foreshadow_apply.py  ← 伏笔操作
+  │
+  └─ sync/                    ← 结构化同步（4 个文件）
+      ├─ panel_sync.py        ← 第二路同步 + 校对者流水线
+      ├─ panel_merge.py       ← 增量合并逻辑
+      ├─ structure_normalize.py ← JSON 归一化
+      └─ patch_validator.py   ← Patch 校验
+
+app/
+  └─ main.py                  ← FastAPI 路由（所有 /api/* 端点）
+
+static/
+  ├─ app.js                   ← 前端主逻辑（~8500 行）
+  ├─ index.html               ← 主 HTML
+  ├─ styles.css               ← 全局样式
+  └─ js/
+      ├─ utils.js             ← API helper / DOM 工具
+      ├─ state.js             ← 全局状态
+      └─ p2-enhancements.js   ← 统计 / 关系网络 vis.js 渲染
+```
+
+---
+
 ## 数据目录结构
 
 每个世界位于 `worlds/<world_id>/`：
@@ -524,7 +578,10 @@ worlds/
     │   ├── snapshots/         ← 章节版本快照
     │   ├── consistency_reports/  ← 一致性审校报告
     │   ├── sentiment_logs/    ← 情感日志
-    │   └── rag_index/         ← ChromaDB 向量索引
+    │   ├── rag_index/         ← ChromaDB 向量索引
+    │   ├── arc_summaries/     ← 滚动阶段摘要（每 10 章）
+    │   ├── knowledge_graph.json ← 角色知识图谱
+    │   └── token_usage.json   ← Token 用量统计
     ├── sessions/           ← 对话片段日志（可选）
     └── snapshots/          ← 版本快照
         ├── v001.json

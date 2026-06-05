@@ -514,6 +514,41 @@ Use the top-bar **"Quit"** button to call `POST /api/shutdown`, which stops the 
 
 ---
 
+## Source Code Structure
+
+```
+worldforger/
+  ├─ schemas.py, config.py, llm.py   ← Core
+  ├─ world_store.py, creative_modes.py  ← World management
+  ├─ chapter_indexer.py              ← ChromaDB RAG
+  ├─ consistency_checker.py, sentiment_tracker.py, narrative_kg.py  ← Analysis
+  ├─ reference_linter.py, world_search.py  ← Tools
+  │
+  ├─ story/              ← Story system (7 files)
+  │   ├─ story_service.py    ← Generation core
+  │   ├─ story_agent.py      ← Chat agent with tools
+  │   ├─ story_prompts.py    ← All LLM prompts (~1,700 lines)
+  │   ├─ story_store.py      ← File I/O for chapters/beats
+  │   ├─ story_chapter_sync.py ← Chapter reconciliation
+  │   ├─ story_chat_artifacts.py ← Code block auto-apply
+  │   └─ foreshadow_apply.py ← Foreshadowing operations
+  │
+  └─ sync/               ← Structured sync (4 files)
+      ├─ panel_sync.py        ← Second-pass sync + proofreader
+      ├─ panel_merge.py       ← Incremental merge logic
+      ├─ structure_normalize.py ← JSON normalization
+      └─ patch_validator.py   ← Patch validation
+
+app/
+  └─ main.py             ← FastAPI routes (all /api/* endpoints)
+
+static/
+  ├─ app.js, index.html, styles.css  ← Frontend
+  └─ js/                 ← Utilities / state / charts
+```
+
+---
+
 ## Data Directory Structure
 
 Each world lives under `worlds/<world_id>/`:
@@ -534,7 +569,10 @@ worlds/
     │   ├── snapshots/         ← Chapter version snapshots
     │   ├── consistency_reports/  ← Consistency audit reports
     │   ├── sentiment_logs/    ← Sentiment logs
-    │   └── rag_index/         ← ChromaDB vector index
+    │   ├── rag_index/         ← ChromaDB vector index
+    │   ├── arc_summaries/     ← Rolling arc summaries (every 10 chapters)
+    │   ├── knowledge_graph.json ← Character knowledge graph
+    │   └── token_usage.json   ← Token usage statistics
     ├── sessions/           ← Chat session logs (optional)
     └── snapshots/          ← Version snapshots
         ├── v001.json

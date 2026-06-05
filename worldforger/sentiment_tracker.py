@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from worldforger.schemas import SentimentLog, World
-from worldforger.story_store import read_sentiment_log, sentiment_path, sorted_chapters, write_sentiment_log
+from worldforger.story.story_store import read_sentiment_log, sentiment_path, sorted_chapters, write_sentiment_log
 
 
 class SentimentTracker:
@@ -105,8 +105,20 @@ class SentimentTracker:
 
 def _parse_sentiment(raw: str, chapter_id: str, title: str) -> SentimentLog | None:
     """Parse LLM sentiment analysis output into a SentimentLog."""
+    import re as _re
+    t = raw.strip()
+    if t.startswith("```"):
+        t = _re.sub(r"^```[a-zA-Z0-9]*\s*", "", t)
+        t = _re.sub(r"\s*```$", "", t)
+        t = t.strip()
+    start = t.find("{")
+    end = t.rfind("}")
+    if start == -1 or end == -1:
+        return None
+    t = t[start:end + 1]
+    t = _re.sub(r",(\s*[}\]])", r"\1", t)
     try:
-        data = json.loads(raw.strip())
+        data = json.loads(t)
     except json.JSONDecodeError:
         return None
     if not isinstance(data, dict):

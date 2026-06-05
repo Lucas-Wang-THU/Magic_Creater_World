@@ -8,7 +8,7 @@ from typing import Any
 from worldforger.config import get_settings
 from worldforger.creative_modes import normalize_creative_mode, structure_sync_addon
 from worldforger.llm import chat_completion
-from worldforger.panel_sync import parse_structure_json
+from worldforger.sync.panel_sync import parse_structure_json
 from worldforger.schemas import (
     CultureRelation,
     CulturesSection,

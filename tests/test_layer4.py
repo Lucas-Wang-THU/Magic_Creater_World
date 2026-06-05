@@ -22,14 +22,14 @@ from worldforger.schemas import (
     ConsistencyReport,
     ConsistencyIssue,
 )
-from worldforger.story_prompts import (
+from worldforger.story.story_prompts import (
     polisher_system,
     build_polisher_user_payload,
     format_consistency_issues_for_polisher,
     _build_style_reference,
     _build_char_voice_profile,
 )
-from worldforger.story_store import (
+from worldforger.story.story_store import (
     polished_path,
     polished_dir,
     polish_trace_path,
@@ -266,7 +266,7 @@ class TestPolisherPrompts:
 class TestPolishLoop:
     @pytest.mark.asyncio
     async def test_loop_runs_when_enabled(self, sample_world):
-        from worldforger.story_service import _run_polish_loop
+        from worldforger.story.story_service import _run_polish_loop
 
         mock_report = ConsistencyReport(
             chapter_id="ch_2",
@@ -292,7 +292,7 @@ class TestPolishLoop:
 
         with (
             patch("worldforger.consistency_checker.run_consistency_check") as mock_check,
-            patch("worldforger.story_service.chat_completion") as mock_llm,
+            patch("worldforger.story.story_service.chat_completion") as mock_llm,
         ):
             mock_check.side_effect = [mock_report, mock_report_clean]
             mock_llm.return_value = "润色后的正文\n\n## 润色说明\n- 修改了位置描述"
@@ -316,7 +316,7 @@ class TestPolishLoop:
 
     @pytest.mark.asyncio
     async def test_loop_always_polishes_even_when_clean(self, sample_world):
-        from worldforger.story_service import _run_polish_loop
+        from worldforger.story.story_service import _run_polish_loop
 
         mock_report = ConsistencyReport(
             chapter_id="ch_2",
@@ -326,7 +326,7 @@ class TestPolishLoop:
 
         with (
             patch("worldforger.consistency_checker.run_consistency_check") as mock_check,
-            patch("worldforger.story_service.chat_completion") as mock_llm,
+            patch("worldforger.story.story_service.chat_completion") as mock_llm,
         ):
             mock_check.return_value = mock_report
             mock_llm.return_value = "去AI味后的正文\n\n## 润色说明\n- 已达到发表标准，仅做了去AI味处理"
@@ -341,7 +341,7 @@ class TestPolishLoop:
 
     @pytest.mark.asyncio
     async def test_loop_stops_at_max_rounds(self, sample_world):
-        from worldforger.story_service import _run_polish_loop
+        from worldforger.story.story_service import _run_polish_loop
 
         # Set max rounds to 2
         sample_world.story.writing_defaults.polish_max_rounds = 2
@@ -362,7 +362,7 @@ class TestPolishLoop:
 
         with (
             patch("worldforger.consistency_checker.run_consistency_check") as mock_check,
-            patch("worldforger.story_service.chat_completion") as mock_llm,
+            patch("worldforger.story.story_service.chat_completion") as mock_llm,
         ):
             # Always return issues → forces max rounds
             mock_check.return_value = mock_report
@@ -376,13 +376,13 @@ class TestPolishLoop:
 
     @pytest.mark.asyncio
     async def test_loop_disabled_respected(self, sample_world):
-        from worldforger.story_service import _run_polish_loop
+        from worldforger.story.story_service import _run_polish_loop
 
         sample_world.story.writing_defaults.enable_polisher = False
 
         with (
             patch("worldforger.consistency_checker.run_consistency_check") as mock_check,
-            patch("worldforger.story_service.chat_completion") as mock_llm,
+            patch("worldforger.story.story_service.chat_completion") as mock_llm,
         ):
             # This test verifies the hook checks the toggle — the generate_manuscript function
             # checks enable_polisher before calling _run_polish_loop
@@ -390,7 +390,7 @@ class TestPolishLoop:
 
     @pytest.mark.asyncio
     async def test_loop_with_1_round(self, sample_world):
-        from worldforger.story_service import _run_polish_loop
+        from worldforger.story.story_service import _run_polish_loop
 
         sample_world.story.writing_defaults.polish_max_rounds = 1
 
@@ -410,7 +410,7 @@ class TestPolishLoop:
 
         with (
             patch("worldforger.consistency_checker.run_consistency_check") as mock_check,
-            patch("worldforger.story_service.chat_completion") as mock_llm,
+            patch("worldforger.story.story_service.chat_completion") as mock_llm,
         ):
             mock_check.return_value = mock_report
             mock_llm.return_value = "润色后"
@@ -429,7 +429,7 @@ class TestPolishLoop:
 
     @pytest.mark.asyncio
     async def test_loop_failure_does_not_raise(self, sample_world):
-        from worldforger.story_service import _run_polish_loop
+        from worldforger.story.story_service import _run_polish_loop
 
         with patch("worldforger.consistency_checker.run_consistency_check", side_effect=RuntimeError("Boom")):
             # Should not raise
@@ -437,7 +437,7 @@ class TestPolishLoop:
 
     @pytest.mark.asyncio
     async def test_loop_tracks_issue_classification(self, sample_world):
-        from worldforger.story_service import _run_polish_loop
+        from worldforger.story.story_service import _run_polish_loop
 
         sample_world.story.writing_defaults.polish_max_rounds = 3
 
@@ -474,7 +474,7 @@ class TestPolishLoop:
 
         with (
             patch("worldforger.consistency_checker.run_consistency_check") as mock_check,
-            patch("worldforger.story_service.chat_completion") as mock_llm,
+            patch("worldforger.story.story_service.chat_completion") as mock_llm,
         ):
             mock_check.side_effect = [mock_report_r1, mock_report_r2, mock_report_r3]
             # Distinct return values per round to avoid sim=1.0 convergence
@@ -584,7 +584,7 @@ class TestStyleReference:
         assert refs == []
 
     def test_previous_chapter_no_polished(self, sample_world, tmp_world_id):
-        from worldforger.story_store import manuscript_path
+        from worldforger.story.story_store import manuscript_path
         ensure_story_dirs(tmp_world_id)
         write_text(
             manuscript_path(tmp_world_id, "ch_1"),
@@ -615,14 +615,14 @@ class TestPolishIntegration:
     @pytest.mark.asyncio
     async def test_generate_manuscript_triggers_polish(self, sample_world):
         """Verify that the polish loop is triggered after manuscript generation."""
-        from worldforger.story_service import generate_manuscript
+        from worldforger.story.story_service import generate_manuscript
 
         with (
-            patch("worldforger.story_service.chat_completion") as mock_llm,
-            patch("worldforger.story_service._try_generate_summary_card") as mock_summary,
-            patch("worldforger.story_service._try_update_runtime_states") as mock_runtime,
-            patch("worldforger.story_service._try_index_chapter") as mock_index,
-            patch("worldforger.story_service._run_polish_loop") as mock_polish,
+            patch("worldforger.story.story_service.chat_completion") as mock_llm,
+            patch("worldforger.story.story_service._try_generate_summary_card") as mock_summary,
+            patch("worldforger.story.story_service._try_update_runtime_states") as mock_runtime,
+            patch("worldforger.story.story_service._try_index_chapter") as mock_index,
+            patch("worldforger.story.story_service._run_polish_loop") as mock_polish,
         ):
             mock_llm.return_value = "生成的正文内容"
             mock_summary.return_value = None
@@ -646,14 +646,14 @@ class TestPolishIntegration:
     async def test_generate_manuscript_skips_polish_when_disabled(self, sample_world):
         sample_world.story.writing_defaults.enable_polisher = False
 
-        from worldforger.story_service import generate_manuscript
+        from worldforger.story.story_service import generate_manuscript
 
         with (
-            patch("worldforger.story_service.chat_completion") as mock_llm,
-            patch("worldforger.story_service._try_generate_summary_card") as mock_summary,
-            patch("worldforger.story_service._try_update_runtime_states") as mock_runtime,
-            patch("worldforger.story_service._try_index_chapter") as mock_index,
-            patch("worldforger.story_service._run_polish_loop") as mock_polish,
+            patch("worldforger.story.story_service.chat_completion") as mock_llm,
+            patch("worldforger.story.story_service._try_generate_summary_card") as mock_summary,
+            patch("worldforger.story.story_service._try_update_runtime_states") as mock_runtime,
+            patch("worldforger.story.story_service._try_index_chapter") as mock_index,
+            patch("worldforger.story.story_service._run_polish_loop") as mock_polish,
         ):
             mock_llm.return_value = "生成的正文内容"
 

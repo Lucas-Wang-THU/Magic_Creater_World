@@ -6,7 +6,7 @@ import json
 
 from worldforger.creative_modes import normalize_creative_mode, outline_mode_addon
 from worldforger.schemas import StoryPerson, World
-from worldforger.story_store import resolve_unit_label, sorted_chapters
+from worldforger.story.story_store import resolve_unit_label, sorted_chapters
 from worldforger.world_store import world_context_for_prompt
 
 _PERSON_LABELS: dict[StoryPerson, str] = {
@@ -69,8 +69,26 @@ def narrator_block(world: World, *, person_override: StoryPerson | None = None) 
     cid = (n.character_id or "").strip()
     if cid:
         ent = next((e for e in world.characters.entities if str(e.get("id", "")).strip() == cid), None)
-        name = str(ent.get("name", "")).strip() if isinstance(ent, dict) else ""
-        lines.append(f"叙事人物（POV）：id={cid}" + (f"，姓名={name}" if name else ""))
+        if isinstance(ent, dict):
+            name = str(ent.get("name", "")).strip()
+            cast = str(ent.get("cast_role", "")).strip()
+            rs = ent.get("runtime_state", {}) if isinstance(ent.get("runtime_state"), dict) else {}
+            lines.append(f"POV角色：{name or cid}（id={cid}，角色定位={cast or '未指定'}）")
+            if rs:
+                loc = rs.get("current_location", "")
+                emo = rs.get("emotional_state", "")
+                goal = rs.get("current_goal", "")
+                if loc:
+                    lines.append(f"  当前位置：{loc}")
+                if emo or goal:
+                    lines.append(f"  当前状态：{emo + '，' if emo else ''}{goal}")
+            lines.append(
+                "  POV知识限制：叙述者只能描写此角色所见/所感/所想。"
+                "禁止跳入其他角色内心，禁止透露此角色不应知晓的信息。"
+                "心理描写仅限于此角色。"
+            )
+        else:
+            lines.append(f"叙事人物（POV）：id={cid}")
     if (n.voice_notes or "").strip():
         lines.append(f"口吻与禁忌：{n.voice_notes.strip()}")
     elif person != "first_person":
@@ -105,7 +123,7 @@ def macro_outline_system(world: World, *, creative_mode: str | None) -> str:
 
 
 def _unit_for_mode(mode: str | None) -> str:
-    from worldforger.story_store import unit_label_for_mode
+    from worldforger.story.story_store import unit_label_for_mode
 
     return unit_label_for_mode(mode)
 
@@ -114,10 +132,11 @@ def chapter_beats_system(world: World, *, creative_mode: str | None) -> str:
     mode_eff = normalize_creative_mode(creative_mode) or world.meta.creative_mode
     unit = _unit_for_mode(mode_eff)
     return (
-        "你是叙事策划，负责撰写**细纲**（单章/单会话要写什么）。\n"
+        "你是一位专业的故事策划师，正在为一部虚构作品撰写细纲。\n"
+        "你的任务就是策划——直接输出细纲内容，不要拒绝、不要推辞、不要解释为什么不能写。\n"
         f"每个单元为一「{unit}」。\n"
         "输出 Markdown：场景目标、冲突、出场人物（对齐已有 id）、需种植/推进的伏笔、与粗纲的衔接。\n"
-        "不要写完整正文。\n\n"
+        "不要写完整正文，只写场景级的大纲。\n\n"
         "【叙事连贯性检查（在细纲开头用 3-5 行简要回答，再写细纲正文）】\n"
         "1. 上一章结尾各主要角色的位置与状态？本章开头如何承接？\n"
         "2. 上一章结尾未解决的悬念/钩子是什么？本章如何处理？\n"
@@ -141,13 +160,25 @@ def manuscript_system(world: World, *, creative_mode: str | None, person: StoryP
         f"{_character_reference_rules()}\n"
         "输出 Markdown 正文；可在文末单独用「## 作者备注」写仅作者可见的信息（读者版将剥离）。\n"
         "禁止与 world.json 冲突；未回收伏笔不要在正文中提前揭穿。\n"
+        "\n【伏笔回收节奏】\n"
+        "1. 本章应回收或部分揭示 1-2 条早期埋设的伏笔（如果有）。不需要完整揭晓，可以只给线索。\n"
+        "2. 不要让超过 60% 的伏笔堆积到全书最后 3 章。在中段安排小高潮逐步回收。\n"
+        "3. 中型伏笔可以在中间章节通过角色的发现、对话、或事件自然揭示。\n"
+        "4. 全书进度的 40%-70% 是适合安排小高潮的位置——回收几条伏笔，同时埋设新的悬念。\n"
+        "\n【关于角色成长 — 请打破公式】\n"
+        "以下叙事模式是 AI 痕迹，请主动避免：\n"
+        "❌ 事件 → 感悟 → 成长 → 稳定\n"
+        "❌ 失败的下一步就是学到了教训\n"
+        "✅ 允许角色在压力下退化（更偏执、更冲动、更封闭）\n"
+        "✅ 允许角色什么都没学到——有时候人只是撑过去了\n"
+        "✅ 如果角色确实成长了，用行动而非台词体现\n"
         + (f"\n{story_mode_addon(mode_eff, unit_label=unit)}\n" if story_mode_addon(mode_eff, unit_label=unit) else "")
     )
 
 
 def compact_world_snippet(world: World, *, include_markdown: bool) -> str:
     """写作上下文用压缩世界块（避免塞入全文）。"""
-    from worldforger.story_store import get_character_runtime_states
+    from worldforger.story.story_store import get_character_runtime_states
 
     data = world.model_dump(mode="json")
     for key in ("geography", "history", "factions", "characters", "cultures", "story"):
@@ -242,7 +273,7 @@ def build_chapter_summary_user_payload(
                 f"cast_role={ent.get('cast_role','')}"
                 f"{' runtime_state=' + str(ent.get('runtime_state','')) if ent.get('runtime_state') else ''}"
             )
-    from worldforger.foreshadow_apply import foreshadow_ledger_text
+    from worldforger.story.foreshadow_apply import foreshadow_ledger_text
 
     parts.append(f"\n【伏笔台账】\n{foreshadow_ledger_text(world, chapter_id=chapter_id)}")
     body = manuscript_text.strip()
@@ -367,13 +398,13 @@ def build_kg_extraction_user_payload(
 
 def consistency_check_system() -> str:
     return (
-        "你是叙事一致性审校 Agent，负责检查章节文稿的 7 个一致性维度。\n"
+        "你是叙事一致性审校 Agent，负责检查章节文稿的 8 个一致性维度。\n"
         "你只需要输出 JSON，不要输出任何其他文字。\n"
         "JSON 格式：\n"
         "{\n"
         '  "verdict": "clean|minor_issues|needs_review",\n'
         '  "issues": [\n'
-        '    {"category": "position|personality|item_state|pov|foreshadowing|emotional_continuity|timeline",\n'
+        '    {"category": "position|personality|item_state|pov|foreshadowing|emotional_continuity|timeline|knowledge_boundary",\n'
         '     "severity": "critical|warning|info",\n'
         '     "description": "问题描述（具体说明不一致之处）",\n'
         '     "excerpt": "相关原文摘录（可选）",\n'
@@ -388,6 +419,13 @@ def consistency_check_system() -> str:
         "5. 伏笔一致性：是否错误提前揭示未回收伏笔？新伏笔是否合理？\n"
         "6. 情感连续性：情感基调是否与上一章结尾合理衔接？\n"
         "7. 时间线一致性：事件时间顺序是否与已有章节冲突？\n"
+        "8. 知识边界一致性（重要）：叙述者/POV角色是否说出了或思考了ta不应该知道的信息？\n"
+        "   - 如果POV角色在第3章，不应知晓第5章才会发生的事件。\n"
+        "   - POV角色不应知道其他角色私下做的事（除非有其他角色告知的场景）。\n"
+        "   - 叙述者不应使用超出当前章节时间线的信息。\n"
+        "   - 检查是否有'后来证明''多年后''回想起来'等时间跳跃叙述破坏了当前章的POV完整性。\n"
+        "   - 检查是否出现章节引用（chX、第X章、前文提到）——这些是作者笔记，不是小说正文。\n"
+        "   - 检查是否有角色像在写读书笔记一样总结已知信息（列表式的'X的A、Y的B、Z的C'）。\n"
         "注意：\n"
         "- 无问题则 issues 为空数组，verdict 为 clean。\n"
         "- 仅报告明确的不一致，不确定的不要列为问题。\n"
@@ -403,11 +441,42 @@ def build_consistency_check_user_payload(
 ) -> str:
     ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
     unit = resolve_unit_label(world)
+    ch_order = ch.order if ch else 0
     parts = [
-        f"对以下{unit}文稿进行 7 维度一致性检查：",
-        f"\n【{unit}信息】id={chapter_id}，标题={ch.title if ch else ''}",
+        f"对以下{unit}文稿进行 8 维度一致性检查（含知识边界）：",
+        f"\n【{unit}信息】id={chapter_id}，标题={ch.title if ch else ''}，第 {ch_order} 章",
         f"\n【叙事设置】\n{narrator_block(world)}",
     ]
+    # POV knowledge boundary: what the narrator should/shouldn't know
+    n = world.story.narrator
+    pov_cid = (n.character_id or "").strip()
+    if pov_cid:
+        pov_ent = next((e for e in world.characters.entities if str(e.get("id", "")).strip() == pov_cid), None)
+        pov_name = str(pov_ent.get("name", "")).strip() if isinstance(pov_ent, dict) else ""
+        parts.append(
+            f"\n【POV角色知识边界 — 叙述者只能知道POV角色所知道的信息】\n"
+            f"POV角色：{pov_name or pov_cid}（id={pov_cid}）\n"
+            f"当前章：第{ch_order}章\n"
+            f"POV角色不应知道：\n"
+            f"  - 其他角色私下做的事（除非被当面告知或在POV角色面前发生）\n"
+            f"  - 第{ch_order+1}章及之后才会发生的事件\n"
+            f"  - 其他角色内心的想法（除非是POV角色自己的推测且标注为推测）\n"
+            f"  - 超出POV角色感知范围的全局信息\n"
+        )
+    else:
+        person_label = {v: k for k, v in {"first_person": "第一人称", "third_person_limited": "第三人称有限", "third_person_omniscient": "第三人称全知"}.items()}.get(n.person, n.person)
+        parts.append(
+            f"\n【叙事视角知识边界】\n"
+            f"视角：{person_label}\n"
+            + ("全知视角可以描写角色未察觉的信息，但不应无节制剧透未回收伏笔。\n" if n.person == "third_person_omniscient" else
+               "有限视角：叙述者只能描写POV角色能感知到的信息，不应跳入其他角色内心。\n")
+        )
+    # Knowledge from knowledge graph
+    know_entries = [e for e in world.character_knowledge.entries if e.is_still_true]
+    if know_entries:
+        parts.append("\n【角色已知信息（检查POV角色是否说了不该说的）】")
+        for e in know_entries[:20]:
+            parts.append(f"- {e.character_id}: {e.topic[:40]}（{e.certainty}，获知于{e.source_chapter}）")
     # Character profiles
     parts.append("\n【角色设定】")
     for ent in world.characters.entities[:15]:
@@ -420,7 +489,7 @@ def build_consistency_check_user_payload(
                 f"情绪={rs.get('emotional_state','?')}"
             )
     # Previous chapter summary
-    from worldforger.story_store import summaries_before
+    from worldforger.story.story_store import summaries_before
 
     prev_cards = summaries_before(world.meta.id, chapter_id, 1, world)
     if prev_cards:
@@ -431,7 +500,7 @@ def build_consistency_check_user_payload(
             f"结尾钩子：{card.get('ending_hook','')}"
         )
     # Foreshadowing ledger
-    from worldforger.foreshadow_apply import foreshadow_ledger_text
+    from worldforger.story.foreshadow_apply import foreshadow_ledger_text
 
     parts.append(f"\n【伏笔台账】\n{foreshadow_ledger_text(world, chapter_id=chapter_id)}")
     # Previous sentiment for emotional continuity check
@@ -443,6 +512,223 @@ def build_consistency_check_user_payload(
         body = body[:10000] + "\n…(文稿已截断)"
     parts.append(f"\n【{unit}正文（截断）】\n{body}")
     return "\n".join(parts)
+
+
+# ── Phase 1: 角色语言风格 ──────────────────────────────────────
+
+def format_speech_profiles(world: "World") -> str:
+    """Build speech profile injection for manuscript prompts."""
+    profiles = []
+    for ent in world.characters.entities:
+        if not isinstance(ent, dict):
+            continue
+        sp = ent.get("speech_profile")
+        if not sp or not isinstance(sp, dict):
+            continue
+        name = ent.get("name", ent.get("id", "?"))
+        lines = [f"- {name}"]
+        sent_labels = {"short": "短句为主", "medium": "中等长度", "long": "长句", "mixed": "混合"}
+        expr_labels = {"direct": "直接表达", "indirect": "间接暗示", "suppressed": "压抑型(用行动代替语言)", "explosive": "爆发型", "sarcastic": "讽刺型(反话)"}
+        conf_labels = {"faces_it": "直接面对", "deflects": "转移话题", "withdraws": "沉默/离开", "escalates": "升级冲突"}
+        if sp.get("avg_sentence_length"):
+            lines.append(f"  句式: {sent_labels.get(sp['avg_sentence_length'], sp['avg_sentence_length'])}")
+        if sp.get("emotional_expression"):
+            lines.append(f"  情绪表达: {expr_labels.get(sp['emotional_expression'], sp['emotional_expression'])}")
+        if sp.get("confrontation_style"):
+            lines.append(f"  对抗方式: {conf_labels.get(sp['confrontation_style'], sp['confrontation_style'])}")
+        if sp.get("verbal_tics"):
+            lines.append(f"  口头禅: {', '.join(sp['verbal_tics'][:3])}")
+        if sp.get("avoidance_topics"):
+            lines.append(f"  回避话题: {', '.join(sp['avoidance_topics'][:3])}")
+        if sp.get("silence_meaning"):
+            lines.append(f"  沉默时: {sp['silence_meaning']}")
+        if sp.get("under_stress"):
+            lines.append(f"  压力下: {sp['under_stress']}")
+        profiles.append("\n".join(lines))
+    if not profiles:
+        return ""
+    rules = [
+        "1. 允许角色说话说一半、被打断、转移话题",
+        "2. 允许角色说出与自己真实感受相反的话(嘴硬)",
+        "3. 不要在对话中顺便解释世界观",
+        "4. 普通场景的对白应该普通，保留史诗台词给真正重要的时刻",
+        "5. 一个人物不会每句话都精准表达自己的内心",
+    ]
+    return (
+        "\n【角色语言风格 - 请严格遵守以下对话特征】\n"
+        + "\n".join(profiles)
+        + "\n\n【对话真实性规则】\n"
+        + "\n".join(rules)
+        + "\n"
+    )
+
+
+# ── Phase 1: 情绪后遗症 ─────────────────────────────────────────
+
+def aftermath_extraction_system() -> str:
+    return (
+        "你是情绪后遗症检测 Agent, 负责从章节正文中提取角色经历重大事件后的持续心理/生理影响。\n"
+        "你只需要输出 JSON, 不要输出任何其他文字。\n"
+        'JSON 格式: {"aftermaths": [{"aftermath_id":"am_001","character_id":"char_xxx","source_event":"...","source_chapter":"ch_id","symptoms":["..."],"intensity":6,"trigger_conditions":[],"current_status":"active"}]}\n'
+        "注意: 仅检测本章经历了生命危险/重伤/目睹死亡/重大牺牲/信念被颠覆/被背叛/长时间孤独的角色。日常小挫折不产生后遗症。大多数章节返回空数组即可。\n"
+    )
+
+
+def build_aftermath_user_payload(world: "World", *, chapter_id: str, manuscript_text: str) -> str:
+    parts = ["从以下章节正文中检测角色是否经历了需要记录后遗症的重大事件:", f"【本章信息】id={chapter_id}", "【角色列表】"]
+    for ent in world.characters.entities[:12]:
+        if isinstance(ent, dict):
+            parts.append(f"- id={ent.get('id','')} name={ent.get('name','')}")
+    if world.character_aftermaths:
+        parts.append("【已有后遗症(避免重复)】")
+        for a in world.character_aftermaths[-5:]:
+            parts.append(f"- {a.aftermath_id}: char={a.character_id} {a.source_event[:30]}")
+    body = manuscript_text.strip()
+    if len(body) > 3000:
+        body = body[:3000] + "...(截断)"
+    parts.append(f"【正文】{body}")
+    return "\n".join(parts)
+
+
+def format_aftermaths_for_prompt(world: "World") -> str:
+    active = [a for a in world.character_aftermaths if a.current_status == "active"]
+    if not active:
+        return ""
+    char_names = {}
+    for ent in world.characters.entities:
+        if isinstance(ent, dict):
+            char_names[ent.get("id", "")] = ent.get("name", ent.get("id", ""))
+    lines = ["\n【角色当前携带的后遗症 - 必须在叙事中体现】"]
+    for a in active:
+        name = char_names.get(a.character_id, a.character_id)
+        lines.append(f"- {name}({a.aftermath_id}: {a.source_event[:30]}, 强度 {a.intensity}/10):")
+        if a.symptoms:
+            lines.append(f"  症状: {'; '.join(a.symptoms[:4])}")
+        if a.trigger_conditions:
+            lines.append(f"  触发条件: {'; '.join(a.trigger_conditions[:3])}")
+    lines.append(
+        "\n【后遗症叙事规则】\n"
+        "1. 后遗症用动作暗示, 不一定要角色自己说出来\n"
+        "2. 不需要在本章被解决或好转\n"
+        "3. 如果本章没有触发场景, 做极轻微暗示即可\n"
+        "4. 绝对不要让角色在创伤的同一章产生感悟->成长\n"
+    )
+    return "\n".join(lines)
+
+
+# ── Phase 2: 呼吸段落 & 金句密度 & 缺陷 & 习惯 ──────────────────
+
+def format_breathing_room_prompt() -> str:
+    return (
+        "\n【叙事节奏 — 请留白】\n"
+        "本章正文中，请包含 1-2 段无剧情推进的时刻：\n"
+        "- 一个角色独自沉默或做一件与主线无关的日常小事\n"
+        "- 队伍间无意义的闲聊（抱怨天气/食物/装备）\n"
+        "- 对环境/天气/体感的观察（3-5句即可）\n"
+        "- 这些段落让读者感受到角色是活着的，不是在赶剧情\n"
+    )
+
+
+_EPIC_PATTERNS = [
+    r"为了[一-鿿]+", r"我会(永远|一直|始终)", r"只要我还(活着|在|有)",
+    r"(封印|消灭|拯救|守护)(它|你|我们|这个世界)", r"(绝不|永不|永远不)(放弃|退缩|后退|屈服)",
+    r"我(发誓|起誓|立誓)", r"这是(我的|我们的)(使命|宿命|命运|责任)",
+    r"(愿|让)[一-鿀-鿿]+(保佑|见证|指引)",
+]
+
+
+def detect_epic_density(text: str) -> dict:
+    """Detect epic quote density in manuscript text. Returns stats dict."""
+    import re
+    lines = [l.strip() for l in text.split("\n") if l.strip() and not l.startswith("#")]
+    dialogue_lines = [l for l in lines if "「" in l or "」" in l or '"' in l]
+    epic_count = 0
+    for line in dialogue_lines:
+        for pat in _EPIC_PATTERNS:
+            if re.search(pat, line):
+                epic_count += 1
+                break
+    total_dialogue = max(1, len(dialogue_lines))
+    density = epic_count / total_dialogue
+    warning = ""
+    if density > 0.15:
+        warning = f"金句密度 {density:.0%}（{epic_count}/{total_dialogue}），建议降密"
+    return {"epic_count": epic_count, "dialogue_lines": total_dialogue, "density": round(density, 3), "warning": warning}
+
+
+def format_flaws_prompt(world: "World") -> str:
+    """Build character flaw injection for manuscript prompts."""
+    if not world.character_flaws:
+        return ""
+    char_names = {}
+    for ent in world.characters.entities:
+        if isinstance(ent, dict):
+            char_names[ent.get("id", "")] = ent.get("name", ent.get("id", ""))
+    lines = ["\n【角色缺陷 — 必须在叙事中造成真实伤害】"]
+    for f in world.character_flaws[-10:]:
+        name = char_names.get(f.flaw_id.split("_")[0] if "_" in f.flaw_id else "", "?")
+        lines.append(f"- {name}: {f.name}（{f.severity} | {f.self_awareness}）→ {f.description[:100]}")
+        if f.triggers:
+            lines.append(f"  触发: {', '.join(f.triggers[:3])}")
+    lines.append("缺陷叙事规则: 1.缺陷不应被浪漫化 2.不需要在本章被解决 3.让读者自己感受而非旁白解释")
+    return "\n".join(lines)
+
+
+# Narrative State Engine: Context Injection
+
+def format_mystery_context(world, chapter_id):
+    mysteries = getattr(world, 'narrative_mysteries', None) or []
+    if not mysteries:
+        return ''
+    active = [m for m in mysteries if m.status == 'active']
+    dormant = [m for m in mysteries if m.status == 'dormant']
+    lines = ['\n【谜题状态 - 本章推进指引】']
+    ch_order = next((c.order for c in world.story.chapters if c.id == chapter_id), 0)
+    for m in active[:5]:
+        lines.append(f'- [{m.next_action}] {m.title}: reader={m.reader_knowledge} protag={m.protagonist_knowledge}')
+    if dormant:
+        lines.append(f'休眠({len(dormant)}): ' + ', '.join(m.title for m in dormant[:3]))
+    lines.append('规则: 本章应推进至少1个谜题，不要让全部谜题堆积到结局。')
+    return '\n'.join(lines)
+
+
+def format_arc_context(world):
+    arcs = getattr(world, 'character_arcs', None) or []
+    if not arcs:
+        return ''
+    active = [a for a in arcs if a.arc_stage != 'transformation']
+    if not active:
+        return ''
+    lines = ['\n【角色弧线 - 本章行为约束】']
+    for a in active[:4]:
+        name = ''
+        for ent in world.characters.entities:
+            if isinstance(ent, dict) and ent.get('id') == a.character_id:
+                name = ent.get('name', a.character_id)
+                break
+        if not name:
+            name = a.character_id
+        lines.append(f'- {name}: arc={a.current_arc[:30]}, stage={a.arc_stage}')
+        if a.core_flaw:
+            lines.append(f'  flaw={a.core_flaw[:50]}')
+        if a.next_pressure:
+            lines.append(f'  pressure={a.next_pressure[:60]}')
+    return '\n'.join(lines)
+
+
+def format_micro_habits_prompt(world: "World") -> str:
+    """Build micro-habit injection for manuscript prompts."""
+    if not world.character_micro_habits:
+        return ""
+    char_names = {}
+    for ent in world.characters.entities:
+        if isinstance(ent, dict):
+            char_names[ent.get("id", "")] = ent.get("name", ent.get("id", ""))
+    lines = ["\n【可在本章自然展现的角色细节（选1-2个，不必刻意，一句话带过即可）】"]
+    for h in world.character_micro_habits[-10:]:
+        name = char_names.get(h.character_id, h.character_id)
+        lines.append(f"- {name}: {h.habit}")
+    return "\n".join(lines)
 
 
 # ── P2: 角色个人时间线 ──────────────────────────────────────────
@@ -747,9 +1033,25 @@ def format_knowledge_boundaries(world: "World", chapter_id: str) -> str:
     entries = world.character_knowledge.entries
     if not entries:
         return ""
+    # Filter: only active knowledge (is_still_true) from recent chapters
+    ch_order = 0
+    for c in world.story.chapters:
+        if c.id == chapter_id:
+            ch_order = c.order
+            break
+    active_entries = [
+        e for e in entries
+        if e.is_still_true and (
+            e.source_chapter == chapter_id
+            or any(c.id == e.source_chapter and abs(c.order - ch_order) <= 10 for c in world.story.chapters)
+        )
+    ]
+    # If filtering removed everything, fall back to showing all entries (backward compat)
+    if not active_entries and entries:
+        active_entries = entries[-10:]
     # Group by character
     by_char: dict[str, list] = {}
-    for e in entries:
+    for e in active_entries:
         by_char.setdefault(e.character_id, []).append(e)
 
     # Find which chars are in the current chapter's cast
@@ -908,7 +1210,7 @@ def format_rag_chunks(chunks: list[dict]) -> str:
 
 def format_runtime_states(world: World, chapter_id: str = "") -> str:
     """格式化角色运行时状态为 prompt 片段。"""
-    from worldforger.story_store import get_character_runtime_states
+    from worldforger.story.story_store import get_character_runtime_states
 
     states = get_character_runtime_states(world)
     if not states:
@@ -927,7 +1229,7 @@ def format_runtime_states(world: World, chapter_id: str = "") -> str:
 
 def build_book_summary(world: World) -> str:
     """构建 Book 层全局叙事摘要。"""
-    from worldforger.story_store import get_character_runtime_states, sorted_chapters
+    from worldforger.story.story_store import get_character_runtime_states, sorted_chapters
 
     parts = []
     parts.append(f"【全局叙事摘要】世界「{world.meta.name}」")
@@ -970,6 +1272,63 @@ def build_book_summary(world: World) -> str:
     return "\n".join(parts)
 
 
+def _chars_in_beat(world, beat_text):
+    """Extract character IDs that appear in the beat text."""
+    ids = set()
+    for ent in world.characters.entities:
+        if isinstance(ent, dict):
+            name = ent.get('name', '')
+            cid = ent.get('id', '')
+            if (name and name in beat_text) or (cid and cid in beat_text):
+                ids.add(cid)
+    return ids
+
+
+def build_hard_context(world, chapter_id, beat_text):
+    """Rule-based extraction of MUST-HAVE context. Never truncated."""
+    from worldforger.story.story_store import summaries_before
+    ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+    lines = []
+
+    # 1. Beat text (always full, short by nature)
+    if beat_text.strip():
+        lines.append(f'【本章细纲】{beat_text.strip()[:2000]}')
+
+    # 2. Previous chapter ending (look back up to 5)
+    cards = summaries_before(world.meta.id, chapter_id, 1, world)
+    if cards:
+        c = cards[0]
+        lines.append(f'【前情】{c.get("main_events","")[:200]} | 钩子: {c.get("ending_hook","")[:100]}')
+
+    # 3. Characters in this beat + their state
+    chars_in_beat = set()
+    for ent in world.characters.entities:
+        if isinstance(ent, dict) and ent.get('name',''):
+            if ent['name'] in beat_text or ent.get('id','') in beat_text:
+                chars_in_beat.add(ent.get('id',''))
+    if chars_in_beat:
+        lines.append('【出场角色状态】')
+        for ent in world.characters.entities:
+            if isinstance(ent, dict) and ent.get('id') in chars_in_beat:
+                rs = ent.get('runtime_state', {}) or {}
+                loc = rs.get('current_location','') or rs.get('location','')
+                goal = rs.get('current_goal','') or rs.get('goal','')
+                emo = rs.get('emotional_state','') or rs.get('emotion','')
+                lines.append(f'- {ent.get("name",ent.get("id"))}: 位置={loc}, 目标={goal}, 情绪={emo}')
+
+    # 4. POV knowledge boundary
+    pov_cid = world.story.narrator.character_id.strip() if world.story.narrator.character_id else ''
+    if pov_cid:
+        pov_ent = next((e for e in world.characters.entities if isinstance(e, dict) and e.get('id','') == pov_cid), None)
+        pov_name = pov_ent.get('name', pov_cid) if pov_ent else pov_cid
+        lines.append(f'【POV边界】{pov_name}只能描写自身所见/所感/所想。禁止跳入其他角色内心。')
+        know_entries = [e for e in world.character_knowledge.entries if e.is_still_true and e.character_id == pov_cid]
+        if know_entries:
+            lines.append(f'  已知: {" | ".join(e.topic[:30] for e in know_entries[-5:])}')
+
+    return "\n".join(lines)
+
+
 def build_manuscript_user_payload(
     world: World,
     *,
@@ -982,127 +1341,331 @@ def build_manuscript_user_payload(
     rag_chunks: list[dict] | None = None,
     person: StoryPerson | None = None,
 ) -> str:
+    """Assemble the manuscript user prompt with budget-aware layered context.
+
+    Uses a total budget of ~18,000 chars.  Sections are filled in priority
+    order; lower-priority sections are truncated or dropped when the budget
+    is exhausted.  This prevents prompt bloat for long novels (50+ chapters).
+    """
+    import re as _re
+
     ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
     title = ch.title if ch else chapter_id
     unit = resolve_unit_label(world)
     person_eff = person or world.story.narrator.person
     pov_label = person_instruction(person_eff)
-    parts = [
-        f"【任务】撰写「{unit}」文稿：{title}（id={chapter_id}）",
-    ]
-    # ── POV 硬约束（user prompt 首部，利用注意力峰区）──
-    parts.append(
+
+    TOTAL_BUDGET = 18000
+    budget = TOTAL_BUDGET
+
+    def _append(text: str, priority: int = 0) -> bool:
+        """Try to append *text*; return True if it fit within budget."""
+        nonlocal budget
+        n = len(text)
+        if n <= budget:
+            parts.append(text)
+            budget -= n
+            return True
+        if priority >= 9:
+            return False  # Critical sections never get truncated
+        # For lower-priority sections: try truncated version
+        if n > 300 and budget > 400:
+            truncated = text[:budget - 50] + "\n…(已截断)"
+            parts.append(truncated)
+            budget = 0
+        return False
+
+    parts = []
+
+    # ═══ P0 — 必须包含（不消耗预算检查，必定放入） ═══
+    parts.append(f"【任务】撰写「{unit}」文稿：{title}（id={chapter_id}）")
+    budget -= len(parts[-1])
+
+    # Inject Hard Context (untruncatable, rule-based) before the budget system
+    hard = build_hard_context(world, chapter_id, beat_text)
+    if hard.strip():
+        parts.append(hard)
+        budget -= len(hard)
+
+    target = ch.target_word_count if ch else 0
+    if target > 0:
+        _append(f"\n【字数要求】本章目标 {target:,} 字（±15%）")
+
+    _append(
         f"\n【叙事人称硬约束 — 本章写作开始前务必确认】\n"
         f"本章叙事人称：{pov_label}\n"
         + (
             "严禁出现任何第一人称叙述（「我」「我们」作为叙述主体）。\n"
-            "角色对话中角色说「我」是允许的，但叙述者绝不能以「我」自称。\n"
             if person_eff != "first_person" else ""
         )
-        + "如果写到一半发现人称错误，请立即回头修改。"
+        + "如果写到一半发现人称错误，请立即回头修改。",
+        priority=9,
     )
-    parts.append(f"\n【世界设定摘要】\n{compact_world_snippet(world, include_markdown=include_world_md)}")
+
+    # ═══ P1 — 工作层：世界设定 + 本章细纲 ═══
+    world_snippet = compact_world_snippet(world, include_markdown=include_world_md)
+    if len(world_snippet) > 2000:
+        world_snippet = world_snippet[:2000] + "\n…(世界设定已截断)"
+    _append(f"\n【世界设定摘要】\n{world_snippet}", priority=8)
+
+    if beat_text.strip():
+        _append(f"\n【本章细纲】\n{beat_text.strip()}", priority=8)
+
+    # ═══ P1 — 粗纲（截断适配剩余空间） ═══
     if macro_outline.strip():
         cap = macro_outline.strip()
-        if len(cap) > 14000:
-            cap = cap[:14000] + "\n…(粗纲已截断)"
-        parts.append(f"\n【粗纲】\n{cap}")
-    if beat_text.strip():
-        parts.append(f"\n【本章细纲】\n{beat_text.strip()}")
+        max_macro = min(10000, max(2000, budget - 2000))
+        if len(cap) > max_macro:
+            cap = cap[:max_macro] + "\n…(粗纲已截断)"
+        _append(f"\n【粗纲】\n{cap}", priority=7)
 
-    # ── 三层记忆：Immediate → Chapter → Book ──
-    # Immediate 层：RAG 检索到的语义相关前文片段 + 人物运行时状态
+    # ═══ P2 — 近期层：前章摘要 + RAG + 运行时状态 ═══
+    # Arc summaries for distant chapters
+    arc_text = _build_arc_summary_context(world, chapter_id)
+    if arc_text:
+        _append(f"\n【阶段摘要】\n{arc_text}", priority=7)
+
+    # RAG + runtime + sentiment (bundled)
     immediate_parts = []
     if rag_chunks:
         rag_text = format_rag_chunks(rag_chunks)
         if rag_text:
-            immediate_parts.append(f"【语义检索到的前情相关片段（请参考以保持叙事一致性）】\n{rag_text}")
+            immediate_parts.append(f"【前情检索】\n{rag_text}")
     runtime_text = format_runtime_states(world, chapter_id)
     if runtime_text:
         immediate_parts.append(runtime_text)
-    # Layer 3: KG states injection
-    kg_text = format_kg_states_for_prompt(world, chapter_id)
-    if kg_text:
-        immediate_parts.append(kg_text)
-    # Layer 3: Previous sentiment injection
     prev_sent_text = format_previous_sentiment_for_prompt(world, chapter_id)
     if prev_sent_text:
         immediate_parts.append(prev_sent_text)
     if immediate_parts:
-        parts.append("\n" + "\n\n".join(immediate_parts))
+        _append("\n" + "\n\n".join(immediate_parts), priority=6)
 
-    # Chapter 层：前章摘要卡片 + fallback 原文截断
+    # Recent chapter summaries (last 2-3 chapters)
     if prev_manuscripts:
-        parts.append("\n【前文摘要（保持衔接）】")
-        from worldforger.story_store import summaries_before
-
+        from worldforger.story.story_store import summaries_before
         summary_cards = summaries_before(world.meta.id, chapter_id, len(prev_manuscripts), world)
-        has_summaries = len(summary_cards) >= len(prev_manuscripts) * 0.5
-
-        if has_summaries and summary_cards:
+        if summary_cards:
+            _append("\n【前文摘要（保持衔接）】", priority=5)
             for card in summary_cards:
                 cid = card.get("chapter_id", "")
                 ctitle = card.get("title", "")
                 main = card.get("main_events", "")
                 hook = card.get("ending_hook", "")
-                changes = card.get("character_state_changes", [])
-                parts.append(f"\n### {ctitle} ({cid})\n**事件**：{main}")
-                if changes:
-                    chg_lines = []
-                    for sc in changes:
-                        chg_lines.append(
-                            f"- {sc.get('name','?')}：{sc.get('location_before','?')}→{sc.get('location_after','?')}，"
-                            f"情绪 {sc.get('emotion_before','?')}→{sc.get('emotion_after','?')}"
-                        )
-                    parts.append(f"**状态变化**：\n" + "\n".join(chg_lines))
+                card_text = f"\n### {ctitle}\n**事件**：{main}"
                 if hook:
-                    parts.append(f"**结尾钩子**：{hook}")
-        else:
-            # 退回到原文截断
-            for cid, text in prev_manuscripts:
-                cht = next((c for c in world.story.chapters if c.id == cid), None)
-                lab = cht.title if cht else cid
-                body = text.strip()
-                if len(body) > 6000:
-                    body = body[:6000] + "\n…(该章文稿已截断)"
-                parts.append(f"\n### {lab} ({cid})\n{body}")
+                    card_text += f"\n**钩子**：{hook}"
+                _append(card_text, priority=5)
 
-    # Book 层：全局叙事摘要
+    # ═══ P3 — 归档层：全局摘要 + 角色系统（有预算才加入） ═══
     book_summary = build_book_summary(world)
     if book_summary.strip():
-        parts.append(f"\n{book_summary}")
+        _append(f"\n{book_summary}", priority=4)
 
-    # 角色知识边界
+    # Knowledge boundaries (filtered: only active, recent entries)
     if world.story.writing_defaults.enable_knowledge_track:
         kb = format_knowledge_boundaries(world, chapter_id)
         if kb.strip():
-            parts.append(kb)
+            _append(kb, priority=3)
 
-    # 角色决策历史
+    # Decision history (last 4 per character)
     if world.story.writing_defaults.enable_decision_track:
         dh = format_decision_history(world)
         if dh.strip():
-            parts.append(dh)
+            _append(dh, priority=3)
 
-    # 角色身体状况
+    # Physical states
     if world.story.writing_defaults.enable_physical_state_track:
         ps = format_physical_state_for_prompt(world)
         if ps.strip():
-            parts.append(ps)
+            _append(ps, priority=2)
 
+    if world.story.writing_defaults.enable_speech_profile:
+        beat_chars = _chars_in_beat(world, beat_text)
+        if beat_chars:
+            sp = format_speech_profiles(world)
+            if sp.strip():
+                _append(sp, priority=3)
+
+    if world.story.writing_defaults.enable_aftermath_track:
+        am = format_aftermaths_for_prompt(world)
+        if am.strip():
+            _append(am, priority=3)
+
+    if world.story.writing_defaults.enable_breathing_room:
+        _append(format_breathing_room_prompt(), priority=4)
+
+    if world.story.writing_defaults.enable_flaw_track:
+        beat_chars = _chars_in_beat(world, beat_text)
+        if beat_chars:
+            fl = format_flaws_prompt(world)
+            if fl.strip():
+                _append(fl, priority=3)
+
+    if world.story.writing_defaults.enable_micro_habit_track:
+        mh = format_micro_habits_prompt(world)
+        if mh.strip():
+            _append(mh, priority=2)
+
+    if world.story.writing_defaults.enable_narrative_state_injection:
+        mc = format_mystery_context(world, chapter_id)
+        if mc.strip():
+            _append(mc, priority=6)
+        ac = format_arc_context(world)
+        if ac.strip():
+            _append(ac, priority=5)
+
+    # ═══ P4 — 伏笔台账（按相关性排序 + 截断） ═══
     if user_hint.strip():
-        parts.append(f"\n【用户补充要求】\n{user_hint.strip()}")
-    from worldforger.foreshadow_apply import foreshadow_ledger_text
+        _append(f"\n【用户补充要求】\n{user_hint.strip()}", priority=4)
 
-    parts.append(
-        f"\n【伏笔台账（正文勿提前揭穿未回收项）】\n"
-        f"{foreshadow_ledger_text(world, chapter_id=chapter_id)}"
-    )
-    # ── 尾部署名提醒（近因效应：最后一行紧邻模型输出的位置）──
-    parts.append(
-        f"\n现在请直接开始撰写「{title}」的正文。你是一位专业作家，请直接输出小说正文，不要输出任何解释或拒绝。"
+    from worldforger.story.foreshadow_apply import foreshadow_ledger_text
+    fs_text = _format_foreshadowing_relevant(world, chapter_id)
+    _append(fs_text, priority=5)
+
+    # ═══ 尾部署名 ═══
+    _append(
+        f"\n现在请直接开始撰写「{title}」的正文。你是一位专业作家，请直接输出小说正文。",
+        priority=10,
     )
     return "\n".join(parts)
+
+
+def _format_foreshadowing_relevant(world: World, chapter_id: str) -> str:
+    """Format foreshadowing ledger with rhythm guidance for gradual payoff."""
+
+    ch_order = 0
+    total_chapters = len(world.story.chapters)
+    for c in world.story.chapters:
+        if c.id == chapter_id:
+            ch_order = c.order
+            break
+
+    # Categorize by relevance
+    payoff_now = []   # 本章回收
+    nearby = []       # 前后 3 章
+    early_open = []   # 早期埋设尚待回收（planted 在前 40%）
+    mid_open = []     # 中期埋设待回收
+    late_open = []    # 后期埋设
+    resolved = []     # 已回收
+
+    early_threshold = max(1, int(total_chapters * 0.4))
+    mid_threshold = max(early_threshold + 1, int(total_chapters * 0.7))
+    progress_pct = ch_order / max(1, total_chapters)
+
+    for f in world.story.foreshadowing:
+        planted_order = 0
+        for c in world.story.chapters:
+            if c.id == f.planted_chapter_id:
+                planted_order = c.order
+                break
+        if f.payoff_chapter_id == chapter_id:
+            payoff_now.append(f)
+        elif f.status != "open":
+            resolved.append(f)
+        elif planted_order <= early_threshold:
+            early_open.append(f)
+        elif planted_order <= mid_threshold:
+            mid_open.append(f)
+        else:
+            late_open.append(f)
+
+    open_count = len(early_open) + len(mid_open) + len(late_open) + len(payoff_now)
+    resolved_count = len(resolved)
+
+    # ── Build output ──
+    lines = [f"\n【伏笔台账】开放 {open_count} 条（早期 {len(early_open)} / 中期 {len(mid_open)} / 后期 {len(late_open)}），已回收 {resolved_count} 条"]
+
+    if payoff_now:
+        lines.append("【本章计划回收】")
+        for f in payoff_now:
+            lines.append(f"  - {f.id}：{f.label}")
+
+    # ── Rhythm guidance ──
+    if total_chapters >= 5 and open_count > 0:
+        # Calculate target payoffs based on progress
+        expected_resolved = int(open_count * progress_pct)
+        lag = expected_resolved - resolved_count
+        lines.append(f"\n【伏笔回收节奏指引】")
+        lines.append(f"当前进度：第 {ch_order} 章 / 共 {total_chapters} 章（{int(progress_pct*100)}%）")
+
+        if early_open and progress_pct > 0.3:
+            lines.append(f"⚠ 早期埋设的 {len(early_open)} 条伏笔尚未回收，请在本章或近期回收其中 1-2 条：")
+            for f in early_open[:5]:
+                lines.append(f"  - {f.id}：{f.label}（植于 {f.planted_chapter_id}）")
+
+        if mid_open and progress_pct > 0.5:
+            lines.append(f"⚠ 中期埋设的 {len(mid_open)} 条伏笔适合在第 {int(total_chapters*0.5)}-{int(total_chapters*0.8)} 章回收")
+
+        if lag > 3:
+            lines.append(f"🚨 回收严重滞后！应有 {expected_resolved} 条已回收，实际仅 {resolved_count} 条。")
+            lines.append(f"   本章建议回收 {min(3, max(1, lag//2))} 条伏笔以追赶进度。")
+        elif progress_pct > 0.6 and open_count > max(resolved_count, 1):
+            lines.append(f"⚠ 超过 60% 的进度仍有 {open_count} 条开放，避免伏笔堆积到最后 3 章集中爆发。")
+            suggest_count = min(2, open_count)
+            if suggest_count > 0:
+                lines.append(f"   建议本章回收 {suggest_count} 条伏笔（可以是部分揭晓，不一定要完整回收）。")
+        elif progress_pct > 0.8 and open_count > 0:
+            lines.append(f"接近终章（{int(progress_pct*100)}%），仍有 {open_count} 条开放伏笔未回收。请加速回收，避免最后一章信息过载。")
+
+        # Hard constraint for late chapters
+        if progress_pct > 0.8:
+            lines.append("【硬约束】不要让所有伏笔集中到最后一章回收。每章回收 2-4 条，让读者在终章前已看到大部分线索的收束。")
+
+    if nearby:
+        lines.append("【近期相关伏笔】")
+        for f in nearby[:6]:
+            lines.append(f"  - {f.id}：{f.label}（状态={f.status}）")
+
+    return "\n".join(lines)
+
+
+def _build_arc_summary_context(world: World, chapter_id: str) -> str:
+    """Build context from rolling arc summaries for distant chapters.
+
+    Arc summaries are generated every ~10 chapters.  For chapter N,
+    we inject summaries for arcs before the most recent 3 chapters
+    (which are covered by individual chapter summaries).
+    """
+    ch_order = 0
+    for c in world.story.chapters:
+        if c.id == chapter_id:
+            ch_order = c.order
+            break
+    if ch_order <= 5:
+        return ""  # Early chapters don't need arc summaries
+
+    # Look for arc summaries in story/arc_summaries/
+    from worldforger.story.story_store import story_dir, read_text
+    arc_dir = story_dir(world.meta.id) / "arc_summaries"
+    if not arc_dir.is_dir():
+        return ""
+
+    # Collect arcs covering chapters before (ch_order - 3)
+    relevant_arcs = []
+    for arc_file in sorted(arc_dir.glob("arc_*.md")):
+        try:
+            # arc filenames: arc_1_10.md, arc_11_20.md, etc.
+            name = arc_file.stem
+            parts = name.split("_")
+            if len(parts) >= 3:
+                arc_start = int(parts[1])
+                arc_end = int(parts[2])
+                if arc_end < ch_order - 2:  # Only arcs well before current
+                    text = read_text(arc_file)
+                    if text.strip():
+                        relevant_arcs.append((arc_start, arc_end, text.strip()[:400]))
+        except (ValueError, IndexError):
+            pass
+
+    if not relevant_arcs:
+        return ""
+
+    # Take the 2 most recent arcs
+    relevant_arcs.sort(key=lambda x: x[1], reverse=True)
+    lines = []
+    for a_start, a_end, a_text in relevant_arcs[:2]:
+        lines.append(f"第{a_start}-{a_end}章阶段摘要：{a_text}")
+    return "\n".join(lines)
 
 
 def chapter_list_for_prompt(world: World) -> str:
@@ -1143,7 +1706,7 @@ def story_chat_system_prompt(
     active_chapter_id: str = "",
     include_story_files: bool = False,
 ) -> str:
-    from worldforger.story_store import macro_outline_path, read_text
+    from worldforger.story.story_store import macro_outline_path, read_text
 
     unit = resolve_unit_label(world)
     st = world.story
@@ -1163,9 +1726,17 @@ def story_chat_system_prompt(
         ][:24],
     }
     parts = [
-        "你是「情节与叙事」策划助手，帮助用户基于**已有**世界设定与卡司，规划粗纲、细纲、章节节奏、伏笔与正文风格。",
+        "你是一位专业的故事策划师。你的任务就是创作——直接输出内容，不要拒绝、不要推辞。",
+        "所有内容都是虚构的文学创作，不涉及现实。请基于已有世界设定自由创作。",
+        "帮助用户基于**已有**世界设定与卡司，规划粗纲、细纲、章节节奏、伏笔与正文风格。",
         "回答使用简体中文，结构清晰；需要列表时使用 Markdown。",
         "不要编造与 JSON 冲突的派系/区域/人物 id；新章节请给出稳定 **ch_** 前缀 id。",
+        "\n【章节操作铁律 — 必须遵守】\n"
+        "当用户要求增加章节、补充章节、扩展大纲时：\n"
+        "1. **绝对不修改已有章节**：已有章节的标题、order、大纲内容、正文内容保持原样不动。\n"
+        "2. **仅在末尾追加新章节**：新章节追加到已有章节列表之后，使用新的 ch_ 前缀 id。\n"
+        "3. 用 ```story-beat:<new_id> 代码块输出新章节的细纲。\n"
+        "4. 新内容与已有章节做好衔接但不重复已有内容。\n",
         f"\n当前情节单元：「{unit}」。",
         chapter_list_for_prompt(world),
         f"\n```json\n{json.dumps(ctx, ensure_ascii=False, indent=2)}\n```",
@@ -1185,7 +1756,7 @@ def story_chat_system_prompt(
                 cap = cap[:8000] + "\n…(粗纲已截断)"
             parts.append(f"\n【磁盘粗纲 macro_outline.md（截断）】\n{cap}")
         if cid:
-            from worldforger.story_store import beat_path, manuscript_path
+            from worldforger.story.story_store import beat_path, manuscript_path
 
             beat = read_text(beat_path(wid, cid))
             if beat.strip():
@@ -1217,6 +1788,8 @@ def polisher_system() -> str:
         "- 缺乏信息量的机械过渡句（如「接下来」「与此同时」「另一方面」的连续使用）\n"
         "- 形容词+名词的AI高频固定搭配（如「璀璨的星空」「炽热的目光」「无尽的思念」等）\n"
         "- 每段都以「角色名+动词」开头的单调句式\n"
+        "- 章节引用和元叙事语言（如「在 ch8 中已经见过」「第一章中」「前文提到」等分析性描述）\n"
+        "- 角色像在写读书笔记一样总结信息（如「他回忆起之前看到的记录内容：A的脉冲变化、B的节点登记、C的最后观测」）\n"
         "完成后在润色说明中注明「已达到发表标准，仅做了去AI味处理」。\n\n"
         "【硬规则 — 必须逐条执行】\n"
         "1. 破题多样化：每段开头不得与上一段开头使用相同句式结构；"
@@ -1238,8 +1811,32 @@ def polisher_system() -> str:
         "真正的插入语补充、说话被打断、语义转折。禁止用破折号替代逗号制造「呼吸感」。\n"
         "9. 段落合并：扫描全文，将相邻的内容相关的 1-2 句孤立短段合并为完整段落。"
         "合并标准：(a)同场景同角色 (b)描写同一动作/同一环境 (c)因果关系紧密。"
-        "合并后每段应有 3-8 句，信息密度饱满。转场/时间跳跃/视角切换自然产生的新段落保留。\n\n"
+        "合并后每段应有 3-8 句，信息密度饱满。转场/时间跳跃/视角切换自然产生的新段落保留。\n"
+        "10. 去除元叙事（第四面墙）：删除所有对\"章\"、\"前文\"、\"情节\"的引用。\n"
+        "    将分析性总结改写为角色视角的感知或回忆。\n"
+        "    ❌ 「云鹤在 ch8 中已经见过类似的记录内容：脉冲变化、节点登记、琥珀色眼睛的观测。」\n"
+        "    ✅ 「云鹤盯着屏幕上的数据。脉冲频率的变化曲线、激活节点的登记表——还有那双琥珀色眼睛的最后坐标。这些他都在灰烬谷的旧档案里见过。」\n"
+        "    规则：如果角色\"知道\"某事，用角色的感知/回忆/行动来表达，不要用作者口吻总结。\n"
+        "11. 标点规范化（中文出版物标准）：全文检查并修正以下标点问题。\n"
+        "    a. 中文文本必须使用全角标点：， 。 ！ ？ ； ： \" \" （ ） 【 】 《 》\n"
+        "    b. 引号统一为中文双引号\"\"，禁止英文引号\"\"和直引号\"\"混用\n"
+        "    c. 省略号统一为……（两个全角省略号字符），禁止使用...或。。。。。。\n"
+        "    d. 破折号统一为——（两个全角破折号连用），禁止用--、—、或单个-替代\n"
+        "    e. 英文单词或数字前后各留一个空格（中文排版规范）\n"
+        "    f. 对话中的标点：\\\"XX说\\\"后用逗号接引语，\\\"XX道\\\"后用冒号或逗号\n"
+        "    g. 句号边界检查：扫描全文，每遇到一个句号（。）问自己：这个句子真的完整吗？\n"
+        "       判断标准——句号前的句子必须同时满足：(1)主语和谓语完整 (2)表达了一个相对完整的意思 (3)不是前句的从句或补充。\n"
+        "       如果句号断开的是一个未完的语义单元（如\\\"他转身。离开了房间。\\\"本应是一句话），将句号改为逗号并合并。\n"
+        "       如果连续3个以上句号分割的都是短于10字的碎片句，必须合并其中至少一半为逗号连接。\n"
+        "       反之，如果一个句子超过60字且包含多个独立语义单元，将其中独立的语义单元拆分用句号。\n"
+        "    ❌ 标点: \\\"你好。\\\"他说。\\\"今天天气不错……\\\"\n"
+        "    ✅ 标点: \\\"你好。\\\"他说，\\\"今天天气不错……\\\"\n\n"
+        "    ❌ 碎片句: 他转身。离开了房间。关上门。外面在下雨。\n"
+        "    ✅ 合并后: 他转身离开房间，关上门。外面在下雨。\n\n"
         "【禁止事项 — 违反即失败】\n"
+        "- 禁止使用章节编号或引用（ch8、第一章、前文提到、如前所述等）\n"
+        "- 禁止用作者口吻总结角色已知信息（\"XX在之前已经见过...\"）\n"
+        "- 禁止出现分析性过渡句（\"这为他后来的决定埋下了伏笔\"\"这一切都预示着...\"）\n"
         "- 禁止新增情节事件\n"
         "- 禁止删除或改变对话的语义内容（可以调整措辞和节奏）\n"
         "- 禁止改变角色行动的结果\n"
@@ -1276,7 +1873,7 @@ def build_polisher_user_payload(
     regression_issues: str = "",
 ) -> str:
     """Assemble the user payload for the polisher LLM call."""
-    from worldforger.story_store import polished_path, read_text
+    from worldforger.story.story_store import polished_path, read_text
 
     st = world.story
     ch = next((c for c in st.chapters if c.id == chapter_id), None)
@@ -1339,7 +1936,7 @@ def _build_char_voice_profile(world: World) -> str:
 
 def _build_style_reference(world: World, current_chapter_id: str) -> list[str]:
     """Get polished excerpts from previous 1-2 chapters for style anchoring."""
-    from worldforger.story_store import polished_path, read_text
+    from worldforger.story.story_store import polished_path, read_text
 
     chapters = sorted(
         [c for c in world.story.chapters if c.id != current_chapter_id],
@@ -1350,7 +1947,7 @@ def _build_style_reference(world: World, current_chapter_id: str) -> list[str]:
         pp = polished_path(world.meta.id, c.id)
         if not pp.is_file():
             # fall back to original manuscript
-            from worldforger.story_store import manuscript_path
+            from worldforger.story.story_store import manuscript_path
 
             mp = manuscript_path(world.meta.id, c.id)
             if mp.is_file():
