@@ -45,6 +45,18 @@ def parse_story_md_blocks(text: str) -> list[dict[str, str]]:
                     "content": content,
                 }
             )
+    # ── Fallback: detect truncated story-macro block (missing closing ```) ──
+    # When max_tokens cuts off the output mid-block, the regex above won't match.
+    # We use a separate pattern to salvage the partial content.
+    partial = re.search(r"```story-macro\s*\n([\s\S]+)$", raw, re.IGNORECASE)
+    if partial:
+        content = partial.group(1).strip()
+        has_closing = content.rstrip().endswith("```")
+        if has_closing:
+            content = content.rstrip()[:-3].strip()
+        # Only add if we didn't already capture a complete story-macro block
+        if content and not any(b["kind"] == "macro" for b in blocks):
+            blocks.append({"kind": "macro", "chapter_id": "", "content": content})
     return blocks
 
 

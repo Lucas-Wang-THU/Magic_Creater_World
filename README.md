@@ -95,6 +95,7 @@ python run.py
 | 🔍 **数据工具** | 全文搜索、引用一致性检查与修复、world.json 版本快照与 diff 回滚、章节版本快照 |
 | 📤 **多格式导出** | 自动生成 `world.md`；EPUB / DOCX / Markdown 全书导出；大纲写入 `outlines/` |
 | 📈 **写作统计看板** | Chart.js 可视化：字数进度、章节完成度、伏笔状态、情感分布 |
+| 🧠 **角色 Agent 涌现叙事** | 15+ 模块的 Agent 系统：角色自主决策、多角色互动模拟、单 POV 过滤、质量评分 (A-F)、多章节半自主运行 |
 | ⏱️ **LLM 计时分析** | 每次生成展示各阶段 LLM 调用耗时分解，辅助定位性能瓶颈 |
 | 💾 **本地优先** | 所有数据在本地磁盘，无需云端服务 |
 
@@ -198,7 +199,7 @@ sequenceDiagram
 
 ## 写作多智能体协同
 
-故事写作模块采用**多智能体乐团（Multi-Agent Orchestra）**架构，由 10+ 个专职 Agent 协同完成从大纲到润色稿的全流程。各 Agent 职责单一、温度独立调优，并通过**并行后处理**和**可选反馈闭环**实现高效高质产出。
+故事写作模块采用**多智能体乐团（Multi-Agent Orchestra）**架构，由 15+ 个专职 Agent 协同完成从大纲到润色稿的全流程。各 Agent 职责单一、温度独立调优，并通过**并行后处理**和**可选反馈闭环**实现高效高质产出。新增**角色 Agent 涌现叙事系统**：让重要角色拥有独立的 LLM 驱动决策引擎，叙事从角色之间的自主互动中涌现。
 
 ### 智能体协同架构
 
@@ -319,6 +320,11 @@ flowchart TB
 | **叙事状态引擎** | MysteryManager（谜题生命周期）+ CharacterArcEngine（弧线5级）+ ReaderMemory（读者记忆模拟） |
 | **场景分块生成** | 长章节自动分场景 → 并行Draft → Merge，突破8192输出上限 |
 | **统一后处理提取器** | 3次LLM调用替代12+次独立钩子（Narrative State / Knowledge & Plot / Quality Review） |
+| **角色 Agent 涌现叙事** | 15+ 模块：角色 LLM 决策引擎、多角色场景模拟器、单 POV 过滤器、意图泄露检测、情绪传染、对话质量评分、节拍偏离协调、WorldClock 时间推进、影子影响伏笔关联、5维质量评分 (A-F)、三级自主模式 (顾问/半自主/全自主)、多章节半自主运行 |
+| **中文标点规范化** | 确定性规则引擎（零 token 成本）：全角/半角统一、引号配对、省略号/破折号修复 |
+| **章节截断自动续写** | 检测 LLM 输出截断 → 最多 5 轮自动续写 → 收束段落补全 |
+| **粗纲大 Token 生成** | 32768 token 上限 + 自动续写，支持 85+ 章完整粗纲一次性生成 |
+| **终端错误日志** | 全局 HTTP/Validation/未处理异常处理器，UI 错误同步打印终端 |
 
 ### 🔧 数据工具
 
@@ -527,21 +533,39 @@ worldforger/
   ├─ snapshot_diff.py        ← JSON diff
   ├─ sqlite_store.py         ← SQLite 存储
   ├─ relation_graph_refresh.py ← 关系图刷新
+  ├─ punctuation_normalize.py ← 中文标点规范化
   │
   ├─ story/                   ← 情节系统（7 个文件）
-  │   ├─ story_service.py     ← 情节生成核心（generate_manuscript / beats / hooks）
-  │   ├─ story_agent.py       ← 故事对话 Agent（工具调用）
-  │   ├─ story_prompts.py     ← 所有 LLM prompt（~1700 行）
-  │   ├─ story_store.py       ← 情节文件 IO（路径 / 读写）
-  │   ├─ story_chapter_sync.py ← 章节协调与标题对齐
+  │   ├─ story_service.py     ← 情节生成核心
+  │   ├─ story_agent.py       ← 故事对话 Agent
+  │   ├─ story_prompts.py     ← 所有 LLM prompt（~2000 行）
+  │   ├─ story_store.py       ← 情节文件 IO
+  │   ├─ story_chapter_sync.py ← 章节协调
   │   ├─ story_chat_artifacts.py ← 代码块自动落盘
   │   └─ foreshadow_apply.py  ← 伏笔操作
   │
+  ├─ agents/                  ← 角色 Agent 涌现叙事（17 个文件）
+  │   ├─ character_agent.py   ← 角色 LLM 决策引擎
+  │   ├─ character_prompts.py ← 角色 prompt 模板
+  │   ├─ scene_simulator.py   ← 多角色互动编排 V2
+  │   ├─ pov_filter.py        ← 单 POV 过滤器
+  │   ├─ state_injector.py    ← 状态→prompt 格式化
+  │   ├─ outline_constraint.py ← 粗纲约束解析
+  │   ├─ beat_reference.py    ← 细纲软参考
+  │   ├─ continuity_checker.py ← 跨章连续性校验
+  │   ├─ agent_store.py       ← 状态持久化
+  │   ├─ dialog_quality.py    ← 对话质量评分
+  │   ├─ beat_coordinator.py  ← 节拍偏离协调
+  │   ├─ world_clock.py       ← 时间推进
+  │   ├─ shadow_influence.py  ← 影子影响
+  │   ├─ scene_assembler.py   ← 场景装配
+  │   ├─ quality_evaluator.py ← 5维质量评分
+  │   ├─ autonomy.py          ← 自主等级管理
+  │   └─ chapter_runner.py    ← 多章节运行器
+  │
   └─ sync/                    ← 结构化同步（4 个文件）
-      ├─ panel_sync.py        ← 第二路同步 + 校对者流水线
-      ├─ panel_merge.py       ← 增量合并逻辑
-      ├─ structure_normalize.py ← JSON 归一化
-      └─ patch_validator.py   ← Patch 校验
+      ├─ panel_sync.py, panel_merge.py
+      ├─ structure_normalize.py, patch_validator.py
 
 app/
   └─ main.py                  ← FastAPI 路由（所有 /api/* 端点）
@@ -582,6 +606,7 @@ worlds/
     │   ├── arc_summaries/     ← 滚动阶段摘要（每 10 章）
     │   ├── knowledge_graph.json ← 角色知识图谱
     │   └── token_usage.json   ← Token 用量统计
+    ├── agents/            ← 角色 Agent 状态（agent_state.json / decision_log.jsonl）
     ├── sessions/           ← 对话片段日志（可选）
     └── snapshots/          ← 版本快照
         ├── v001.json
@@ -623,7 +648,15 @@ worlds/
 | `DELETE` | `/api/worlds/{id}/snapshots` | 清空全部快照 |
 | `POST` | `/api/worlds/{id}/refresh/faction-relations` | 重算派系关系 |
 | `POST` | `/api/worlds/{id}/refresh/culture-relations` | 重算文化关系 |
-| `GET` | `/api/worlds/{id}/story/rag/stats` | RAG 索引统计与就绪状态 |\n| `GET` | `/api/worlds/{id}/story/narrative-kg` | 叙事知识图谱（实体/事件/伏笔） |\n| `GET` | `/api/worlds/{id}/story/consistency-report/{chapter_id}` | 章节一致性审校报告 |\n| `GET` | `/api/worlds/{id}/story/sentiment-arc` | 情感弧线数据 + Mermaid 图表 |\n| `GET` | `/api/worlds/{id}/story/manuscript/{chapter_id}/polished` | 润色后文稿 + 元数据 |\n| `GET` | `/api/worlds/{id}/story/manuscript/{chapter_id}/polish-trace` | 审校↔润色 Loop 轮次追踪 |\n| `GET` | `/api/worlds/{id}/story/chapters/{chapter_id}/snapshots` | 章节版本快照列表 |\n| `GET` | `/api/worlds/{id}/story/chapters/{chapter_id}/snapshots/{version}` | 读取特定章节快照版本 |\n| `GET` | `/api/worlds/{id}/story/chapters/{chapter_id}/snapshots/diff` | 章节快照行级 diff 对比 |\n| `GET` | `/api/worlds/{id}/story/export` | 全书导出（epub/docx/md） |\n| `GET` | `/api/worlds/{id}/story/stats` | 写作统计（字数/进度/伏笔/情感分布） |\n| `PATCH` | `/api/worlds/{id}/story/writing-defaults` | 切换写作增强开关（KG/审校/情感/润色/最大轮数） |
+| `GET` | `/api/worlds/{id}/story/rag/stats` | RAG 索引统计与就绪状态 |\n| `GET` | `/api/worlds/{id}/story/narrative-kg` | 叙事知识图谱（实体/事件/伏笔） |\n| `GET` | `/api/worlds/{id}/story/consistency-report/{chapter_id}` | 章节一致性审校报告 |\n| `GET` | `/api/worlds/{id}/story/sentiment-arc` | 情感弧线数据 + Mermaid 图表 |\n| `GET` | `/api/worlds/{id}/story/manuscript/{chapter_id}/polished` | 润色后文稿 + 元数据 |\n| `GET` | `/api/worlds/{id}/story/manuscript/{chapter_id}/polish-trace` | 审校↔润色 Loop 轮次追踪 |\n| `GET` | `/api/worlds/{id}/story/chapters/{chapter_id}/snapshots` | 章节版本快照列表 |\n| `GET` | `/api/worlds/{id}/story/chapters/{chapter_id}/snapshots/{version}` | 读取特定章节快照版本 |\n| `GET` | `/api/worlds/{id}/story/chapters/{chapter_id}/snapshots/diff` | 章节快照行级 diff 对比 |\n| `GET` | `/api/worlds/{id}/story/export` | 全书导出（epub/docx/md） |\n| `GET` | `/api/worlds/{id}/story/stats` | 写作统计（字数/进度/伏笔/情感分布） |\n| `PATCH` | `/api/worlds/{id}/story/writing-defaults` | 切换写作增强开关（KG/审校/情感/润色/角色Agent/最大轮数） |
+| `POST` | `/api/worlds/{id}/story/generate/multi-chapter` | 多章节半自主运行 |
+| `GET` | `/api/worlds/{id}/story/quality-benchmark` | 叙事质量基准报告 |
+| `GET` | `/api/worlds/{id}/story/agent-decisions/{ch}` | 角色 Agent 决策日志 |
+| `GET` | `/api/worlds/{id}/agents` | 列出所有角色 Agent 状态 |
+| `GET` | `/api/worlds/{id}/agents/{char_id}` | 获取单个 Agent 详情 |
+| `POST` | `/api/worlds/{id}/agents/init` | 从 world.json 初始化 Agents |
+| `POST` | `/api/worlds/{id}/agents/{char_id}/reset` | 重置 Agent 状态 |
+| `GET` | `/api/worlds/{id}/agents/{char_id}/quality-history` | Agent 质量历史 |
 | `*` | `/api/worlds/{id}/story/*` | 故事 CRUD（章节/大纲/节拍/手稿/伏笔） |
 
 ---
@@ -631,7 +664,7 @@ worlds/
 ## 测试
 
 ```bash
-python -m pytest tests -q
+python -m pytest tests -q  # 538 tests
 ```
 
 VS Code / Cursor 中可使用 `.vscode/launch.json` 配置 F5 调试；需安装 `debugpy`。

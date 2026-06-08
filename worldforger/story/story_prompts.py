@@ -137,6 +137,10 @@ def chapter_beats_system(world: World, *, creative_mode: str | None) -> str:
         f"每个单元为一「{unit}」。\n"
         "输出 Markdown：场景目标、冲突、出场人物（对齐已有 id）、需种植/推进的伏笔、与粗纲的衔接。\n"
         "不要写完整正文，只写场景级的大纲。\n\n"
+        "【新概念铺垫规划】\n"
+        "如果本章将引入新的设定概念、角色或地点，请在细纲中标注：\n"
+        "- 该概念在之前章节中已有的环境暗示或间接提及（如果没有，请在本章设计 1-2 个铺垫场景）\n"
+        "- 铺垫方式：环境细节 / NPC 模糊对话 / 角色直觉与身体反应 / 古老记载\n\n"
         "【叙事连贯性检查（在细纲开头用 3-5 行简要回答，再写细纲正文）】\n"
         "1. 上一章结尾各主要角色的位置与状态？本章开头如何承接？\n"
         "2. 上一章结尾未解决的悬念/钩子是什么？本章如何处理？\n"
@@ -160,6 +164,55 @@ def manuscript_system(world: World, *, creative_mode: str | None, person: StoryP
         f"{_character_reference_rules()}\n"
         "输出 Markdown 正文；可在文末单独用「## 作者备注」写仅作者可见的信息（读者版将剥离）。\n"
         "禁止与 world.json 冲突；未回收伏笔不要在正文中提前揭穿。\n"
+        "\n【铺垫与新概念引入 — 极其重要】\n"
+        "引入任何新的设定概念、专有名词、角色、地点或能力时，必须在正式登场前进行铺垫。\n"
+        "不要让角色或叙述者突然抛出一个读者从未听过的新词并立即展开解释。\n"
+        "\n"
+        "铺垫的三个层次：\n"
+        "1. 环境暗示（最早）：在新概念正式出现前 1-2 章，通过环境细节、他人对话的只言片语、\n"
+        "   角色的直觉或身体反应来暗示其存在。读者和 POV 角色一样不完全理解。\n"
+        "   例：角色感到「雾中有什么在注视自己」→ 几章后引出「山魈」的概念。\n"
+        "2. 间接提及（中间）：通过 NPC 的模糊对话、古老碑文、残破记录等间接提到，\n"
+        "   但信息不完整、可能不准确。给读者线索但不给答案。\n"
+        "   例：老矿工说「千窟洞深处有东西会呼吸」→ 几章后才揭示「山母的低语」。\n"
+        "3. 正式引入（最后）：当读者已有足够的心理预期和零散线索后，才正式让概念登场。\n"
+        "   此时不需要大段解说——读者已经通过前面的铺垫积累了大量直觉理解。\n"
+        "\n"
+        "禁止的做法：\n"
+        "❌ POV 角色突然说出或想到一个从未铺垫过的专有名词\n"
+        "❌ 叙述者在新概念出现的同时插入大段解释（\\\"这是……\\\"）\n"
+        "❌ 角色之间互相解释对方已经知道的世界常识（\\\"你知道的，X 就是 Y\\\"）\n"
+        "❌ 新角色毫无预兆地出现在场景中并立即成为关键人物\n"
+        "❌ 同一章内引入超过 2 个重要的新概念\n"
+        "\n"
+        "正确的做法：\n"
+        "✅ 先用感官描写（视觉/听觉/触觉/直觉）让读者感受到「有某种东西存在」\n"
+        "✅ 让 POV 角色困惑、不安、好奇——与读者同步感知而非全知\n"
+        "✅ 通过角色的身体反应（寒毛直竖、凝痕灼热、莫名寒意）暗示异常\n"
+        "✅ 用不完整的传闻、谣言、古老记载来逐步构建概念轮廓\n"
+        "✅ 即使正式引入后，也保留一部分未知和神秘\n"
+        "\n【文风要求 — 朴素、克制、白描】\n"
+        "你的写作风格必须是收敛的、不事雕琢的。好的小说不是靠形容词堆出来的。\n"
+        "\n"
+        "禁止的做法：\n"
+        "❌ 堆砌四字成语和华丽辞藻（「万籁俱寂」「璀璨夺目」「浩瀚无垠」「不可名状」）\n"
+        "❌ 过度使用比喻和拟人（每一段都有比喻，恨不得把雾写成活物）\n"
+        "❌ 用一段又一段的环境描写拖延叙事（三页过去了还在描写雾的颜色）\n"
+        "❌ 角色的每一个动作都附带五脏六腑的感受（「他的心猛地一沉」「一股寒意从脊背升起」）\n"
+        "❌ 对话中穿插大量神态/动作/心理描写打断节奏\n"
+        "❌ 情感描写像琼瑶剧——大段内心独白倾诉感受\n"
+        "❌ 频繁使用「……」「——」制造呼吸感——用句号就够了\n"
+        "❌ 每段都以「雾」「光」「影」「风」开头——环境描写不是每段都需要\n"
+        "\n"
+        "正确的做法：\n"
+        "✅ 多用短句。十个字以内能说清的不用二十字\n"
+        "✅ 动作推动叙事——角色做了什么比角色感受到了什么更重要\n"
+        "✅ 对话简洁。真实的人说话不会每句都像格言\n"
+        "✅ 环境描写克制——一段足够了，相信读者的想象力\n"
+        "✅ 情绪通过动作和选择体现，而非内心独白。他攥紧拳头，就够了\n"
+        "✅ 留白——有些东西不写比写出来更有力\n"
+        "✅ 用名词和动词写作，少用形容词和副词\n"
+        "✅ 每 500 字自查：删掉至少 20% 的词，看看意思变了没有\n"
         "\n【伏笔回收节奏】\n"
         "1. 本章应回收或部分揭示 1-2 条早期埋设的伏笔（如果有）。不需要完整揭晓，可以只给线索。\n"
         "2. 不要让超过 60% 的伏笔堆积到全书最后 3 章。在中段安排小高潮逐步回收。\n"
@@ -675,6 +728,36 @@ def format_flaws_prompt(world: "World") -> str:
 
 
 # Narrative State Engine: Context Injection
+
+def format_break_risk(world):
+    """Build character break risk injection for manuscript prompts."""
+    pressures = getattr(world, 'character_pressures', None) or []
+    high_risk = [p for p in pressures if p.current_pressure >= p.break_threshold - 10]
+    if not high_risk:
+        return ''
+    lines = ['\n【角色失控风险 - 本章可能触发】']
+    for p in high_risk[:4]:
+        name = ''
+        for ent in world.characters.entities:
+            if isinstance(ent, dict) and ent.get('id') == p.character_id:
+                name = ent.get('name', p.character_id)
+                break
+        if not name: name = p.character_id
+        prob = min(90, max(10, int((p.current_pressure - p.break_threshold + 10) * 9)))
+        cooldown_ok = True
+        if p.last_break_chapter:
+            last_ord = next((c.order for c in world.story.chapters if c.id == p.last_break_chapter), 0)
+            cur_max = max(c.order for c in world.story.chapters)
+            cooldown_ok = cur_max - last_ord >= p.cooldown_chapters
+        lines.append(f'- {name}: pressure={p.current_pressure}/100 (threshold={p.break_threshold}), break prob ~{prob}%')
+        if not cooldown_ok:
+            lines.append(f'  cooldown active, skip this chapter')
+        else:
+            lines.append(f'  if breaks: let action speak louder than words')
+            lines.append(f'  if not: show 1-2 pressure signals (physical tension, shortened responses)')
+    lines.append('rule: break should feel earned by preceding narrative, not come out of nowhere.')
+    return '\n'.join(lines)
+
 
 def format_mystery_context(world, chapter_id):
     mysteries = getattr(world, 'narrative_mysteries', None) or []
@@ -1514,6 +1597,11 @@ def build_manuscript_user_payload(
         if ac.strip():
             _append(ac, priority=5)
 
+    if world.story.writing_defaults.enable_break_mechanism:
+        br = format_break_risk(world)
+        if br.strip():
+            _append(br, priority=5)
+
     # ═══ P4 — 伏笔台账（按相关性排序 + 截断） ═══
     if user_hint.strip():
         _append(f"\n【用户补充要求】\n{user_hint.strip()}", priority=4)
@@ -1833,6 +1921,21 @@ def polisher_system() -> str:
         "    ✅ 标点: \\\"你好。\\\"他说，\\\"今天天气不错……\\\"\n\n"
         "    ❌ 碎片句: 他转身。离开了房间。关上门。外面在下雨。\n"
         "    ✅ 合并后: 他转身离开房间，关上门。外面在下雨。\n\n"
+        "12. 新概念铺垫检查：扫描全文，标记所有首次出现的设定概念、专有名词、角色或地点。\n"
+        "    对每个新概念，检查其引入前是否有至少一种铺垫方式：\n"
+        "    a. 环境暗示（之前段落/章节的感官描写或异常现象）\n"
+        "    b. 间接提及（NPC 模糊对话、古老记载、传闻）\n"
+        "    c. 角色直觉（POV 角色的身体反应、不安、好奇）\n"
+        "    如果某个重要概念完全没有铺垫就直接登场并展开解释，标记为\\\"铺垫缺失\\\"。\n"
+        "    注意：润色阶段不应新增情节内容来补救，但可以在现有描写中增加感官细节或角色的直觉反应，让概念的引入更自然。\n\n"
+        "13. 华丽辞藻精简（朴素白描）：全文检查是否存在过度修饰的问题。\n"
+        "    a. 四字成语密度检测：每 500 字内超过 3 个成语 → 至少删减一半，改用普通动词/名词\n"
+        "    b. 比喻句检测：相邻两段内不应出现两个以上比喻句\n"
+        "    c. 身体感受过载：角色的「心」「脊背」「喉咙」「眼眶」在同一页内被提及超过 3 次 → 精简\n"
+        "    d. 环境描写压缩：同一场景的环境描写合并为一段，删除可有可无的形容词\n"
+        "    e. 对话瘦身：删除对话中不必要的副词修饰（如「他冷冷地说」→「他说」；通过上下文传递语气）\n"
+        "    f. 短句优先：超过 40 字的句子，拆分为两个短句\n"
+        "    g. 删减测试：全文润色完毕后，尝试再删掉 10% 的词。如果意思不变，说明之前写多了。\n\n"
         "【禁止事项 — 违反即失败】\n"
         "- 禁止使用章节编号或引用（ch8、第一章、前文提到、如前所述等）\n"
         "- 禁止用作者口吻总结角色已知信息（\"XX在之前已经见过...\"）\n"

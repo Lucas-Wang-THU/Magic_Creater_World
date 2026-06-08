@@ -390,7 +390,7 @@ export function renderCharacterNetworkFromData(entities, relations, containerId)
         from: e.id,
         to: r.target_id,
         label,
-        color: { color: RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
+        color: { color: _edgeColorForType(r.type), highlight: "#000" },
         arrows: "to",
         width: 2,
       });
@@ -408,7 +408,7 @@ export function renderCharacterNetworkFromData(entities, relations, containerId)
       from: r.source_id,
       to: r.target_id,
       label,
-      color: { color: RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
+      color: { color: _edgeColorForType(r.type), highlight: "#000" },
       arrows: "to",
       width: 2,
     });
@@ -446,13 +446,35 @@ const CAST_ROLE_COLORS = {
   antagonist: "#f44336",
 };
 const RELATION_COLORS = {
-  ally: "#4caf50",
-  enemy: "#f44336",
-  neutral: "#ff9800",
-  complex: "#9c27b0",
+  // English
+  ally: "#4caf50",  enemy: "#f44336",
+  neutral: "#ff9800",  complex: "#9c27b0",
+  rival: "#ef4444",  debtor: "#f59e0b",
+  secret: "#8b5cf6",  vassal: "#6366f1",
+  // Chinese (common in user data)
+  "盟友": "#4caf50",  "敌对": "#f44336",
+  "中立": "#ff9800",  "复杂": "#9c27b0",
+  "对手": "#ef4444",  "债务": "#f59e0b",
+  "秘密": "#8b5cf6",  "附庸": "#6366f1",
+  "航道": "#0ea5e9",  "邻接": "#84cc16",
+  "调查轴": "#f97316", "合作": "#22c55e",
+  "贸易": "#eab308",  "从属": "#a78bfa",
+  "竞争": "#f43f5e",  "宗主": "#3b82f6",
+  "朝贡": "#d946ef",  "同盟": "#10b981",
+  "交战": "#dc2626",  "冷战": "#64748b",
 };
 const DEFAULT_NODE_COLOR = "#607d8b";
-const DEFAULT_EDGE_COLOR = "#90a4ae";
+const DEFAULT_EDGE_COLOR = "#3b82f6";
+// Color hash for unknown relation types (keeps them distinguishable)
+function _edgeColorForType(type) {
+  if (!type) return DEFAULT_EDGE_COLOR;
+  if (RELATION_COLORS[type]) return RELATION_COLORS[type];
+  // Generate a stable color from the type string
+  let hash = 0;
+  for (let i = 0; i < type.length; i++) hash = type.charCodeAt(i) + ((hash << 5) - hash);
+  const h = Math.abs(hash) % 360;
+  return `hsl(${h}, 60%, 45%)`;
+}
 
 const FAC_CULT_NODE_COLOR = "#3d5a80";
 const FAC_CULT_ROOT_COLOR = "#2c4a6e";
@@ -515,7 +537,7 @@ export function renderCharacterNetwork(containerId) {
         from: e.id,
         to: r.target_id,
         label,
-        color: { color: RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
+        color: { color: _edgeColorForType(r.type), highlight: "#000" },
         arrows: "to",
         width: 2,
       });
@@ -533,7 +555,7 @@ export function renderCharacterNetwork(containerId) {
       from: r.source_id,
       to: r.target_id,
       label,
-      color: { color: RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
+      color: { color: _edgeColorForType(r.type), highlight: "#000" },
       arrows: "to",
       width: 2,
     });
@@ -639,7 +661,10 @@ export function renderFactionGlobalNetwork(entities, containerId) {
     size: 22,
     title: _factionNodeTooltip(e),
   }));
-  const nodes = new vis.DataSet(nodesArr);
+
+  // Collect all target IDs referenced in relations but not in entities
+  const nodeIds = new Set(nodesArr.map(n => n.id));
+  const missingNodes = new Map();
 
   const edgeList = [];
   const seen = new Set();
@@ -650,18 +675,36 @@ export function renderFactionGlobalNetwork(entities, containerId) {
       const key = [e.id, r.target_id].sort().join("|") + "|" + (r.type || "");
       if (seen.has(key)) continue;
       seen.add(key);
+
+      // Add missing target as gray node if not in entities
+      if (!nodeIds.has(r.target_id) && !missingNodes.has(r.target_id)) {
+        missingNodes.set(r.target_id, {
+          id: r.target_id,
+          label: (r.target_id || "?").slice(0, 20),
+          color: { background: "#94a3b8", border: "#64748b" },
+          font: { size: 11, color: "#64748b", strokeWidth: 0 },
+          shape: "dot", size: 16,
+          title: `ID: ${r.target_id}（未在派系列表中建档）`,
+        });
+      }
+
       const label = _factionEdgeLabel(r);
+      const edgeColor = _edgeColorForType(r.type);
       edgeList.push({
         from: e.id,
         to: r.target_id,
         label,
-        color: { color: RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
+        color: { color: edgeColor, highlight: "#000" },
         arrows: "to",
-        width: 2,
-        font: { color: "#1565c0", strokeWidth: 0, background: "rgba(255,255,255,0.85)" },
+        width: 2.5,
+        font: { color: "#1565c0", strokeWidth: 0, background: "rgba(255,255,255,0.9)", size: 10 },
       });
     }
   }
+  // Append missing nodes BEFORE creating DataSet
+  for (const mn of missingNodes.values()) nodesArr.push(mn);
+
+  const nodes = new vis.DataSet(nodesArr);
   const edges = new vis.DataSet(edgeList);
 
   if (_facGlobalNet) { _facGlobalNet.destroy(); _facGlobalNet = null; }
@@ -726,7 +769,7 @@ export function renderCultureGlobalNetwork(entities, containerId) {
         from: e.id,
         to: r.target_id,
         label,
-        color: { color: CULTURE_RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
+        color: { color: _edgeColorForType(r.type), highlight: "#000" },
         arrows: "to",
         width: 2,
         font: { color: "#1565c0", strokeWidth: 0, background: "rgba(255,255,255,0.85)" },
@@ -809,9 +852,9 @@ export function renderSingleFactionNetwork(entity, allEntities, container) {
       from: rootId,
       to: tid,
       label,
-      color: { color: RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
+      color: { color: _edgeColorForType(r.type), highlight: "#000" },
       arrows: "to",
-      width: isKnown ? 2 : 1,
+      width: isKnown ? 2.5 : 1.5,
       dashes: !isKnown,
       font: { color: "#1565c0", strokeWidth: 0, background: "rgba(255,255,255,0.85)" },
     });
@@ -904,7 +947,7 @@ export function renderSingleCultureNetwork(entity, allEntities, container) {
       from: rootId,
       to: tid,
       label,
-      color: { color: CULTURE_RELATION_COLORS[r.type] || DEFAULT_EDGE_COLOR, highlight: "#000" },
+      color: { color: _edgeColorForType(r.type), highlight: "#000" },
       arrows: "to",
       width: isKnown ? 2 : 1,
       dashes: !isKnown,

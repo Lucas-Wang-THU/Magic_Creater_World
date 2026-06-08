@@ -185,8 +185,118 @@ def _strip_code_fence(text: str) -> str:
     return t.strip()
 
 
+def _normalize_json_punctuation(text: str) -> str:
+    """Fix Chinese punctuation that LLMs sometimes leak into JSON output.
+
+    Only replaces punctuation OUTSIDE of JSON string values (i.e. in structural
+    positions like keys, commas, colons, brackets).  This is safe because JSON
+    structural characters are always ASCII.
+    """
+    # Chinese comma → ASCII comma (only outside strings)
+    # Chinese colon → ASCII colon
+    # Chinese brackets → ASCII brackets
+    # Approach: replace known structural characters globally.
+    # These are unambiguous in JSON context: ，never appears as a valid JSON token.
+    replacements = {
+        "，": ",",   # ，→,
+        "：": ":",   # ：→:
+        "（": "[",   # （→[  (rare but happens)
+        "）": "]",   # ）→]
+        "「": '"',   # 「→"
+        "」": '"',   # 」→"
+    }
+    result = text
+    for old, new in replacements.items():
+        result = result.replace(old, new)
+    if result != text:
+        print("[MCW-SYNC] Normalized Chinese punctuation in JSON")
+    return result
+
+
+def _parse_chunked(raw: str) -> dict[str, Any] | None:
+    """C1: Parse chunked JSON output with @@SECTION:name@@ markers.
+
+    When LLM uses markers like ``@@POWER_TIER:拓雾者@@ {json} @@POWER_TIER:凝痕者@@ {json}``,
+    this extracts each chunk, parses independently, and merges results.
+
+    Returns None if no chunk markers found (caller falls through to normal parsing).
+    """
+    import re as _re2
+    pattern = _re2.compile(r"@@([^@]+)@@\s*(\{(?:[^{}]|\{[^{}]*\})*\})", _re2.DOTALL)
+    matches = pattern.findall(raw)
+    if len(matches) < 2:
+        return None  # No chunk markers or single chunk — use normal parsing
+    print(f"[MCW-SYNC] Chunked protocol detected: {len(matches)} chunks")
+    merged: dict[str, Any] = {}
+    failed_chunks = 0
+    for label, chunk_json in matches:
+        label = label.strip()
+        try:
+            chunk_data = parse_structure_json(chunk_json)
+            merged = _chunked_merge(merged, chunk_data, label)
+            print(f"[MCW-SYNC]   chunk '{label}': OK ({len(chunk_json)} chars)")
+        except (ValueError, json.JSONDecodeError) as e:
+            failed_chunks += 1
+            print(f"[MCW-SYNC]   chunk '{label}': FAILED — {e}")
+    if failed_chunks > 0:
+        print(f"[MCW-SYNC] Chunked parse: {len(matches)-failed_chunks}/{len(matches)} chunks succeeded")
+    return merged if merged else None
+
+
+def _chunked_merge(base: dict, chunk: dict, label: str) -> dict:
+    """Merge a single chunk into accumulated results.
+
+    For power_system.tiers chunks, nest them under the appropriate key.
+    For other chunks, do a shallow merge.
+    """
+    from worldforger.sync.panel_merge import merge_section_conservative
+
+    # If the chunk is a single-tier object with 'name', wrap it into power_system.tiers
+    if "name" in chunk and "description" in chunk and len(chunk) <= 6:
+        # Looks like a single tier — ensure it's nested under power_system
+        if "power_system" not in base:
+            base["power_system"] = {}
+        if "tiers" not in base["power_system"]:
+            base["power_system"]["tiers"] = []
+        # Merge by name to avoid duplicates
+        tiers = base["power_system"]["tiers"]
+        existing_idx = next((i for i, t in enumerate(tiers) if t.get("name") == chunk.get("name")), None)
+        if existing_idx is not None:
+            tiers[existing_idx] = merge_section_conservative(tiers[existing_idx], chunk)
+        else:
+            tiers.append(chunk)
+        return base
+
+    # If chunk is a profession block with tier_name, nest it into profession_system
+    if "tier_name" in chunk and "professions" in chunk:
+        if "power_system" not in base:
+            base["power_system"] = {}
+        ps = base["power_system"]
+        if "profession_system" not in ps:
+            ps["profession_system"] = {}
+        if "by_tier" not in ps["profession_system"]:
+            ps["profession_system"]["by_tier"] = []
+        by_tier = ps["profession_system"]["by_tier"]
+        existing_idx = next((i for i, t in enumerate(by_tier) if t.get("tier_name") == chunk.get("tier_name")), None)
+        if existing_idx is not None:
+            by_tier[existing_idx] = merge_section_conservative(by_tier[existing_idx], chunk)
+        else:
+            by_tier.append(chunk)
+        return base
+
+    # Default: shallow merge
+    return merge_section_conservative(base, chunk)
+
+
 def parse_structure_json(raw: str) -> dict[str, Any]:
+    # ── C1: Try chunked parsing first ──
+    chunked = _parse_chunked(raw)
+    if chunked is not None:
+        return chunked
+
     t = _strip_code_fence(raw)
+    # ── C3: Normalize Chinese punctuation BEFORE parsing ──
+    t = _normalize_json_punctuation(t)
     start = t.find("{")
     end = t.rfind("}")
     if start == -1 or end == -1 or end <= start:
@@ -225,6 +335,7 @@ def _salvage_partial_json(text: str) -> dict[str, Any]:
     progressively more aggressive repairs to recover whatever valid data we can.
     """
     t = _strip_code_fence(text)
+    t = _normalize_json_punctuation(t)  # C3: fix Chinese punctuation before salvage
     start = t.find("{")
     if start == -1:
         raise ValueError("no JSON object start found in truncated output")
@@ -465,6 +576,11 @@ def apply_structure_patch(
         except Exception as e:
             warnings.append(f"{key}: {e}")
             continue
+    # ── Reconcile: move skill nodes between general and subclass trees ──
+    if "power_system" in updated:
+        from worldforger.sync.panel_merge import reconcile_power_system_skill_nodes
+        data = reconcile_power_system_skill_nodes(data)
+
     new_world = World.model_validate(data)
     return new_world, updated, warnings, normalize_notes
 

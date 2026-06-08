@@ -12,6 +12,9 @@ def merge_section_conservative(
     将 patch 合并进 base：空字符串不覆盖已有非空文案；空数组不覆盖已有非空数组；
     若双方数组元素都含 id 字段，则按 id 匹配做增量合并（更新已有 + 追加新增）；
     否则按 name 去重追加，避免模型误返回不完整列表导致已有数据被清空。
+
+    新增：power_system 合并后自动执行 reconcile——当 skill node 在 patch 中
+    被移动到 subclass 树时，从原位置（tier 通用树）删除，避免重复。
     """
     out = dict(base)
     for k, pv in patch.items():
@@ -55,9 +58,9 @@ def _merge_array_by_name_or_append(
     seen_hashes: set[str] = set()
     for item in merged:
         if isinstance(item, dict):
-            nm = item.get("name")
-            if isinstance(nm, str) and nm.strip():
-                seen_names.add(nm.strip())
+            nm = (item.get("name") or item.get("tier_name") or "").strip()
+            if nm:
+                seen_names.add(nm)
             else:
                 seen_hashes.add(_stable_json_hash(item))
         else:
@@ -68,15 +71,18 @@ def _merge_array_by_name_or_append(
             # 非 dict 项按原样追加
             merged.append(patch_item)
             continue
-        nm = patch_item.get("name")
-        if isinstance(nm, str) and nm.strip():
-            key = nm.strip()
+        # Match by name (common) or tier_name (power_system.tiers / profession_system.by_tier)
+        nm = (patch_item.get("name") or patch_item.get("tier_name") or "").strip()
+        if nm:
+            key = nm
             if key in seen_names:
-                # 同名项做 deep-merge 更新
+                # 同名/tier_name 项做 deep-merge 更新
                 for idx, base_item in enumerate(merged):
-                    if isinstance(base_item, dict) and base_item.get("name", "").strip() == key:
-                        merged[idx] = merge_section_conservative(base_item, patch_item)
-                        break
+                    if isinstance(base_item, dict):
+                        base_nm = (base_item.get("name") or base_item.get("tier_name") or "").strip()
+                        if base_nm == key:
+                            merged[idx] = merge_section_conservative(base_item, patch_item)
+                            break
                 continue
             seen_names.add(key)
         else:
@@ -121,6 +127,56 @@ def merge_array_by_id(
             id_to_idx[pid] = len(merged) - 1
 
     return merged
+
+
+def reconcile_power_system_skill_nodes(data: dict[str, Any]) -> dict[str, Any]:
+    """Ensure skill nodes are placed in the correct tier/subclass tree.
+
+    When LLM moves a skill node from a tier's general skill_tree into a
+    subclass_path's skill_tree, the standard merge preserves both copies.
+    This function removes nodes from locations where they no longer belong.
+
+    Rule: If a node ID appears in a subclass tree, it should NOT also
+    appear in the same tier's general tree (unless explicitly duplicated).
+    """
+    ps = data.get("power_system")
+    if not isinstance(ps, dict):
+        return data
+    tiers = ps.get("tiers")
+    if not isinstance(tiers, list):
+        return data
+
+    modified = False
+    for tier in tiers:
+        if not isinstance(tier, dict):
+            continue
+        # Collect all node IDs that appear in ANY subclass_path of this tier
+        subclass_node_ids: set[str] = set()
+        sub_paths = tier.get("subclass_paths")
+        if isinstance(sub_paths, list):
+            for sp in sub_paths:
+                if isinstance(sp, dict):
+                    for sn in (sp.get("skill_tree") or []):
+                        if isinstance(sn, dict) and sn.get("id"):
+                            subclass_node_ids.add(sn["id"])
+
+        if not subclass_node_ids:
+            continue
+
+        # Remove nodes from the tier's general skill_tree if they now live in a subclass
+        general_tree = tier.get("skill_tree")
+        if isinstance(general_tree, list):
+            before = len(general_tree)
+            tier["skill_tree"] = [
+                n for n in general_tree
+                if not (isinstance(n, dict) and n.get("id") in subclass_node_ids)
+            ]
+            if len(tier["skill_tree"]) < before:
+                modified = True
+
+    if modified:
+        print("[MCW-MERGE] Reconciled power_system: moved skill nodes from general to subclass trees")
+    return data
 
 
 def _array_items_have_ids(arr: list[Any]) -> bool:

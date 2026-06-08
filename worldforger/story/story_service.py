@@ -115,12 +115,81 @@ async def generate_macro_outline(
         f"【用户要求】\n{prompt.strip()}\n\n"
         f"【世界设定】\n{ctx}"
     )
+    # 85 章粗纲约需 20000-30000 tokens — 使用 API 最大允许值
+    _MACRO_MAX_TOKENS = 32768
     reply = await chat_completion(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
         temperature=0.65,
-        max_tokens=8192,
+        max_tokens=_MACRO_MAX_TOKENS,
         timing_label="macro_outline",
     )
+
+    # ── Truncation detection & auto-continuation for macro outlines ──
+    # 使用与正文相同的截断检测 + 续写机制，但针对大纲格式优化
+    from worldforger.llm import _CALL_LOG as _TIMING_LOG
+    for cont_round in range(5):  # 大纲可能需要更多续写轮次
+        was_truncated = False
+        if _TIMING_LOG:
+            was_truncated = _TIMING_LOG[-1].get("finish_reason", "") == "length"
+        if not was_truncated:
+            was_truncated = _text_looks_truncated(reply)
+        # 额外检查：大纲特有的截断信号——末尾行不完整
+        if not was_truncated:
+            last_line = reply.strip().split("\n")[-1]
+            # 大纲行通常以 | 或数字结尾，如果最后一行看起来像被截断
+            if len(last_line) < 30 and not last_line.endswith(("|", "。", "—", "…")):
+                if any(kw in last_line.lower() for kw in ("ch", "章", "第", "|", "卷")):
+                    was_truncated = True
+        if not was_truncated:
+            break
+
+        # 续写 — 使用与正文续写相同的策略，但 max_tokens 更大
+        continue_max = max(_MACRO_MAX_TOKENS // 2, 16384)
+        last_section = reply.strip()[-600:]
+        continue_user = (
+            f"你正在撰写一份完整的小说粗纲。上面的粗纲在以下位置截断了：\n\n"
+            f"…{last_section}\n\n"
+            f"请从截断处继续完成剩余的所有章节大纲，保持相同的格式（表格或列表）。"
+            f"直接输出后续章节，不要重复已有内容。"
+        )
+        continuation = await chat_completion(
+            [{"role": "system", "content": "你是一位专业策划师。请继续完成粗纲大纲的后续章节，使用与上文一致的格式，直接输出后续内容。"},
+             {"role": "user", "content": continue_user}],
+            temperature=0.65,
+            max_tokens=continue_max,
+            timing_label=f"macro_outline_continue_{cont_round+1}",
+        )
+        if continuation and len(continuation.strip()) > 50:
+            reply = reply.rstrip() + "\n\n" + continuation.strip()
+        else:
+            break
+
+    # Final wrap-up — 如果多轮续写后仍不完整，做简洁收束
+    if _text_looks_truncated(reply) and len(reply.strip()) > 500:
+        # 检测当前写到第几章了
+        import re as _re2
+        ch_nums = _re2.findall(r'\bch[_]?(\d+)\b', reply[-2000:].lower())
+        last_ch = max(int(n) for n in ch_nums) if ch_nums else 0
+        if last_ch > 0:
+            wrap_user = (
+                f"粗纲已写到第 {last_ch} 章，但尚未完成全部章节。"
+                f"请为第 {last_ch+1} 章开始到最后的章节写出简洁大纲条目（每章 1-2 行即可）。\n"
+                f"当前最后一章的上下文：\n…{reply.strip()[-400:]}"
+            )
+        else:
+            wrap_user = (
+                f"以下粗纲尚未完成，请补充剩余章节的简洁大纲条目：\n"
+                f"…{reply.strip()[-400:]}"
+            )
+        wrap_up = await chat_completion(
+            [{"role": "system", "content": "你是一位专业策划师。请简洁补充剩余章节的大纲，保持格式一致。"},
+             {"role": "user", "content": wrap_user}],
+            temperature=0.5,
+            max_tokens=8192,
+            timing_label="macro_outline_wrap_up",
+        )
+        if wrap_up and len(wrap_up.strip()) > 30:
+            reply = reply.rstrip() + "\n\n" + wrap_up.strip()
     wid = world.meta.id
     ensure_story_dirs(wid)
     header = (
@@ -258,28 +327,97 @@ async def generate_manuscript(
     if len(user) > 60000:
         user_effective = user[:60000] + "\n…(上下文已截断，请基于已有设定写作)"
 
-    # ── P1: Scene chunking path (for long chapters) ──
+    # ── Agent path: character-driven emergent narrative ──
     target_words = ch.target_word_count if ch else 0
-    if world.story.writing_defaults.enable_scene_chunking and beat.strip() and target_words >= 4000:
-        hard_ctx = build_hard_context(world, chapter_id, beat)
-        chunked = await _generate_manuscript_chunked(
-            world, chapter_id, beat, target_words, hard_ctx, person_eff,
-        )
-        if chunked and len(chunked) > 500:
-            reply = chunked
+    dynamic_max_tokens = min(16384, max(4096, int(target_words * 2.5) + 500)) if target_words > 0 else 8192
+    used_chunked_path = False
+
+    # Try agent path first if enabled; fall back to normal generation on failure
+    _agent_reply = None
+    _agent_fail_reason = ""
+    if world.story.writing_defaults.enable_character_agents:
+        try:
+            _agent_reply = await _generate_manuscript_with_agents(
+                world, chapter_id, beat, macro, prev, user_hint or prompt,
+                person_eff, system, user_effective,
+            )
+        except Exception as e:
+            _agent_fail_reason = f"Agent 路径异常: {e}"
+            _agent_reply = None
+
+    _agent_path_succeeded = False
+    if _agent_reply and len(_agent_reply.strip()) > 200:
+        reply = _agent_reply
+        _agent_path_succeeded = True
+        # Agent path already handled truncation internally for the writer agent.
+        # But do a final heuristic check here as safety net.
+        if _text_looks_truncated(reply):
+            continue_max_tokens = max(dynamic_max_tokens, 8192)
+            continue_user = (
+                f"请继续写下去，直到本章自然结束。从以下内容结尾接着写:\n"
+                f"…{reply.strip()[-500:]}\n\n请直接续写正文："
+            )
+            continuation = await chat_completion(
+                [{"role": "system", "content": "你是一位专业小说作家。请续写章节正文，直接输出，不要重复已有内容。"},
+                 {"role": "user", "content": continue_user}],
+                temperature=0.75,
+                max_tokens=continue_max_tokens,
+                timing_label="manuscript_agent_continue",
+            )
+            if continuation and len(continuation.strip()) > 50:
+                reply = reply.rstrip() + "\n\n" + continuation.strip()
+    else:
+        # ── Normal path: Scene chunking or single-call generation ──
+        if world.story.writing_defaults.enable_scene_chunking and beat.strip() and target_words >= 2500:
+            hard_ctx = build_hard_context(world, chapter_id, beat)
+            chunked = await _generate_manuscript_chunked(
+                world, chapter_id, beat, target_words, hard_ctx, person_eff,
+            )
+            if chunked and len(chunked) > 500:
+                reply = chunked
+                used_chunked_path = True
+            else:
+                # Fall through to normal generation
+                reply = await chat_completion(
+                    [{"role": "system", "content": system}, {"role": "user", "content": user_effective}],
+                    temperature=0.75, max_tokens=dynamic_max_tokens,
+                    timing_label="manuscript_generation",
+                )
         else:
-            # Fall through to normal generation
             reply = await chat_completion(
                 [{"role": "system", "content": system}, {"role": "user", "content": user_effective}],
-                temperature=0.75, max_tokens=8192,
+                temperature=0.75, max_tokens=dynamic_max_tokens,
                 timing_label="manuscript_generation",
             )
+
+    # ── Agent fallback reason: detect WHY the agent path didn't succeed ──
+    if world.story.writing_defaults.enable_character_agents and not _agent_path_succeeded:
+        if not _agent_fail_reason and _agent_reply:
+            _agent_fail_reason = f"Agent 路径输出过短 ({len(_agent_reply.strip())} 字符)，回退正常生成"
+        elif not _agent_fail_reason:
+            _agent_fail_reason = "Agent 路径返回空结果（可能缺乏角色数据或 LLM 调用失败）"
+        print(f"[MCW-AGENT] ch:{chapter_id} FALLBACK: {_agent_fail_reason}")
+        # Store for frontend reporting
+        _agent_fallback_reported = _agent_fail_reason
+    elif world.story.writing_defaults.enable_character_agents and _agent_path_succeeded:
+        _agent_fallback_reported = ""
     else:
-        reply = await chat_completion(
-            [{"role": "system", "content": system}, {"role": "user", "content": user_effective}],
-            temperature=0.75, max_tokens=8192,
-            timing_label="manuscript_generation",
-        )
+        _agent_fallback_reported = ""
+
+    # ── Capture finish_reason IMMEDIATELY after generation ──
+    # Must capture before any sub-calls (refusal retry, post-hooks) pollute _CALL_LOG.
+    # NOTE: When agent path succeeded, _CALL_LOG is already polluted by agent sub-calls.
+    # The agent path handles its own truncation detection internally.
+    from worldforger.llm import _CALL_LOG as _TIMING_LOG, any_finish_reason_was_length
+    _gen_finish_reason = ""
+    _gen_was_truncated = False
+    if not _agent_path_succeeded and _TIMING_LOG:
+        _gen_finish_reason = _TIMING_LOG[-1].get("finish_reason", "") or ""
+        if _gen_finish_reason == "length":
+            _gen_was_truncated = True
+    # For chunked path: check ALL sub-calls (scene drafts may have been truncated individually)
+    if used_chunked_path and not _gen_was_truncated:
+        _gen_was_truncated = any_finish_reason_was_length()
 
     # Detect refusal — retry once with a minimal prompt
     _REFUSAL_MARKERS = ["无法给到", "无法提供", "不能提供", "抱歉", "我无法", "我不能"]
@@ -297,6 +435,77 @@ async def generate_manuscript(
             max_tokens=8192,
             timing_label="manuscript_retry",
         )
+        # Re-capture finish_reason after retry
+        _gen_was_truncated = False
+        _gen_finish_reason = ""
+        if _TIMING_LOG:
+            _gen_finish_reason = _TIMING_LOG[-1].get("finish_reason", "") or ""
+            if _gen_finish_reason == "length":
+                _gen_was_truncated = True
+
+    # ── Truncation detection & auto-continuation ──
+    # Agent path already has its own truncation handling; only run heuristic check
+    for continuation_round in range(3):
+        was_truncated = (not _agent_path_succeeded) and (_gen_was_truncated or False)
+
+        # Heuristic fallback: check if text looks incomplete (runs for both paths)
+        if not was_truncated:
+            was_truncated = _text_looks_truncated(reply)
+        if not was_truncated:
+            break
+
+        # Continue writing — use larger max_tokens to reduce chained truncation
+        continue_max_tokens = max(dynamic_max_tokens, 8192)
+        continue_user = (
+            f"请继续写下去，直到本章自然结束。从以下内容结尾接着写:\n"
+            f"…{reply.strip()[-500:]}\n\n请直接续写正文："
+        )
+        continuation = await chat_completion(
+            [{"role": "system", "content": "你是一位专业小说作家。请续写章节正文，直接输出，不要重复已有内容。"},
+             {"role": "user", "content": continue_user}],
+            temperature=0.75,
+            max_tokens=continue_max_tokens,
+            timing_label=f"manuscript_continue_{continuation_round+1}",
+        )
+        if continuation and len(continuation.strip()) > 50:
+            reply = reply.rstrip() + "\n\n" + continuation.strip()
+            # Update truncation flag for next loop iteration
+            _gen_was_truncated = False
+            if _TIMING_LOG:
+                _gen_was_truncated = _TIMING_LOG[-1].get("finish_reason", "") == "length"
+        else:
+            break  # No meaningful continuation, stop
+
+        # If continuation finished cleanly, stop
+        if not _gen_was_truncated and not _text_looks_truncated(reply):
+            break
+
+    # ── Final wrap-up: if text STILL looks truncated after all rounds, do one
+    #     dedicated "write a concluding paragraph" call ──
+    if _text_looks_truncated(reply) and len(reply.strip()) > 500:
+        wrap_user = (
+            f"以下章节正文尚未完成，请在结尾续写一个简短的自然收束段落（200-500字），"
+            f"让本章有一个完整的结尾感。直接续写，不要重复已有内容：\n"
+            f"…{reply.strip()[-400:]}"
+        )
+        wrap_up = await chat_completion(
+            [{"role": "system", "content": "你是一位专业小说作家。请为章节写一个收束段落，让章节自然结束。"},
+             {"role": "user", "content": wrap_user}],
+            temperature=0.7,
+            max_tokens=1024,
+            timing_label="manuscript_wrap_up",
+        )
+        if wrap_up and len(wrap_up.strip()) > 30:
+            reply = reply.rstrip() + "\n\n" + wrap_up.strip()
+
+    # Strip chX references from manuscript (common AI artifact)
+    import re as _re
+    reply = _re.sub(r'(?:在|于|见|参见|参考)\s*ch[_]?\d+\s*[中里内]?(?:已经|已|曾)?', '', reply)
+    reply = _re.sub(r'ch[_]?\d+\s*[中里内]', '', reply)
+
+    # ── Programmatic punctuation normalization (always-on, no LLM cost) ──
+    from worldforger.punctuation_normalize import normalize_and_log
+    reply = normalize_and_log(reply, f"ch:{chapter_id}")
 
     write_text(manuscript_path(world.meta.id, chapter_id), reply)
     sync_chapter_word_count(world, chapter_id)
@@ -341,18 +550,26 @@ async def generate_manuscript(
     if world.story.writing_defaults.enable_aftermath_track:
         post_hooks.append(_try_extract_aftermaths(world, chapter_id, reply))
 
+    # Character pressure update (no LLM, rule-based)
+    if world.story.writing_defaults.enable_break_mechanism:
+        post_hooks.append(_update_character_pressures(world, chapter_id, reply))
+
     # Epic density check (no LLM, just regex)
     if world.story.writing_defaults.enable_epic_density_check:
         _run_epic_density_check(chapter_id, reply)
 
     # ── P2: Unified extractors path (when enabled) ──
     if world.story.writing_defaults.enable_unified_extractors and post_hooks:
-        # Skip individual hooks; use 3 unified extractors in parallel
         post_hooks = [
             _unified_narrative_state_extractor(world, chapter_id, reply),
             _unified_knowledge_plot_extractor(world, chapter_id, reply),
             _unified_quality_reviewer(world, chapter_id, reply),
+            _run_timeline_fallback(world, chapter_id, reply),
         ]
+        # Only run sentiment fallback if the feature is enabled AND the
+        # unified reviewer may have failed to produce sentiment data
+        if world.story.writing_defaults.enable_sentiment_track:
+            post_hooks.append(_run_sentiment_fallback(world, chapter_id, reply))
 
     hook_errors: list[str] = []
     if post_hooks:
@@ -370,6 +587,10 @@ async def generate_manuscript(
     token_usage = drain_token_usage()
     if token_usage:
         accumulate_token_usage(world.meta.id, chapter_id, token_usage)
+
+    # ── Agent fallback reason → surface to frontend as warning ──
+    if _agent_fallback_reported:
+        hook_errors.append(f"[Agent 回退] {_agent_fallback_reported}")
 
     return reply, hook_errors, timing_breakdown
 
@@ -431,6 +652,57 @@ async def generate_manuscript_stream(
         yield {"type": "text", "content": token}
 
     reply = "".join(full_text_parts)
+    # Strip chX references from manuscript (common AI artifact)
+    import re as _re
+    reply = _re.sub(r'(?:在|于|见|参见|参考)\s*ch[_]?\d+\s*[中里内]?(?:已经|已|曾)?', '', reply)
+    reply = _re.sub(r'ch[_]?\d+\s*[中里内]', '', reply)
+
+    # ── Truncation detection & auto-continuation (stream path) ──
+    # The streaming API doesn't expose finish_reason, so we rely on the
+    # heuristic.  Run up to 2 continuation rounds to finish the chapter.
+    for cont_round in range(2):
+        if not _text_looks_truncated(reply):
+            break
+        target_words_ = ch.target_word_count if ch else 0
+        cont_max_tokens = min(16384, max(4096, int(target_words_ * 2.5) + 500)) if target_words_ > 0 else 8192
+        continue_user = (
+            f"请继续写下去，直到本章自然结束。从以下内容结尾接着写:\n"
+            f"…{reply.strip()[-500:]}\n\n请直接续写正文："
+        )
+        continuation = await chat_completion(
+            [{"role": "system", "content": "你是一位专业小说作家。请续写章节正文，直接输出，不要重复已有内容。"},
+             {"role": "user", "content": continue_user}],
+            temperature=0.75,
+            max_tokens=cont_max_tokens,
+            timing_label=f"manuscript_stream_continue_{cont_round+1}",
+        )
+        if continuation and len(continuation.strip()) > 50:
+            yield {"type": "text", "content": "\n\n" + continuation.strip()}
+            reply = reply.rstrip() + "\n\n" + continuation.strip()
+        else:
+            break
+    # Final wrap-up if still truncated
+    if _text_looks_truncated(reply) and len(reply.strip()) > 500:
+        wrap_user = (
+            f"以下章节正文尚未完成，请在结尾续写一个简短的自然收束段落（200-500字），"
+            f"让本章有一个完整的结尾感。直接续写，不要重复已有内容：\n"
+            f"…{reply.strip()[-400:]}"
+        )
+        wrap_up = await chat_completion(
+            [{"role": "system", "content": "你是一位专业小说作家。请为章节写一个收束段落，让章节自然结束。"},
+             {"role": "user", "content": wrap_user}],
+            temperature=0.7,
+            max_tokens=1024,
+            timing_label="manuscript_stream_wrap_up",
+        )
+        if wrap_up and len(wrap_up.strip()) > 30:
+            yield {"type": "text", "content": "\n\n" + wrap_up.strip()}
+            reply = reply.rstrip() + "\n\n" + wrap_up.strip()
+
+    # ── Programmatic punctuation normalization (always-on, no LLM cost) ──
+    from worldforger.punctuation_normalize import normalize_and_log
+    reply = normalize_and_log(reply, f"ch:{chapter_id}")
+
     write_text(manuscript_path(world.meta.id, chapter_id), reply)
     sync_chapter_word_count(world, chapter_id)
     ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
@@ -469,6 +741,10 @@ async def generate_manuscript_stream(
     # Emotional aftermath extraction
     if world.story.writing_defaults.enable_aftermath_track:
         post_hooks.append(_try_extract_aftermaths(world, chapter_id, reply))
+
+    # Character pressure update (no LLM, rule-based)
+    if world.story.writing_defaults.enable_break_mechanism:
+        post_hooks.append(_update_character_pressures(world, chapter_id, reply))
 
     # Epic density check (no LLM, just regex)
     if world.story.writing_defaults.enable_epic_density_check:
@@ -510,6 +786,423 @@ async def generate_manuscript_stream(
 
 def try_import_legacy(world: World) -> bool:
     return import_legacy_plot_outline(world)
+
+
+# ── Agent-driven manuscript generation ──────────────────────────────────
+
+async def _generate_manuscript_with_agents(
+    world, chapter_id, beat_text, macro_text, prev_manuscripts,
+    user_hint, person_eff, writer_system, writer_user,
+) -> str:
+    """Generate chapter manuscript using character agent simulation.
+
+    Raises RuntimeError with specific reason on failure so the caller
+    can report the exact cause to the user.
+    """
+    from worldforger.agents import (
+        CharacterAgent, SceneSimulator, POVFilter, StateInjector,
+        OutlineConstraint, BeatReference, ContinuityChecker, AgentStore,
+    )
+    from worldforger.agents.types import CharacterAgentState
+
+    _failures: list[str] = []  # collect all failure reasons
+
+    # Step 1: Parse macro constraints
+    try:
+        constraints = await OutlineConstraint.parse(macro_text or "", chapter_id)
+    except Exception as e:
+        _failures.append(f"粗纲解析失败: {e}")
+        constraints = OutlineConstraint.parse.__wrapped__ if hasattr(OutlineConstraint.parse, '__wrapped__') else None
+        if constraints is None:
+            from worldforger.agents.types import OutlineConstraints
+            constraints = OutlineConstraints()
+
+    # Step 2: Load or initialize agent states
+    agent_states = {}
+    try:
+        agent_states = AgentStore.load_all_states(world.meta.id)
+        if not agent_states:
+            agent_states = AgentStore.init_states_from_world(world.meta.id, world)
+    except Exception as e:
+        _failures.append(f"Agent 状态加载/初始化失败: {e}")
+
+    if not agent_states:
+        raise RuntimeError(f"Agent 涌现不可用：未找到任何角色数据。{' | '.join(_failures)}")
+
+    # Step 3: POV character and scene characters
+    pov_id = world.story.narrator.character_id or "ch_yunhe"
+    # Determine which characters appear in this scene from the beat
+    scene_char_ids = set()
+    if beat_text:
+        scene_char_ids = _extract_character_ids_from_beat(world, beat_text)
+    # Always include POV character
+    scene_char_ids.add(pov_id)
+    # Limit to characters that actually have agent states
+    scene_char_ids = {cid for cid in scene_char_ids if cid in agent_states}
+
+    present_states = {cid: agent_states[cid] for cid in scene_char_ids}
+    shadow_states = {cid: s for cid, s in agent_states.items() if cid not in scene_char_ids}
+
+    # Step 4: Beat soft references
+    soft_hints = None
+    beat_ref = None
+    if beat_text and beat_text.strip():
+        beat_ref = await BeatReference.parse(beat_text)
+        if beat_ref:
+            soft_hints = BeatReference.inject_as_soft_hints(beat_ref)
+
+    # Step 5: Build scene setup
+    scene_setup = _build_scene_setup_from_context(
+        world, chapter_id, beat_text, macro_text, prev_manuscripts,
+    )
+    scene_setup = OutlineConstraint.inject_to_scene(constraints, scene_setup)
+
+    # Step 6: Pre-generation continuity check
+    continuity = ContinuityChecker.pre_generation_check(
+        present_states, scene_setup, pov_id=pov_id,
+    )
+    if continuity.warnings:
+        scene_setup += "\n\n【连续性提醒】" + "\n".join(
+            f"- {w}" for w in continuity.warnings[:5]
+        )
+
+    # Step 7: Create agent instances and run simulation
+    # Inject activation rules from world power_system into agent states
+    _inject_activation_rules(agent_states, world)
+
+    agents = {
+        cid: CharacterAgent(
+            state, base_temperature=_char_agent_temp(cid)
+        )
+        for cid, state in {**present_states, **shadow_states}.items()
+    }
+
+    sim = SceneSimulator(
+        max_rounds=world.story.writing_defaults.agent_max_rounds,
+    )
+    sim_result = await sim.run(
+        agents=agents,
+        pov_character_id=pov_id,
+        scene_setup=scene_setup,
+        macro_events=constraints.hard_events,
+        soft_hints=soft_hints,
+    )
+    sim_result.chapter_id = chapter_id
+
+    # Step 8: POV filter + reader knowledge hints
+    reader_hints = POVFilter.annotate_reader_knowledge(
+        sim_result.pov_visible_events,
+        sim_result.shadow_events,
+        world.story.foreshadowing,
+    )
+
+    # ── P2: WorldClock — time progression + external events ──
+    from worldforger.agents.world_clock import WorldClock
+    ch_num = next((c.order for c in world.story.chapters if c.id == chapter_id), 1)
+    clock = WorldClock()
+    external_events = clock.advance_chapter(ch_num)
+    if external_events:
+        time_ctx = clock.scene_context_block()
+        scene_setup = time_ctx + "\n" + scene_setup
+        for evt in external_events:
+            sim_result.macro_events.append(f"[世界事件] {evt.description}")
+
+    # ── P2: ShadowInfluence — off-screen character hints ──
+    from worldforger.agents.shadow_influence import ShadowInfluence
+    shadow_hints = ShadowInfluence.generate_hints(sim_result.shadow_events)
+    fs_links = ShadowInfluence.link_to_foreshadowing(
+        shadow_hints, world.story.foreshadowing,
+    )
+    shadow_context = ShadowInfluence.format_shadow_context(
+        sim_result.shadow_events, shadow_hints, fs_links,
+    )
+
+    # ── P2: SceneAssembler — pacing check ──
+    from worldforger.agents.scene_assembler import SceneAssembler
+    pacing = SceneAssembler.check_pacing([sim_result])
+
+    # ── P1: BeatCoordinator — deviation handling ──
+    from worldforger.agents.beat_coordinator import BeatCoordinator
+    deviation = None
+    if beat_ref:
+        deviation = BeatCoordinator.classify_deviation(beat_ref, sim_result)
+        if BeatCoordinator.should_warn(deviation):
+            print(f"[MCW-AGENT] ch:{chapter_id} beat deviation: {deviation.get('detail','')[:150]}")
+
+    # Step 9: Build writer agent prompt with agent simulation results
+    pov_state = present_states.get(pov_id) or shadow_states.get(pov_id)
+    state_context = ""
+    if pov_state:
+        state_context = StateInjector.for_writer_agent(
+            pov_state, present_states, shadow_states,
+        )
+
+    # Assemble agent-informed writer prompt
+    pov_events_block = "\n".join(
+        f"  {e}" for e in sim_result.pov_visible_events[:20]
+    )
+    agent_writer_user = (
+        writer_user + "\n\n" +
+        "【角色 Agent 模拟结果 — 以下是角色们在场景中的自主决策序列】\n"
+        f"{pov_events_block}\n\n"
+        f"{state_context}\n\n"
+        + (f"【读者线索提示】{reader_hints}\n\n" if reader_hints else "")
+        + (f"{shadow_context}\n\n" if shadow_context else "")
+        + (f"【节奏提示】{pacing.get('rhythm','')} | {', '.join(pacing.get('suggestions',[])[:2])}\n\n" if pacing.get("suggestions") else "")
+        + "【写作规则 — 单 POV 模式】\n"
+        f"1. 只写 {pov_state.name if pov_state else pov_id} 能感知到的内容。\n"
+        "2. 不要写其他角色的内心独白。动机只能通过对话/动作暗示。\n"
+        "3. POV 角色的内部反应可以写。误解和不确信保留，不要以叙述者口吻纠正。\n"
+        "4. 粗纲的世界事件必须发生，但角色应对方式由上述 Agent 决策决定。\n"
+    )
+
+    # Call writer agent — use same dynamic sizing as normal path
+    ch_num_real = next((c.order for c in world.story.chapters if c.id == chapter_id), 1)
+    target_wc = next((c.target_word_count for c in world.story.chapters if c.id == chapter_id), 0)
+    _writer_max_tokens = min(16384, max(8192, int(target_wc * 2.5) + 500)) if target_wc > 0 else 8192
+    draft = await chat_completion(
+        [{"role": "system", "content": writer_system},
+         {"role": "user", "content": agent_writer_user}],
+        temperature=0.75,
+        max_tokens=_writer_max_tokens,
+        timing_label="writer_agent",
+    )
+
+    # ── Capture writer agent finish_reason IMMEDIATELY ──
+    # Subsequent steps (persistence, quality eval) will append to _CALL_LOG
+    from worldforger.llm import _CALL_LOG as _WLOG
+    _writer_truncated = False
+    if _WLOG:
+        _writer_truncated = _WLOG[-1].get("finish_reason", "") == "length"
+
+    # ── Truncation continuation for writer agent ──
+    for _wc in range(3):
+        if not _writer_truncated and not _text_looks_truncated(draft):
+            break
+        cont_user = (
+            f"请继续写下去，直到本章自然结束。从以下内容结尾接着写:\n"
+            f"…{draft.strip()[-500:]}\n\n请直接续写正文："
+        )
+        cont = await chat_completion(
+            [{"role": "system", "content": "你是一位专业小说作家。请续写章节正文，直接输出，不要重复已有内容。"},
+             {"role": "user", "content": cont_user}],
+            temperature=0.75,
+            max_tokens=8192,
+            timing_label=f"writer_agent_continue_{_wc+1}",
+        )
+        if cont and len(cont.strip()) > 50:
+            draft = draft.rstrip() + "\n\n" + cont.strip()
+            _writer_truncated = False
+            if _WLOG:
+                _writer_truncated = _WLOG[-1].get("finish_reason", "") == "length"
+        else:
+            break
+
+    # Final wrap-up if still looks truncated
+    if _text_looks_truncated(draft) and len(draft.strip()) > 500:
+        wrap_u = (
+            f"以下章节正文尚未完成，请在结尾续写一个简短的自然收束段落（200-500字），"
+            f"让本章有一个完整的结尾感。直接续写，不要重复已有内容：\n"
+            f"…{draft.strip()[-400:]}"
+        )
+        wrap = await chat_completion(
+            [{"role": "system", "content": "你是一位专业小说作家。请为章节写一个收束段落，让章节自然结束。"},
+             {"role": "user", "content": wrap_u}],
+            temperature=0.7,
+            max_tokens=1024,
+            timing_label="writer_agent_wrap_up",
+        )
+        if wrap and len(wrap.strip()) > 30:
+            draft = draft.rstrip() + "\n\n" + wrap.strip()
+
+    # Step 10: Persist agent states
+    new_states = ContinuityChecker.post_generation_update(sim_result, agent_states)
+    for cid, state in new_states.items():
+        AgentStore.save_state(world.meta.id, state)
+        AgentStore.append_decision_log(
+            world.meta.id, cid, chapter_id,
+            [d for d in sim_result.decision_sequence if d.character_id == cid],
+        )
+
+    # Log beat deviation if any
+    if beat_ref:
+        deviation = BeatReference.record_deviation(beat_ref, sim_result)
+        if deviation:
+            print(f"[MCW-AGENT] ch:{chapter_id} beat deviation: {deviation[:120]}")
+
+    # ── P3: Quality evaluation ──
+    from worldforger.agents.quality_evaluator import QualityEvaluator
+    quality = QualityEvaluator.evaluate(
+        sim_result,
+        continuity_issues=len(continuity.warnings) if continuity else 0,
+    )
+    quality_msg = f"[MCW-QUALITY] ch:{chapter_id} grade={quality['grade']} overall={quality['overall']} pacing={quality['scores'].get('pacing',0)} arc={quality['scores'].get('character_arc',0)} dialog={quality['scores'].get('dialog',0)}"
+    print(quality_msg)
+    if quality["suggestions"]:
+        for s in quality["suggestions"][:2]:
+            print(f"[MCW-QUALITY] ch:{chapter_id} suggestion: {s}")
+
+    return draft
+
+
+def _build_scene_setup_from_context(
+    world, chapter_id, beat_text, macro_text, prev_manuscripts,
+) -> str:
+    """Build initial scene setup text from all available context."""
+    parts = []
+    ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+    if ch:
+        parts.append(f"章节: 第{ch.order}章「{ch.title}」")
+
+    if macro_text:
+        # Extract relevant section for this chapter
+        macro_short = macro_text[:2000]
+        parts.append(f"\n粗纲指引:\n{macro_short}")
+
+    if beat_text:
+        parts.append(f"\n细纲参考:\n{beat_text[:1500]}")
+
+    if prev_manuscripts:
+        prev_id, prev_text = prev_manuscripts[-1]
+        parts.append(f"\n上一章结尾 ({prev_id}):\n{prev_text.strip()[-500:]}")
+
+    return "\n\n".join(parts)
+
+
+def _char_agent_temp(char_id: str) -> float:
+    """Return base temperature for a character agent."""
+    _TEMP_MAP = {
+        "ch_qinyuan": 0.35,
+        "ch_mistwalker_k": 0.75,
+        "ch_yunhe": 0.55,
+        "ch_dayna": 0.65,
+    }
+    return _TEMP_MAP.get(char_id, 0.55)
+
+
+def _inject_activation_rules(
+    agent_states: dict, world,
+) -> None:
+    """Inject power_system activation rules into each character agent's state.
+
+    For each character, find the tier they belong to (based on their
+    runtime_state or notable_skills) and attach the tier's activation_rules
+    and skill node activation_rules as a `_activation_rules_context` attribute.
+    """
+    tiers = getattr(getattr(world, 'power_system', None), 'tiers', None) or []
+    if not tiers:
+        return
+
+    for cid, state in agent_states.items():
+        rules: list[str] = []
+
+        # Find the character entity from world
+        char_ent = next(
+            (e for e in (getattr(world, 'characters', None) and getattr(world.characters, 'entities', None) or [])
+             if isinstance(e, dict) and e.get('id') == cid), None
+        )
+
+        # Determine character's tier from notable_skills or runtime_state
+        skills = char_ent.get('notable_skills', []) if char_ent else []
+        known_skill_ids = set()
+        for s in skills:
+            if isinstance(s, str):
+                # Check if any skill node name appears in the skill string
+                for tier in tiers:
+                    for sn in (tier.skill_tree or []):
+                        if sn.name and sn.name in s:
+                            known_skill_ids.add(sn.id)
+                    for sp in (tier.subclass_paths or []):
+                        for sn in (sp.skill_tree or []):
+                            if sn.name and sn.name in s:
+                                known_skill_ids.add(sn.id)
+
+        # Collect tier-level activation rules
+        for tier in tiers:
+            # If character has skills from this tier, apply its activation rules
+            tier_skill_ids = {sn.id for sn in (tier.skill_tree or [])}
+            for sp in (tier.subclass_paths or []):
+                tier_skill_ids.update(sn.id for sn in (sp.skill_tree or []))
+            if known_skill_ids & tier_skill_ids:
+                if getattr(tier, 'activation_rules', None) and str(tier.activation_rules).strip():
+                    rules.append(f"【{tier.name}境】{tier.activation_rules.strip()}")
+                # Also add per-node activation rules
+                for sn in (tier.skill_tree or []):
+                    if sn.id in known_skill_ids and getattr(sn, 'activation_rules', None) and str(sn.activation_rules).strip():
+                        rules.append(f"【技能 {sn.name}】{sn.activation_rules.strip()}")
+                for sp in (tier.subclass_paths or []):
+                    for sn in (sp.skill_tree or []):
+                        if sn.id in known_skill_ids and getattr(sn, 'activation_rules', None) and str(sn.activation_rules).strip():
+                            rules.append(f"【技能 {sn.name}】{sn.activation_rules.strip()}")
+
+        if rules:
+            state._activation_rules_context = rules
+
+
+def _text_looks_truncated(text: str) -> bool:
+    """Heuristic check: does *text* look like it was cut off mid-sentence or mid-word?
+
+    Returns True when the text appears incomplete (truncated by token limit),
+    False when it appears to end naturally.
+    """
+    if not text or len(text.strip()) < 100:
+        return False
+    t = text.strip()
+    tail = t[-300:]
+    # ── Markers that indicate a deliberate ending ──
+    _ENDING_MARKERS = (
+        "## ", "本章完", "（完）", "（未完待续）", "（待续）",
+        "作者备注", "润色说明", "（全文完）", "【完】",
+        "——全文完——", "（终）",
+    )
+    if any(m in tail[-150:] for m in _ENDING_MARKERS):
+        return False
+    # ── Natural sentence-ending punctuation ──
+    # NOTE: "——" is deliberately excluded — ending with a dash is ambiguous
+    # and often signals truncation; it's handled by the truncation checks below.
+    _SENTENCE_END = ("。", "！", "？", "…", "……", "」", "）", "】", "\"", "'", "；")
+    if t.endswith(_SENTENCE_END):
+        # Ends with proper punctuation — check if final paragraph has
+        # reasonable length (not a sudden 1-sentence fragment).
+        # 12 chars ≈ minimum for a complete Chinese sentence like "他找到了答案。"
+        last_para = t.rsplit("\n\n", 1)[-1] if "\n\n" in t else t[-200:]
+        if len(last_para.strip()) >= 12:
+            return False
+    # ── Signs of truncation ──
+    # 1. Ends mid-word: common Chinese compounds that rarely end a sentence
+    _MID_WORD_PATTERNS = (
+        "的同", "的时", "的一", "的那", "的这",  # incomplete "同一/同时/一样/那个/这个"
+        "了一", "了个", "了一",  # incomplete "了一下/了一个"
+        "然没", "然不", "然是",  # incomplete "然而/虽然"
+        "过这", "过一", "过那",  # incomplete "过这个/过一次/过那个"
+        "着这", "着一", "着那",  # incomplete "着这个/着一个"
+        "来的", "去的",  # incomplete compound
+        "走在", "站在", "坐在", "看着", "想着", "说道",  # incomplete "走在XX/站在XX..."
+        "和她", "和他", "和那", "和这",  # incomplete
+        "从那", "从那", "把那", "把这",  # incomplete
+        "没有完", "没有说", "没有看", "没有再",  # incomplete
+        "突然感", "突然想", "突然发",  # incomplete
+    )
+    for pat in _MID_WORD_PATTERNS:
+        if t.endswith(pat):
+            return True
+    # 2. Last char is a comma (mid-clause)
+    if t[-1] in "，,、":
+        return True
+    # 3. Ends with a colon or dash suggesting continuation
+    if t[-1] in "：:—" and len(t) > 2000:
+        return True
+    # 4. Final paragraph is very short (< 15 chars) suggesting it just started.
+    #    Only flag when it doesn't end with sentence-ending punctuation —
+    #    a short paragraph ending with "。" is a legitimate stylistic choice.
+    last_para = t.rsplit("\n\n", 1)[-1] if "\n\n" in t else t[-200:]
+    if len(last_para.strip()) < 15 and len(t) > 2000 and not t.endswith(_SENTENCE_END):
+        return True
+    # 5. Text is long (>2000 chars) and ends without any sentence-ending punctuation
+    if len(t) > 2000:
+        if not t.endswith(_SENTENCE_END) and t[-1] not in "，,、：:—":
+            return True
+    return False
 
 
 # ── P1: 场景级分块生成 ──────────────────────────────────────
@@ -569,7 +1262,7 @@ async def _generate_scene_draft(
         user += f"\n{hard_context}"
     reply = await chat_completion(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        temperature=0.7, max_tokens=max(1024, int(est * 2.5)),
+        temperature=0.7, max_tokens=max(2048, int(est * 3.5)),
         timing_label=f"scene_draft_{scene.get('order',0)}",
     )
     return reply.strip()
@@ -601,21 +1294,32 @@ async def _generate_manuscript_chunked(
     world: World, chapter_id: str, beat_text: str, target_words: int,
     hard_context: str, person: StoryPerson | None,
 ) -> str:
-    """Scene-chunked manuscript generation: Plan → Draft → Merge."""
+    """Scene-chunked manuscript generation: Plan → Draft (sequential) → Merge.
+
+    Scenes are drafted *sequentially* so each scene can see the previous
+    scene's ending for continuity.  Concurrency is traded for coherence.
+    """
     # Step 1: Scene plan
     scenes = await _generate_scene_plan(world, chapter_id, beat_text, target_words, person)
     if len(scenes) < 2:
         return ""  # Fall through to normal generation
 
-    # Step 2: Generate each scene in parallel
-    import asyncio as _asyncio
-    prev_ends = [""]
-    async def _draft_one(i, sc):
-        return await _generate_scene_draft(
-            world, sc, prev_ends[i] if i < len(prev_ends) else "", hard_context, person,
+    # Step 2: Generate each scene sequentially — each draft receives the
+    #         previous scene's last 200 chars as the ``prev_scene_end`` hint.
+    drafts: list[str] = []
+    prev_scene_end = ""
+    for i, sc in enumerate(scenes):
+        draft = await _generate_scene_draft(
+            world, sc, prev_scene_end, hard_context, person,
         )
-    drafts = await _asyncio.gather(*[_draft_one(i, sc) for i, sc in enumerate(scenes)])
-    drafts = [d for d in drafts if d and len(d) > 50]
+        if draft and len(draft.strip()) > 50:
+            drafts.append(draft.strip())
+            # Feed the last ~200 chars of THIS scene as the next scene's context
+            prev_scene_end = draft.strip()[-200:]
+        else:
+            # This scene produced nothing meaningful; next scene still gets
+            # the previous valid scene's ending.
+            pass
 
     if len(drafts) < 2:
         return ""
@@ -825,8 +1529,41 @@ async def _unified_quality_reviewer(
         sent = data.get("sentiment")
         if isinstance(sent, dict) and ch:
             from worldforger.schemas import SentimentLog
-            try: ch.sentiment_log = SentimentLog(chapter_id=chapter_id, **sent)
-            except: pass
+            from worldforger.sentiment_tracker import SentimentTracker, _TONE_NORMALIZE, _TRANSITION_NORMALIZE
+            try:
+                sent["title"] = ch.title or ""
+                sent["analyzed_at"] = utc_now_iso()
+                sent["chapter_id"] = chapter_id
+                # ── Normalize tone labels (LLM may output Chinese) ──
+                for key in ("overall_tone", "ending_tone"):
+                    raw = str(sent.get(key, "")).strip()
+                    sent[key] = _TONE_NORMALIZE.get(raw, "mixed")
+                raw_trans = str(sent.get("transition_from_prev", "")).strip()
+                sent["transition_from_prev"] = _TRANSITION_NORMALIZE.get(raw_trans, "first_chapter")
+                # Normalize segments
+                segs = sent.get("segments", [])
+                if isinstance(segs, list):
+                    for seg in segs:
+                        if isinstance(seg, dict):
+                            raw_tone = str(seg.get("tone", "")).strip()
+                            seg["tone"] = _TONE_NORMALIZE.get(raw_tone, "mixed")
+                            try:
+                                seg["intensity"] = max(1, min(10, int(seg.get("intensity", 5))))
+                            except (ValueError, TypeError):
+                                seg["intensity"] = 5
+                log = SentimentLog.model_validate(sent)
+                ch.sentiment_log = log
+                SentimentTracker(world.meta.id).save_log(log)
+            except Exception as e:
+                print(f"[MCW-SENTIMENT] ch:{chapter_id} unified reviewer validation: {e}")
+                # Last resort: try with minimal defaults
+                try:
+                    sent["segments"] = [{"segment_index": 1, "label": "全文", "tone": "mixed", "intensity": 5, "summary": ""}]
+                    log = SentimentLog.model_validate(sent)
+                    ch.sentiment_log = log
+                    SentimentTracker(world.meta.id).save_log(log)
+                except Exception as e2:
+                    print(f"[MCW-SENTIMENT] ch:{chapter_id} fallback also failed: {e2}")
 
         ams = data.get("aftermaths")
         if isinstance(ams, list):
@@ -844,6 +1581,97 @@ async def _unified_quality_reviewer(
         return ""
     except Exception as e:
         return f"unified_quality_review: {e}"
+
+
+async def _run_sentiment_fallback(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """Check if unified reviewer produced sentiment; if not, run individual hook.
+
+    Checks BOTH in-memory (ch.sentiment_log) AND on-disk (SQLite/JSON)
+    to avoid unnecessary duplicate LLM calls when sentiment was
+    persisted by a previous session.
+    """
+    if not world.story.writing_defaults.enable_sentiment_track:
+        return ""
+    ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
+    # Check in-memory first
+    if ch and ch.sentiment_log:
+        return ""
+    # Check disk (may have been persisted by unified extractor or previous session)
+    from worldforger.story.story_store import read_sentiment_log
+    if read_sentiment_log(world.meta.id, chapter_id):
+        return ""
+    return await _try_track_sentiment(world, chapter_id, manuscript_text)
+
+
+async def _run_timeline_fallback(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """Check if unified extractor produced timeline events; if not, run individual hook."""
+    tls = getattr(world, 'character_personal_timelines', None) or []
+    ch_order = next((c.order for c in world.story.chapters if c.id == chapter_id), 0)
+    # Check if any timeline event was added for this chapter by unified extractor
+    for tl in tls:
+        for e in tl.events:
+            if e.chapter == chapter_id:
+                return ""  # Already done
+    if not world.story.writing_defaults.enable_personal_timeline_track:
+        return ""
+    return await _try_detect_timeline_events(world, chapter_id, manuscript_text)
+
+
+async def _update_character_pressures(world: World, chapter_id: str, manuscript_text: str) -> str:
+    """Rule-based character pressure tracking (no LLM call)."""
+    try:
+        from worldforger.schemas import CharacterPressure
+        ch_order = next((c.order for c in world.story.chapters if c.id == chapter_id), 0)
+        chars_in_ms = set()
+        for ent in world.characters.entities:
+            if isinstance(ent, dict):
+                name = ent.get("name", "")
+                if name and name in manuscript_text:
+                    chars_in_ms.add(ent.get("id", ""))
+
+        existing = {p.character_id: p for p in world.character_pressures}
+        for cid in chars_in_ms:
+            # Estimate pressure delta from text signals
+            delta = 0
+            factors = []
+            # Simple keyword heuristics for pressure estimation
+            if any(kw in manuscript_text for kw in ("战斗", "攻击", "危机", "死亡", "受伤")):
+                delta += 12; factors.append({"factor": "战斗/危机", "intensity": 12, "decay_per_chapter": 3})
+            if any(kw in manuscript_text for kw in ("隐瞒", "谎言", "秘密", "背叛", "欺骗")):
+                delta += 10; factors.append({"factor": "隐瞒/秘密", "intensity": 10, "decay_per_chapter": 2})
+            if any(kw in manuscript_text for kw in ("孤独", "绝望", "无助", "恐惧", "崩溃")):
+                delta += 8; factors.append({"factor": "孤独/恐惧", "intensity": 8, "decay_per_chapter": 2})
+            if any(kw in manuscript_text for kw in ("质疑", "冲突", "争吵", "对立")):
+                delta += 6; factors.append({"factor": "人际冲突", "intensity": 6, "decay_per_chapter": 2})
+
+            # Check active aftermaths
+            active_ams = [a for a in world.character_aftermaths
+                          if a.character_id == cid and a.current_status == "active"]
+            if active_ams:
+                delta += len(active_ams) * 5
+                factors.append({"factor": "活跃后遗症", "intensity": len(active_ams)*5, "decay_per_chapter": 2})
+
+            if cid in existing:
+                p = existing[cid]
+                # Natural decay for old factors
+                for f in p.pressure_factors:
+                    decay = f.get("decay_per_chapter", 3)
+                    chapters_passed = ch_order - next((c.order for c in world.story.chapters
+                        if c.id == p.last_updated_chapter), ch_order)
+                    f["intensity"] = max(0, f.get("intensity", 0) - decay * chapters_passed)
+                p.pressure_factors = [f for f in p.pressure_factors if f.get("intensity", 0) > 0]
+                # Add new factors
+                for f in factors:
+                    p.pressure_factors.append(f)
+                p.current_pressure = min(100, sum(f.get("intensity", 0) for f in p.pressure_factors))
+                p.last_updated_chapter = chapter_id
+            else:
+                p = CharacterPressure(character_id=cid, current_pressure=min(100, delta),
+                                      pressure_factors=factors, last_updated_chapter=chapter_id)
+                world.character_pressures.append(p)
+        return ""
+    except Exception:
+        return ""
 
 
 # ── 收尾：章节摘要卡片 ──────────────────────────────────────
@@ -1773,6 +2601,10 @@ async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) 
             trace["termination_reason"] = "max_rounds"
 
         from worldforger.story.story_store import polished_path, polish_trace_path, write_text
+
+        # ── Programmatic punctuation normalization (safety net after polish) ──
+        from worldforger.punctuation_normalize import normalize_and_log
+        current_text = normalize_and_log(current_text, f"ch:{chapter_id}:polished")
 
         # Persist polished text to both polished/ and manuscript/
         write_text(polished_path(world.meta.id, chapter_id), current_text)

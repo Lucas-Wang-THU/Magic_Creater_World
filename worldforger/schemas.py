@@ -51,8 +51,17 @@ class SkillNode(BaseModel):
     id: str
     name: str
     summary: str = ""
+    description: str = ""
     prereq_ids: list[str] = Field(default_factory=list)
     branch: str = ""
+    effect: str = ""
+    cost: str = ""
+    activation_rules: str = Field(
+        default="",
+        description="发动规则：作者书写。角色必须 100% 满足这些条件才能使用此技能。"
+        "例如：'凝痕态激活时 + 雾蚀浓度≥中等 + 塑痕纹路完整无破损'。"
+        "在涌现叙事中，CharacterAgent 会在决策前检查是否满足发动条件。",
+    )
 
 
 class SubclassPath(BaseModel):
@@ -105,6 +114,12 @@ class PowerTier(BaseModel):
     typical_capabilities: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     examples: list[str] = Field(default_factory=list)
+    activation_rules: str = Field(
+        default="",
+        description="本境界能力的发动规则：作者书写。角色必须 100% 满足才能使用该境界的能力。"
+        "例如：'完成刻痕仪式 + 凝痕节点稳定 ≥ 3 天 + 雾蚀浓度 ≥ 中等'。"
+        "此规则在涌现叙事中由 CharacterAgent 在决策前进行校验。",
+    )
     skill_tree: list[SkillNode] = Field(
         default_factory=list,
         description="本境界通用技能树（与 subclass_paths 中树并存；节点 id 建议带境界前缀以免冲突）。",
@@ -616,6 +631,40 @@ class ReaderMemoryEntry(BaseModel):
     refresh_strategy: str = ""
 
 
+# ── 角色失控机制 ────────────────────────────────────────────
+
+class BreakEvent(BaseModel):
+    """角色失控事件——在压力下暂时脱离正常人格模式"""
+    break_id: str = ""
+    character_id: str = ""
+    chapter: str = ""
+    trigger_type: Literal["accumulated_pressure", "witness_trauma", "flaw_exploited",
+                          "loss_of_control", "betrayal", "moral_dilemma_collapse",
+                          "identity_threat"] = "accumulated_pressure"
+    break_type: Literal["emotional_explosion", "cold_cruelty", "reckless_action",
+                        "withdrawal_shutdown", "self_destructive", "confession_dump",
+                        "regression"] = "emotional_explosion"
+    trigger_context: str = ""
+    affected_characters: list[dict] = Field(default_factory=list)
+    witnesses: list[str] = Field(default_factory=list)
+    aftermath_attitude: Literal["ashamed", "defensive", "numb", "doesnt_remember",
+                                 "justifies_it"] = "ashamed"
+    repair_attempted: bool = False
+    repair_type: Literal["none_yet", "apology", "action", "avoidance", "confrontation"] = "none_yet"
+    relationship_recovery_pct: int = Field(default=0, ge=0, le=100)
+
+
+class CharacterPressure(BaseModel):
+    """角色动态压力值追踪"""
+    character_id: str = ""
+    current_pressure: int = Field(default=0, ge=0, le=100)
+    break_threshold: int = Field(default=75, ge=40, le=95)
+    pressure_factors: list[dict] = Field(default_factory=list)
+    last_break_chapter: str = ""
+    cooldown_chapters: int = 3
+    last_updated_chapter: str = ""
+
+
 # ── Phase 2: 微观习惯 ─────────────────────────────────────────
 
 class CharacterMicroHabit(BaseModel):
@@ -704,6 +753,9 @@ class StoryWritingDefaults(BaseModel):
     enable_scene_chunking: bool = True
     # P2: Unified post-processing extractors (3 calls instead of 12+)
     enable_unified_extractors: bool = True
+    enable_break_mechanism: bool = True
+    enable_character_agents: bool = False  # 角色 Agent 涌现叙事
+    agent_max_rounds: int = Field(default=4, ge=1, le=8)  # 每场景最大互动轮数
 
 
 class StoryOutlineMacro(BaseModel):
@@ -783,6 +835,8 @@ class World(BaseModel):
     narrative_mysteries: list[MysteryTracker] = Field(default_factory=list)
     character_arcs: list[CharacterArc] = Field(default_factory=list)
     reader_memory: list[ReaderMemoryEntry] = Field(default_factory=list)
+    character_pressures: list[CharacterPressure] = Field(default_factory=list)
+    break_events: list[BreakEvent] = Field(default_factory=list)
 
     def bump_version(self) -> None:
         self.meta.version = int(self.meta.version) + 1

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -232,6 +233,9 @@ class StoryWritingDefaultsPatchBody(BaseModel):
     enable_narrative_state_injection: bool | None = None
     enable_scene_chunking: bool | None = None
     enable_unified_extractors: bool | None = None
+    enable_break_mechanism: bool | None = None
+    enable_character_agents: bool | None = None
+    agent_max_rounds: int | None = Field(default=None, ge=1, le=8)
 
 
 class StoryGenerateManuscriptBody(BaseModel):
@@ -301,6 +305,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(DevStaticCacheBypassMiddleware)
+
+
+# ── Global error logging: print UI-facing errors to terminal ──────────
+
+from fastapi.responses import JSONResponse
+
+
+@app.exception_handler(HTTPException)
+async def _log_http_exception(request: Request, exc: HTTPException) -> JSONResponse:
+    """Log every HTTP error that reaches the UI to the terminal."""
+    detail = str(exc.detail) if exc.detail else ""
+    # Truncate very long details for readability
+    detail_short = detail[:500] + ("…" if len(detail) > 500 else "")
+    print(f"[MCW-ERROR] {exc.status_code} {request.method} {request.url.path} | {detail_short}")
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+async def _log_unhandled_exception(request: Request, exc: Exception) -> JSONResponse:
+    """Catch unhandled exceptions, log to terminal, return 500 to UI."""
+    import traceback
+    detail = f"internal error: {exc}"
+    print(f"[MCW-ERROR] 500 {request.method} {request.url.path} | {detail}")
+    traceback.print_exc()
+    return JSONResponse(status_code=500, content={"detail": detail})
+
+
+@app.exception_handler(RequestValidationError)
+async def _log_validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+    """Log request validation errors (422) to terminal."""
+    errors = exc.errors()
+    detail_short = str(errors)[:500] + ("…" if len(str(errors)) > 500 else "")
+    print(f"[MCW-ERROR] 422 {request.method} {request.url.path} | {detail_short}")
+    return JSONResponse(status_code=422, content={"detail": errors})
 
 
 @app.get("/favicon.ico", include_in_schema=False)
@@ -1180,18 +1218,6 @@ def api_list_chapter_snapshots(world_id: str, chapter_id: str) -> dict[str, Any]
     return {"snapshots": list_chapter_snapshots(world_id, chapter_id)}
 
 
-@app.get("/api/worlds/{world_id}/story/chapters/{chapter_id}/snapshots/{version}")
-def api_get_chapter_snapshot(world_id: str, chapter_id: str, version: int) -> dict[str, Any]:
-    """获取某章某个版本的快照内容。"""
-    from worldforger.story.story_store import read_chapter_snapshot
-    _story_world_or_404(world_id)
-    try:
-        content = read_chapter_snapshot(world_id, chapter_id, version)
-    except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="snapshot not found") from None
-    return {"version": version, "content": content}
-
-
 @app.get("/api/worlds/{world_id}/story/chapters/{chapter_id}/snapshots/diff")
 def api_chapter_snapshot_diff(
     world_id: str, chapter_id: str, left: str = "", right: str = ""
@@ -1220,6 +1246,18 @@ def api_chapter_snapshot_diff(
 
     lines, truncated = line_diff_text(left_text, right_text)
     return {"left": left, "right": right, "lines": lines, "truncated": truncated}
+
+
+@app.get("/api/worlds/{world_id}/story/chapters/{chapter_id}/snapshots/{version}")
+def api_get_chapter_snapshot(world_id: str, chapter_id: str, version: int) -> dict[str, Any]:
+    """获取某章某个版本的快照内容。"""
+    from worldforger.story.story_store import read_chapter_snapshot
+    _story_world_or_404(world_id)
+    try:
+        content = read_chapter_snapshot(world_id, chapter_id, version)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="snapshot not found") from None
+    return {"version": version, "content": content}
 
 
 @app.post("/api/worlds/{world_id}/story/generate/macro-outline")
@@ -1468,6 +1506,335 @@ def api_get_sentiment_arc(world_id: str) -> dict[str, Any]:
     }
 
 
+# ── Agent Decision Log ────────────────────────────────────────────
+
+@app.get("/api/worlds/{world_id}/story/agent-decisions/{chapter_id}")
+def api_get_agent_decisions(world_id: str, chapter_id: str) -> dict[str, Any]:
+    """Return agent decision log for a specific chapter."""
+    import json as _json
+    from pathlib import Path
+
+    agents_dir = Path("worlds") / world_id / "agents"
+    if not agents_dir.is_dir():
+        return {"chapter_id": chapter_id, "decisions": [], "characters": {}}
+
+    result: dict = {"chapter_id": chapter_id, "decisions": [], "characters": {}}
+    for child in sorted(agents_dir.iterdir()):
+        if not child.is_dir():
+            continue
+        log_path = child / "decision_log.jsonl"
+        if not log_path.is_file():
+            continue
+        char_decisions = []
+        with open(log_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = _json.loads(line)
+                except _json.JSONDecodeError:
+                    continue
+                if entry.get("chapter_id") == chapter_id:
+                    char_decisions.append(entry.get("decision", {}))
+        if char_decisions:
+            result["characters"][child.name] = {
+                "count": len(char_decisions),
+                "decisions": char_decisions,
+            }
+            result["decisions"].extend(char_decisions)
+    result["total"] = len(result["decisions"])
+    return result
+
+
+# ── Agent Management CRUD API ────────────────────────────────────
+
+@app.get("/api/worlds/{world_id}/agents")
+def api_list_agents(world_id: str) -> dict[str, Any]:
+    """List all character agent states for a world."""
+    from worldforger.agents.agent_store import AgentStore
+
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    states = AgentStore.load_all_states(world_id)
+    if not states:
+        states = AgentStore.init_states_from_world(world_id, w)
+
+    agents = {}
+    for cid, s in states.items():
+        agents[cid] = {
+            "character_id": cid,
+            "name": s.name,
+            "emotional_state": s.emotional_state,
+            "current_goal": s.current_goal,
+            "current_location": s.current_location,
+            "pressure_level": s.pressure_level,
+            "total_decisions_made": s.total_decisions_made,
+            "last_chapter": s.last_chapter,
+            "active_aftermaths_count": len(s.active_aftermaths),
+        }
+    return {"world_id": world_id, "agents": agents, "count": len(agents)}
+
+
+@app.get("/api/worlds/{world_id}/agents/{character_id}")
+def api_get_agent(world_id: str, character_id: str) -> dict[str, Any]:
+    """Get a single character agent's full state."""
+    from worldforger.agents.agent_store import AgentStore
+
+    state = AgentStore.load_state(world_id, character_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="agent not found")
+    return {"agent": state.model_dump(mode="json")}
+
+
+@app.post("/api/worlds/{world_id}/agents/init")
+def api_init_agents(world_id: str) -> dict[str, Any]:
+    """Initialize all agent states from world.json."""
+    from worldforger.agents.agent_store import AgentStore
+
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    states = AgentStore.init_states_from_world(world_id, w)
+    for state in states.values():
+        AgentStore.save_state(world_id, state)
+
+    return {
+        "ok": True,
+        "initialized": len(states),
+        "characters": [s.name for s in states.values()],
+    }
+
+
+@app.post("/api/worlds/{world_id}/agents/{character_id}/reset")
+def api_reset_agent(
+    world_id: str, character_id: str,
+) -> dict[str, Any]:
+    """Reset a character agent state to a specific chapter snapshot."""
+    from pathlib import Path
+    import json as _json
+    from worldforger.agents.agent_store import AgentStore
+
+    agents_dir = Path("worlds") / world_id / "agents"
+    if not agents_dir.is_dir():
+        raise HTTPException(status_code=404, detail="no agents found for this world")
+
+    state = AgentStore.load_state(world_id, character_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="agent not found")
+
+    # Reset to initial state from world.json
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    states = AgentStore.init_states_from_world(world_id, w)
+    if character_id not in states:
+        raise HTTPException(status_code=404, detail="character not found in world.json")
+
+    fresh = states[character_id]
+    AgentStore.save_state(world_id, fresh)
+
+    return {
+        "ok": True,
+        "character_id": character_id,
+        "name": fresh.name,
+        "message": f"Agent '{fresh.name}' reset to initial world.json state",
+    }
+
+
+@app.get("/api/worlds/{world_id}/agents/{character_id}/quality-history")
+def api_get_agent_quality_history(
+    world_id: str, character_id: str,
+) -> dict[str, Any]:
+    """Return quality evaluation history from decision logs."""
+    import json as _json
+    from pathlib import Path
+    from worldforger.agents.quality_evaluator import QualityEvaluator
+    from worldforger.agents.types import AgentDecision, AgentSimResult
+
+    log_path = Path("worlds") / world_id / "agents" / character_id / "decision_log.jsonl"
+    if not log_path.is_file():
+        return {"character_id": character_id, "chapters": [], "message": "No decision log found"}
+
+    chapters: dict[str, list[dict]] = {}
+    with open(log_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = _json.loads(line)
+            except _json.JSONDecodeError:
+                continue
+            ch = entry.get("chapter_id", "unknown")
+            dec = entry.get("decision", {})
+            if ch not in chapters:
+                chapters[ch] = []
+            chapters[ch].append(dec)
+
+    quality_by_chapter = {}
+    for ch, decs in chapters.items():
+        decisions = [AgentDecision(**d) for d in decs if isinstance(d, dict)]
+        sr = AgentSimResult(chapter_id=ch, decision_sequence=decisions)
+        quality_by_chapter[ch] = QualityEvaluator.evaluate(sr)
+
+    return {
+        "character_id": character_id,
+        "chapters": [
+            {"chapter_id": ch, **q}
+            for ch, q in sorted(quality_by_chapter.items())
+        ],
+    }
+# ── P3: Multi-Chapter Runner + Quality Benchmark ─────────────────
+
+class MultiChapterRunBody(BaseModel):
+    chapter_ids: list[str] = Field(default_factory=list)
+    autonomy_level: str = "semi_auto"  # advisor | semi_auto | full_auto
+    max_chapters: int = Field(default=3, ge=1, le=10)
+    stop_on_intervention: bool = True
+
+
+@app.post("/api/worlds/{world_id}/story/generate/multi-chapter")
+async def api_generate_multi_chapter(
+    world_id: str, body: MultiChapterRunBody,
+) -> dict[str, Any]:
+    """Generate multiple chapters semi-autonomously using character agents."""
+    from worldforger.agents.chapter_runner import ChapterRunner
+    from worldforger.agents.autonomy import AutonomyLevel
+    from worldforger.story.story_service import generate_manuscript
+
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    if not body.chapter_ids:
+        # Default: generate all non-done chapters in order
+        body.chapter_ids = [
+            c.id for c in sorted(w.story.chapters, key=lambda c: c.order)
+            if c.status not in ("done", "locked")
+        ]
+
+    level_map = {
+        "advisor": AutonomyLevel.ADVISOR,
+        "semi_auto": AutonomyLevel.SEMI_AUTO,
+        "full_auto": AutonomyLevel.FULL_AUTO,
+    }
+    level = level_map.get(body.autonomy_level, AutonomyLevel.SEMI_AUTO)
+
+    async def _generate(w, ch_id):
+        try:
+            text, hook_errors, timing = await generate_manuscript(
+                w, chapter_id=ch_id, prompt="",
+                creative_mode=w.meta.creative_mode,
+                person=None, attach_prev_chapters=3,
+                include_world_md=w.story.writing_defaults.include_world_md,
+            )
+            return text, hook_errors, timing
+        except Exception as e:
+            return "", [str(e)], []
+
+    runner = ChapterRunner(
+        world_id=world_id,
+        autonomy_level=level,
+        max_chapters=body.max_chapters,
+        stop_on_intervention=body.stop_on_intervention,
+    )
+    session = await runner.run(w, body.chapter_ids, _generate)
+
+    return {
+        "ok": True,
+        "summary": runner.summary(),
+        "session": {
+            "chapters_completed": session.chapters_completed,
+            "chapters_failed": session.chapters_failed,
+            "stopped": session.stopped,
+            "stop_reason": session.stop_reason,
+            "results": [
+                {
+                    "chapter_id": r.chapter_id,
+                    "success": r.success,
+                    "quality_overall": r.quality.get("overall") if r.quality else None,
+                    "quality_grade": r.quality.get("grade") if r.quality else None,
+                    "intervention_needed": r.intervention_needed,
+                }
+                for r in session.results
+            ],
+        },
+    }
+
+
+@app.get("/api/worlds/{world_id}/story/quality-benchmark")
+def api_quality_benchmark(world_id: str) -> dict[str, Any]:
+    """Build quality baseline from existing chapters and report stats."""
+    import json as _json
+    from pathlib import Path
+    from worldforger.agents.quality_evaluator import QualityEvaluator
+    from worldforger.agents.chapter_runner import QualityBenchmark
+    from worldforger.agents.types import AgentSimResult
+
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    # Collect quality data from agent decision logs
+    agents_dir = Path("worlds") / world_id / "agents"
+    chapter_qualities: list[dict] = []
+    if agents_dir.is_dir():
+        for child in agents_dir.iterdir():
+            if not child.is_dir():
+                continue
+            log_path = child / "decision_log.jsonl"
+            if not log_path.is_file():
+                continue
+            chapters: dict[str, list] = {}
+            with open(log_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = _json.loads(line)
+                    except _json.JSONDecodeError:
+                        continue
+                    ch = entry.get("chapter_id", "unknown")
+                    dec = entry.get("decision", {})
+                    if ch not in chapters:
+                        chapters[ch] = []
+                    chapters[ch].append(dec)
+            for ch, decs in chapters.items():
+                from worldforger.agents.types import AgentDecision
+                decisions = [AgentDecision(**d) for d in decs if isinstance(d, dict)]
+                sr = AgentSimResult(chapter_id=ch, decision_sequence=decisions)
+                q = QualityEvaluator.evaluate(sr)
+                q["chapter_id"] = ch
+                chapter_qualities.append(q)
+
+    baseline = QualityBenchmark.build_baseline_from_chapters(chapter_qualities)
+
+    # Get latest chapter quality for comparison
+    latest_quality = chapter_qualities[-1] if chapter_qualities else None
+    comparison = None
+    if latest_quality and baseline:
+        comparison = QualityBenchmark.compare(latest_quality, baseline)
+
+    return {
+        "world_id": world_id,
+        "baseline": baseline,
+        "chapter_count": len(chapter_qualities),
+        "latest_quality": latest_quality,
+        "comparison": comparison,
+    }
+
+
 # ── P1-6: Usage Stats ───────────────────────────────────────────────
 
 
@@ -1532,7 +1899,10 @@ def api_get_story_stats(world_id: str) -> dict[str, Any]:
     sentiment_dist: dict[str, int] = {}
     sentiment_logs = []
     for ch in chapters:
+        # Check disk first, fall back to in-memory ch.sentiment_log
         log = read_sentiment_log(wid, ch.id)
+        if not log and ch.sentiment_log:
+            log = ch.sentiment_log.model_dump(mode="json")
         if log:
             sentiment_logs.append(log)
             tone = log.get("overall_tone", "")
@@ -1636,6 +2006,15 @@ def api_patch_story_writing_defaults(
         changed = True
     if body.enable_unified_extractors is not None:
         wd.enable_unified_extractors = body.enable_unified_extractors
+        changed = True
+    if body.enable_break_mechanism is not None:
+        wd.enable_break_mechanism = body.enable_break_mechanism
+        changed = True
+    if body.enable_character_agents is not None:
+        wd.enable_character_agents = body.enable_character_agents
+        changed = True
+    if body.agent_max_rounds is not None:
+        wd.agent_max_rounds = body.agent_max_rounds
         changed = True
     if changed:
         w.bump_version()
@@ -2041,6 +2420,298 @@ async def api_story_foreshadow_apply(
         "applied": applied,
         "warnings": warnings,
     }
+
+
+# ── Character Detail Update ────────────────────────────────────
+
+class CharacterDetailBody(BaseModel):
+    power_tier: str | None = None
+    profession_id: str | None = None
+    age: str | None = None
+    inventory: list[dict[str, Any]] | None = None
+
+
+@app.patch("/api/worlds/{world_id}/characters/{character_id}")
+def api_update_character_detail(
+    world_id: str, character_id: str, body: CharacterDetailBody,
+) -> dict[str, Any]:
+    """Update character detail fields: power_tier, profession_id, age, inventory."""
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    char_idx = next(
+        (i for i, e in enumerate(w.characters.entities)
+         if isinstance(e, dict) and e.get("id") == character_id), None
+    )
+    if char_idx is None:
+        raise HTTPException(status_code=404, detail="character not found")
+
+    char = w.characters.entities[char_idx]
+    updated_fields = []
+
+    if body.power_tier is not None:
+        char["power_tier"] = body.power_tier.strip()
+        updated_fields.append("power_tier")
+    if body.profession_id is not None:
+        char["profession_id"] = body.profession_id.strip()
+        updated_fields.append("profession_id")
+    if body.age is not None:
+        char["age"] = str(body.age).strip()
+        updated_fields.append("age")
+    if body.inventory is not None:
+        inv = []
+        for item in body.inventory:
+            if isinstance(item, dict):
+                inv.append({
+                    "name": str(item.get("name", "")).strip(),
+                    "description": str(item.get("description", "")).strip(),
+                    "usage": str(item.get("usage", "")).strip(),
+                    "quantity": item.get("quantity", 1),
+                    "source_chapter": str(item.get("source_chapter", "")).strip(),
+                    "status": str(item.get("status", "携带中")).strip(),
+                })
+        char["inventory"] = inv
+        updated_fields.append("inventory")
+
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {
+        "ok": True, "character_id": character_id,
+        "updated_fields": updated_fields,
+        "character": char,
+        "world": w.model_dump(mode="json"),
+    }
+
+
+@app.get("/api/worlds/{world_id}/characters/{character_id}/detail")
+def api_get_character_detail(world_id: str, character_id: str) -> dict[str, Any]:
+    """Get character detail with resolved power/profession/item info."""
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    char = next(
+        (e for e in w.characters.entities
+         if isinstance(e, dict) and e.get("id") == character_id), None
+    )
+    if char is None:
+        raise HTTPException(status_code=404, detail="character not found")
+
+    profession_name = ""
+    prof_id = char.get("profession_id", "")
+    if prof_id:
+        for block in w.power_system.profession_system.by_tier:
+            for p in block.professions:
+                if p.id == prof_id:
+                    profession_name = p.name
+                    break
+
+    tier_name = char.get("power_tier", "")
+    tier_desc = ""
+    if tier_name:
+        tier = next((t for t in w.power_system.tiers if t.name == tier_name), None)
+        if tier:
+            tier_desc = tier.description
+
+    inventory = char.get("inventory", []) or []
+    items_active = [i for i in inventory if i.get("status") != "已失去"]
+    items_lost = [i for i in inventory if i.get("status") == "已失去"]
+
+    return {
+        "character_id": character_id,
+        "name": char.get("name", ""),
+        "power_tier": tier_name,
+        "tier_description": tier_desc,
+        "profession_id": prof_id,
+        "profession_name": profession_name,
+        "age": char.get("age", ""),
+        "cast_role": char.get("cast_role", ""),
+        "inventory": inventory,
+        "items_active_count": len(items_active),
+        "items_lost_count": len(items_lost),
+        "notable_skills": char.get("notable_skills", []),
+        "speech_profile": char.get("speech_profile", {}),
+        "runtime_state": char.get("runtime_state", {}),
+    }
+
+
+# ── Profession & Skill Tree CRUD ──────────────────────────────────
+
+class ProfessionUpsertBody(BaseModel):
+    tier_name: str = Field(min_length=1, max_length=100)
+    profession: dict[str, Any] = Field(default_factory=dict)  # {id, name, tagline, flavor, exclusive_faction_id, notes}
+
+
+class SkillNodeBody(BaseModel):
+    tier_name: str = Field(min_length=1, max_length=100)
+    subclass_id: str = ""  # empty = general tier skill tree
+    node: dict[str, Any] = Field(default_factory=dict)
+
+
+@app.get("/api/worlds/{world_id}/power-system/professions")
+def api_list_professions(world_id: str) -> dict[str, Any]:
+    """List all professions grouped by tier."""
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    ps = w.power_system.profession_system
+    result = {}
+    for block in ps.by_tier:
+        result[block.tier_name] = [p.model_dump(mode="json") for p in block.professions]
+    return {"world_id": world_id, "professions_by_tier": result, "total_tiers": len(result)}
+
+
+@app.post("/api/worlds/{world_id}/power-system/professions")
+def api_add_profession(world_id: str, body: ProfessionUpsertBody) -> dict[str, Any]:
+    """Add or update a profession entry in a specific tier."""
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    prof_data = body.profession
+    prof_id = str(prof_data.get("id", "")).strip()
+    if not prof_id:
+        raise HTTPException(status_code=400, detail="profession.id is required")
+
+    ps = w.power_system.profession_system
+    # Find or create the tier block
+    block = next((b for b in ps.by_tier if b.tier_name == body.tier_name), None)
+    if block is None:
+        from worldforger.schemas import TierProfessionBlock
+        block = TierProfessionBlock(tier_name=body.tier_name)
+        ps.by_tier.append(block)
+
+    # Upsert: update existing or append new
+    existing_idx = next((i for i, p in enumerate(block.professions) if p.id == prof_id), None)
+    from worldforger.schemas import ProfessionEntry
+    entry = ProfessionEntry(
+        id=prof_id,
+        name=str(prof_data.get("name", "")).strip(),
+        tagline=str(prof_data.get("tagline", "")).strip(),
+        flavor=str(prof_data.get("flavor", "")).strip(),
+        exclusive_faction_id=str(prof_data.get("exclusive_faction_id", "")).strip(),
+        notes=str(prof_data.get("notes", "")).strip(),
+    )
+    if existing_idx is not None:
+        block.professions[existing_idx] = entry
+        action = "updated"
+    else:
+        block.professions.append(entry)
+        action = "added"
+
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {"ok": True, "action": action, "tier_name": body.tier_name, "profession_id": prof_id, "world": w.model_dump(mode="json")}
+
+
+@app.delete("/api/worlds/{world_id}/power-system/professions/{profession_id}")
+def api_delete_profession(world_id: str, profession_id: str) -> dict[str, Any]:
+    """Delete a profession entry from all tiers."""
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    removed = 0
+    for block in w.power_system.profession_system.by_tier:
+        before = len(block.professions)
+        block.professions = [p for p in block.professions if p.id != profession_id]
+        removed += before - len(block.professions)
+
+    if removed == 0:
+        raise HTTPException(status_code=404, detail="profession not found in any tier")
+
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {"ok": True, "removed": removed, "profession_id": profession_id, "world": w.model_dump(mode="json")}
+
+
+@app.post("/api/worlds/{world_id}/power-system/skill-nodes")
+def api_add_skill_node(world_id: str, body: SkillNodeBody) -> dict[str, Any]:
+    """Add a skill node to a specific tier's skill tree or subclass path."""
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    tier = next((t for t in w.power_system.tiers if t.name == body.tier_name), None)
+    if tier is None:
+        raise HTTPException(status_code=404, detail=f"tier '{body.tier_name}' not found")
+
+    node_data = body.node
+    node_id = str(node_data.get("id", "")).strip()
+    if not node_id:
+        raise HTTPException(status_code=400, detail="node.id is required")
+
+    from worldforger.schemas import SkillNode
+
+    # Upsert a single node
+    def _upsert_node(nodes: list, nd: dict) -> str:
+        nid = nd["id"]
+        existing = next((i for i, n in enumerate(nodes) if n.id == nid), None)
+        sn = SkillNode(
+            id=nid,
+            name=str(nd.get("name", "")).strip(),
+            summary=str(nd.get("summary", "")).strip(),
+            description=str(nd.get("description", "")).strip(),
+            prereq_ids=nd.get("prereq_ids") if isinstance(nd.get("prereq_ids"), list) else [],
+            branch=str(nd.get("branch", "")).strip(),
+            effect=str(nd.get("effect", "")).strip(),
+            cost=str(nd.get("cost", "")).strip(),
+            activation_rules=str(nd.get("activation_rules", "")).strip(),
+        )
+        if existing is not None:
+            nodes[existing] = sn
+            return "updated"
+        else:
+            nodes.append(sn)
+            return "added"
+
+    if body.subclass_id:
+        sub = next((s for s in (tier.subclass_paths or []) if s.id == body.subclass_id), None)
+        if sub is None:
+            raise HTTPException(status_code=404, detail=f"subclass '{body.subclass_id}' not found in tier '{body.tier_name}'")
+        action = _upsert_node(sub.skill_tree, node_data)
+        target = f"subclass:{body.subclass_id}"
+    else:
+        action = _upsert_node(tier.skill_tree, node_data)
+        target = "tier general"
+
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {"ok": True, "action": action, "node_id": node_id, "tier_name": body.tier_name, "target": target, "world": w.model_dump(mode="json")}
+
+
+@app.delete("/api/worlds/{world_id}/power-system/skill-nodes/{node_id}")
+def api_delete_skill_node(world_id: str, node_id: str) -> dict[str, Any]:
+    """Delete a skill node from all tiers and subclass paths."""
+    try:
+        w = load_world(world_id)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="world not found") from None
+
+    removed = 0
+    for tier in w.power_system.tiers:
+        before = len(tier.skill_tree)
+        tier.skill_tree = [n for n in tier.skill_tree if n.id != node_id]
+        removed += before - len(tier.skill_tree)
+        for sub in (tier.subclass_paths or []):
+            before_sub = len(sub.skill_tree)
+            sub.skill_tree = [n for n in sub.skill_tree if n.id != node_id]
+            removed += before_sub - len(sub.skill_tree)
+
+    if removed == 0:
+        raise HTTPException(status_code=404, detail="skill node not found in any tier")
+
+    w.bump_version()
+    save_world(w, export_markdown=False)
+    return {"ok": True, "removed": removed, "node_id": node_id, "world": w.model_dump(mode="json")}
 
 
 @app.post("/api/worlds/{world_id}/ecology-generate")

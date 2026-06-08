@@ -92,6 +92,18 @@ def drain_timing_log() -> list[dict[str, Any]]:
     return result
 
 
+def last_finish_reason() -> str:
+    """Return the finish_reason of the most recent LLM call, or '' if none."""
+    if _CALL_LOG:
+        return _CALL_LOG[-1].get("finish_reason", "") or ""
+    return ""
+
+
+def any_finish_reason_was_length() -> bool:
+    """Check if ANY call since last drain had finish_reason='length'."""
+    return any(entry.get("finish_reason") == "length" for entry in _CALL_LOG)
+
+
 def _client() -> AsyncOpenAI | None:
     key = api_key()
     if not key:
@@ -131,10 +143,13 @@ async def chat_completion(
         )
     choice = resp.choices[0].message
     content = choice.content or ""
+    finish = getattr(choice, 'finish_reason', '') or ''
+    # Store finish_reason in timing record for truncation detection
+    if _CALL_LOG:
+        _CALL_LOG[-1]["finish_reason"] = finish
     if resp.usage:
         record_token_usage(label, resp.usage)
     else:
-        # Fallback: estimate from chars when API doesn't return usage
         record_token_usage(label, prompt_chars=prompt_chars, completion_chars=len(content))
     return content
 

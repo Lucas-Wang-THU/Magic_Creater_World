@@ -160,6 +160,9 @@
         <button type="button" data-view="storyAudit" title="一致性审校与情感弧线">
           <span class="ms nav-ic" aria-hidden="true">verified</span>审校
         </button>
+        <button type="button" data-view="storyAgent" title="角色 Agent 决策分析：质量评分、决策回溯、偏离追踪">
+          <span class="ms nav-ic" aria-hidden="true">psychology</span>Agent
+        </button>
         <button type="button" data-view="storyStats" title="写作统计仪表盘：字数、进度、伏笔、情感">
           <span class="ms nav-ic" aria-hidden="true">monitoring</span>统计
         </button>
@@ -414,6 +417,30 @@
                   ><input type="checkbox" id="storyChatToggleUnified" /> 统一后处理</label
                 >
               </div>
+              <div class="row story-write-row">
+                <label class="muted lbl-ic tiny"
+                  ><input type="checkbox" id="storyChatToggleUnified" /> 统一后处理</label
+                >
+              </div>
+              <!-- 角色 Agent 涌现叙事 -->
+              <div class="agent-panel" id="storyChatAgentPanel">
+                <div class="agent-panel-head">
+                  <span class="agent-panel-title">&#x1F9E0; 角色 Agent 涌现叙事</span>
+                  <label class="switch-label">
+                    <input type="checkbox" id="storyChatToggleAgents" />
+                    <span class="switch-track"></span>
+                  </label>
+                </div>
+                <p class="agent-panel-desc">让角色在粗纲框架内自主决策互动，叙事从角色行为中涌现。</p>
+                <div class="agent-panel-controls">
+                  <span class="muted tiny">互动轮数</span>
+                  <select id="storyChatAgentMaxRounds">
+                    <option value="2">2</option><option value="3">3</option>
+                    <option value="4" selected>4</option><option value="6">6</option><option value="8">8</option>
+                  </select>
+                  <span id="storyChatAgentStatus" style="margin-left:auto"></span>
+                </div>
+              </div>
                   <div class="story-budget-bar" id="storyChatBudgetBar" style="display:none">
                     <span class="story-budget-total" id="storyChatBudgetTotal"></span>
                     <span class="story-budget-detail" id="storyChatBudgetDetail"></span>
@@ -643,6 +670,25 @@
               </button>
             </div>
             <div id="powerSubSystem" class="power-subview" role="tabpanel">
+              <div class="power-batch-hint" id="powerBatchHint" style="margin:8px 12px;padding:10px 14px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;font-size:0.78rem;color:#92400e;line-height:1.5">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+                  <strong>&#x26A0; 复杂体系建议分批构建</strong>
+                  <button type="button" class="btn-sm" onclick="togglePowerBatchGuide()" style="font-size:0.7rem;padding:2px 8px">收起</button>
+                </div>
+                <div id="powerBatchBody">
+                  <p style="margin:0 0 4px">分批步骤（可跟踪进度）：</p>
+                  <div class="power-batch-steps" id="powerBatchSteps">
+                    <label class="power-batch-step" id="pbsStep1"><input type="checkbox" onchange="updatePowerBatchProgress()"> 1. 讨论整体境界框架（名称、递进逻辑）</label>
+                    <label class="power-batch-step" id="pbsStep2"><input type="checkbox" onchange="updatePowerBatchProgress()"> 2. 逐境界细化技能树节点（每次 1-2 境）</label>
+                    <label class="power-batch-step" id="pbsStep3"><input type="checkbox" onchange="updatePowerBatchProgress()"> 3. 完善职业体系与流派差异</label>
+                  </div>
+                  <div class="power-batch-progress" id="powerBatchProgress" style="display:none;margin-top:6px">
+                    <div class="power-batch-progress-bar"><div class="power-batch-progress-fill" id="powerBatchFill" style="width:0%"></div></div>
+                    <span class="muted tiny" id="powerBatchProgressText" style="margin-top:2px;display:block"></span>
+                  </div>
+                  <p style="margin:4px 0 0;font-size:0.72rem">每次对话后使用<strong>「结构化同步」</strong>落盘。一次性输出过于庞大的 JSON 容易导致同步失败。</p>
+                </div>
+              </div>
               <div class="inpanel-viz">
                 <p class="viz-subtitle">各境界名称、描述、典型能力、限制与例子可在卡片中编辑；与「技能树」子页 tiers JSON 同步</p>
                 <div id="vizPowerSystemModules" class="viz-modules" aria-label="境界体系可视化"></div>
@@ -1470,6 +1516,25 @@
                   ><input type="checkbox" id="storyToggleUnified" /> 统一后处理</label
                 >
               </div>
+              <!-- 角色 Agent 涌现叙事 -->
+              <div class="agent-panel" id="storyAgentPanel">
+                <div class="agent-panel-head">
+                  <span class="agent-panel-title">&#x1F9E0; 角色 Agent 涌现叙事</span>
+                  <label class="switch-label">
+                    <input type="checkbox" id="storyToggleAgents" />
+                    <span class="switch-track"></span>
+                  </label>
+                </div>
+                <p class="agent-panel-desc">让角色在粗纲框架内自主决策互动，叙事从角色行为中涌现。</p>
+                <div class="agent-panel-controls">
+                  <span class="muted tiny">互动轮数</span>
+                  <select id="storyAgentMaxRounds">
+                    <option value="2">2</option><option value="3">3</option>
+                    <option value="4" selected>4</option><option value="6">6</option><option value="8">8</option>
+                  </select>
+                  <span id="storyAgentStatus" style="margin-left:auto"></span>
+                </div>
+              </div>
               <div class="story-budget-bar" id="storyBudgetBar" style="display:none">
                 <span class="story-budget-total" id="storyBudgetTotal"></span>
                 <span class="story-budget-detail" id="storyBudgetDetail"></span>
@@ -1493,6 +1558,31 @@
               <div id="timingBreakdownWrite" class="timing-panel-wrap" style="display:none"></div>
             </div>
             <div id="storyPaneStats" class="story-pane hidden"></div>
+            <!-- Agent 决策分析面板 -->
+            <div id="storyPaneAgent" class="story-pane hidden">
+              <div class="agent-toolbar">
+                <span class="agent-toolbar-title">&#x1F9E0; 角色 Agent 决策分析</span>
+                <select id="storyAgentChapterSelect" class="story-audit-head-select" onchange="refreshAgentPanel()"></select>
+              </div>
+              <div class="agent-dashboard" id="storyAgentGrid">
+                <div class="agent-card" id="agentQualityCard">
+                  <div class="agent-card-head">&#x1F4CA; 叙事质量趋势</div>
+                  <div id="agentQualityChart"></div>
+                </div>
+                <div class="agent-card" id="agentDecisionsCard">
+                  <div class="agent-card-head">&#x1F9E0; 角色决策序列</div>
+                  <div id="agentDecisionList"></div>
+                </div>
+                <div class="agent-card" id="agentDeviationCard">
+                  <div class="agent-card-head">&#x26A0; 节拍偏离追踪</div>
+                  <div id="agentDeviationList"></div>
+                </div>
+                <div class="agent-card" id="agentStatesCard">
+                  <div class="agent-card-head">&#x1F465; 角色 Agent 状态总览</div>
+                  <div id="agentStatesList"></div>
+                </div>
+              </div>
+            </div>
 
               </div>
               <aside class="story-wb-context" id="storyWbContext" aria-label="写作上下文">
@@ -1656,5 +1746,17 @@
       crossorigin="anonymous"
     ></script>
     <script type="module" src="/static/app.js"></script>
+  <!-- Character Detail Overlay -->
+  <div id="charDetailOverlay" class="char-detail-overlay hidden" onclick="if(event.target===this)window.closeCharDetail()">
+    <div class="char-detail-panel" id="charDetailPanel" onclick="event.stopPropagation()">
+      <div class="char-detail-head">
+        <h2 id="charDetailName" class="char-detail-name"></h2>
+        <button class="char-detail-close" onclick="window.closeCharDetail()" title="关闭 (Esc)">
+          <span class="ms" aria-hidden="true" style="font-size:20px">close</span>
+        </button>
+      </div>
+      <div class="char-detail-body" id="charDetailBody"></div>
+    </div>
+  </div>
   </body>
 </html>

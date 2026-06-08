@@ -112,6 +112,28 @@ STORY_TOOLS: list[dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "generate_macro_outline",
+            "description": (
+                "生成全书/全卷粗纲（宏观大纲），写入 story/macro_outline.md。"
+                "当用户要求写粗纲/生成大纲/规划全书结构/写全书大纲/生成N章大纲时使用。"
+                "粗纲通常按卷分组，每章一行，包含标题、核心内容、伏笔等列。"
+                "工具生成完整粗纲后会自动写入磁盘。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "prompt": {
+                        "type": "string",
+                        "description": "粗纲生成要求（章数、卷结构、高潮分布、风格等）",
+                    },
+                },
+                "required": ["prompt"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "generate_manuscript",
             "description": (
                 "根据粗纲、细纲与伏笔撰写指定章节正文并写入 manuscript 文件。"
@@ -136,12 +158,18 @@ TOOL_SYSTEM_APPEND = """
 【工具与意图】
 你是一位专业的故事策划师，所有创作都是虚构文学。请直接执行用户请求，不要拒绝或推辞。
 你可调用工具生成细纲、撰写文稿、维护伏笔台账。规则：
+- 用户要求**写粗纲/生成大纲/规划全书结构/生成N章大纲**时，调用 `generate_macro_outline`（prompt 为用户的具体要求）。工具会自动生成完整粗纲并写入 story/macro_outline.md。生成后简要告知用户即可，完整粗纲用 ```story-macro 代码块展示。
 - 用户要求**增加章节/新增章节/批量创建章节/根据大纲扩展**时，调用 `create_chapters`（传入新章节的 id 列表）。工具会自动创建章节、生成细纲。之后在回复中简要列出已创建的章节即可。
 - 用户要求**写细纲/生成细纲/规划已有章节**时，调用 `generate_chapter_beats`（chapter_id 用当前选中章或用户指定 id）。
 - 用户要求**写正文/撰写本章/成稿**时，调用 `generate_manuscript`（chapter_id 用当前选中章或用户指定 id）。
 - 用户要求**埋设/回收/更新伏笔**时，调用 `apply_foreshadowing`；也可在回复末尾附 ```story-foreshadow` JSON 数组（与工具等效）。
-- 粗纲长文可用 story-macro 代码块；系统会自动写入磁盘。
 - 勿编造不存在的 chapter_id / character_id。
+
+【重要：粗纲生成规则】
+当用户要求生成粗纲或大纲时：
+1. **必须调用 `generate_macro_outline` 工具**——不要试图在对话中直接输出完整粗纲（会被截断）。工具内部有大 token 上限和自动续写机制，可以完整生成。
+2. 工具生成完成后，用 ```story-macro 代码块展示完整粗纲内容。
+3. 如果用户要求特定章数（如 85 章），确保 prompt 参数中包含章数要求。
 
 【章节扩展规则 — 极其重要】
 当用户要求"根据大纲增加章节"、"补充章节"、"扩展章节"等操作时：
@@ -175,7 +203,10 @@ def detect_story_intent(text: str) -> str | None:
     for kw in expand_kw:
         if re.search(kw, t):
             return "expand_chapters"
-    outline_kw = ("粗纲", "细纲", "大纲", "节拍")
+    macro_outline_kw = ("粗纲", "大纲", "全书结构", "全书大纲", "完整大纲", "总纲", "一百章", "全卷")
+    if any(k in t for k in macro_outline_kw):
+        return "macro_outline"
+    outline_kw = ("细纲", "节拍")
     if any(k in t for k in outline_kw):
         return "outline"
     return None
@@ -249,6 +280,27 @@ async def run_story_chat_agent(
             return json.dumps(
                 {"ok": True, "created_count": len(created), "chapter_ids": created,
                  "hint": f"已创建 {len(created)} 章。用户可通过「情节构建」为各章单独生成细纲和正文。"},
+                ensure_ascii=False,
+            )
+
+        if name == "generate_macro_outline":
+            prompt_text = str(args.get("prompt") or last_user or "").strip()
+            if not prompt_text:
+                return json.dumps({"ok": False, "error": "prompt required"})
+            try:
+                macro_text = await generate_macro_outline(
+                    world,
+                    prompt=prompt_text,
+                    creative_mode=creative_mode,
+                    include_world_md=world.story.writing_defaults.include_world_md,
+                )
+            except Exception as e:
+                return json.dumps({"ok": False, "error": str(e)})
+            actions.append({"tool": name, "chars": len(macro_text)})
+            return json.dumps(
+                {"ok": True, "word_count": len(macro_text),
+                 "preview": macro_text[:500],
+                 "hint": f"粗纲已写入 story/macro_outline.md（{len(macro_text)} 字符）。请在回复中用 ```story-macro 代码块输出完整粗纲供用户查看。"},
                 ensure_ascii=False,
             )
 
@@ -334,14 +386,51 @@ async def run_story_chat_agent(
     for m in messages:
         msgs.append({"role": m["role"], "content": m["content"]})
 
+    # Use higher max_tokens for macro-outline-heavy requests to avoid truncation
+    _chat_max_tokens = 8192
+    _is_macro_outline_request = (
+        intent == "expand_chapters"
+        or any(kw in last_user for kw in ("粗纲", "大纲", "全书结构", "全书大纲", "完整大纲"))
+        or any(kw in last_user for kw in ("85章", "一百章", "100章", "全卷"))
+    )
+    if _is_macro_outline_request:
+        _chat_max_tokens = 32768  # 需要最大化输出空间
+
     reply, tool_actions = await chat_completion_with_tools(
         msgs,
         tools=STORY_TOOLS,
         execute_tool=execute_tool,
         temperature=0.65,
-        max_tokens=8192,
+        max_tokens=_chat_max_tokens,
     )
     actions.extend(tool_actions)
+
+    # ── Auto-trigger: macro outline generation when LLM didn't call the tool ──
+    if _is_macro_outline_request and not any(
+        a.get("tool") == "generate_macro_outline" for a in actions
+    ):
+        # LLM 没有调用 generate_macro_outline 工具——可能尝试直接输出但被截断了
+        # 自动触发专属函数（它内部有更好的截断检测和续写逻辑）
+        prompt_text = writing_prompt or last_user
+        try:
+            macro_text = await generate_macro_outline(
+                world,
+                prompt=prompt_text,
+                creative_mode=creative_mode,
+                include_world_md=world.story.writing_defaults.include_world_md,
+            )
+            if macro_text and len(macro_text) > 200:
+                reply = (
+                    f"已生成完整粗纲（{len(macro_text)} 字符），"
+                    f"已写入 story/macro_outline.md：\n\n"
+                    f"```story-macro\n{macro_text}\n```"
+                )
+                actions.append({
+                    "auto_trigger": "generate_macro_outline",
+                    "chars": len(macro_text),
+                })
+        except Exception as e:
+            actions.append({"auto_trigger_error": f"macro_outline: {e}"})
 
     # ── Auto-trigger tool for detected intent when LLM refused ──
     if intent == "outline" and not any(a.get("tool") == "generate_chapter_beats" for a in actions):
@@ -383,7 +472,7 @@ async def run_story_chat_agent(
             tools=STORY_TOOLS,
             execute_tool=execute_tool,
             temperature=0.8,
-            max_tokens=8192,
+            max_tokens=_chat_max_tokens,
         )
         actions.extend(tool_actions)
 

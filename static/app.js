@@ -38,6 +38,7 @@ const STORY_NAV_VIEWS = {
   storyForeshadow: "foreshadow",
   storyWrite: "write",
   storyAudit: "audit",
+  storyAgent: "agent",
   storyStats: "stats",
 };
 
@@ -48,6 +49,7 @@ const STORY_NAV_LABELS = {
   storyForeshadow: "伏笔",
   storyWrite: "写作",
   storyAudit: "审校",
+  storyAgent: "Agent",
   storyStats: "统计",
 };
 
@@ -59,6 +61,7 @@ const STORY_SUB_TO_NAV = {
   write: "storyWrite",
   audit: "storyAudit",
   stats: "storyStats",
+  agent: "storyAgent",
 };
 
 function isStoryPanelView(name) {
@@ -187,6 +190,253 @@ function applyWorldviewPanelEditMode(panelId) {
   });
   if (panelId === "charProtagonists" || panelId === "charSupporting") refreshCharactersVizFromForm();
 }
+
+// ── Character Detail Panel ──────────────────────────────────────
+
+async function openCharDetail(charId) {
+  if (!state.world?.meta?.id) return;
+  const wid = state.world.meta.id;
+  const overlay = $("charDetailOverlay");
+  const body = $("charDetailBody");
+  const nameEl = $("charDetailName");
+  if (!overlay || !body) return;
+
+  overlay.classList.remove("hidden");
+  body.innerHTML = '<p class="muted" style="padding:20px;text-align:center">加载中…</p>';
+
+  try {
+    const res = await api(`/api/worlds/${wid}/characters/${charId}/detail`);
+    nameEl.textContent = res.name || charId;
+
+    // Build tier/profession options from world data
+    const tiers = state.world.power_system?.tiers || [];
+    const tierOpts = tiers.map(t => `<option value="${escapeHtml(t.name)}" ${res.power_tier===t.name?'selected':''}>${escapeHtml(t.name)}</option>`).join("");
+    const profs = [];
+    (state.world.power_system?.profession_system?.by_tier || []).forEach(b =>
+      (b.professions||[]).forEach(p => profs.push({...p, tier_name: b.tier_name})));
+    const profOpts = profs.map(p =>
+      `<option value="${escapeHtml(p.id)}" ${res.profession_id===p.id?'selected':''}>${escapeHtml(p.tier_name||'')} · ${escapeHtml(p.name)}</option>`
+    ).join("");
+
+    const inv = res.inventory || [];
+    const invRows = inv.map((item, i) => `
+      <div class="cd-inv-row ${item.status==='已失去'?'cd-inv-lost':''}">
+        <div class="cd-inv-main">
+          <input class="cd-inv-name" value="${escapeAttr(item.name||'')}" placeholder="物品名" data-inv-idx="${i}" data-inv-field="name">
+          <input class="cd-inv-desc" value="${escapeAttr(item.description||'')}" placeholder="描述" data-inv-idx="${i}" data-inv-field="description">
+          <input class="cd-inv-usage" value="${escapeAttr(item.usage||'')}" placeholder="用法/效果" data-inv-idx="${i}" data-inv-field="usage">
+        </div>
+        <div class="cd-inv-meta">
+          <input class="cd-inv-qty" type="number" min="1" value="${item.quantity||1}" data-inv-idx="${i}" data-inv-field="quantity" style="width:50px" title="数量">
+          <input class="cd-inv-src" value="${escapeAttr(item.source_chapter||'')}" placeholder="来源章" data-inv-idx="${i}" data-inv-field="source_chapter" style="width:70px" title="来源章节">
+          <select data-inv-idx="${i}" data-inv-field="status" style="font-size:0.72rem">
+            <option value="携带中" ${item.status==='携带中'?'selected':''}>携带中</option>
+            <option value="已使用" ${item.status==='已使用'?'selected':''}>已使用</option>
+            <option value="已失去" ${item.status==='已失去'?'selected':''}>已失去</option>
+            <option value="已损坏" ${item.status==='已损坏'?'selected':''}>已损坏</option>
+          </select>
+          <button class="btn-sm cd-inv-del" onclick="deleteInvItem(this,${i})" title="移除此物品"><span class="ms" aria-hidden="true" style="font-size:16px">delete</span></button>
+        </div>
+      </div>
+    `).join("");
+
+    body.innerHTML = `
+      <div class="cd-grid">
+        <div class="cd-field">
+          <label class="cd-label"><span class="ms cd-field-ic" aria-hidden="true">theater_comedy</span> 角色定位</label>
+          <span class="cd-val">${escapeHtml(res.cast_role||'—')}</span>
+        </div>
+        <div class="cd-field">
+          <label class="cd-label"><span class="ms cd-field-ic" aria-hidden="true">calendar_today</span> 年龄</label>
+          <input id="cdAge" class="cd-input" value="${escapeAttr(res.age||'')}" placeholder="未知">
+        </div>
+        <div class="cd-field">
+          <label class="cd-label"><span class="ms cd-field-ic" aria-hidden="true">bolt</span> 力量境界</label>
+          <select id="cdPowerTier" class="cd-select" title="选择角色当前所属的境界等级">${tierOpts}</select>
+          ${res.tier_description ? `<p class="cd-hint">${escapeHtml(res.tier_description.slice(0,120))}</p>` : ''}
+        </div>
+        <div class="cd-field">
+          <label class="cd-label"><span class="ms cd-field-ic" aria-hidden="true">school</span> 职业</label>
+          <select id="cdProfession" class="cd-select" title="选择角色在力量体系中的职业"><option value="">— 无 —</option>${profOpts}</select>
+        </div>
+      </div>
+      <div class="cd-section">
+        <div class="cd-section-head">
+          <span class="cd-section-title"><span class="ms cd-field-ic" aria-hidden="true">inventory_2</span> 物品清单 <span class="cd-badge">${inv.length}</span></span>
+          <button class="btn-sm btn-ic cd-add-btn" onclick="window.addInvItem()" title="添加新物品到清单">
+            <span class="ms" aria-hidden="true" style="font-size:16px">add</span> 添加物品
+          </button>
+        </div>
+        <div class="cd-inv-list" id="cdInvList">${invRows||'<p class="muted tiny" style="padding:12px;text-align:center">暂无物品，点击「添加物品」开始记录</p>'}</div>
+        <div class="cd-inv-legend">
+          <span class="cd-legend-dot cd-legend-active"></span> 携带中
+          <span class="cd-legend-dot cd-legend-used"></span> 已使用
+          <span class="cd-legend-dot cd-legend-lost"></span> 已失去
+          <span class="cd-legend-dot cd-legend-damaged"></span> 已损坏
+        </div>
+      </div>
+      <div class="cd-actions">
+        <button class="primary btn-ic cd-save-btn" onclick="window.saveCharDetail('${charId}')" title="将修改保存到 world.json">
+          <span class="ms" aria-hidden="true" style="font-size:18px">save</span> 保存角色详情
+        </button>
+        <button class="btn-ic cd-cancel-btn" onclick="window.closeCharDetail()" title="关闭面板（不保存未提交的修改）">
+          <span class="ms" aria-hidden="true" style="font-size:18px">close</span> 取消
+        </button>
+        <span id="cdSaveStatus" class="muted tiny" style="margin-left:8px"></span>
+      </div>
+    `;
+    // Store charId for save
+    overlay.dataset.charId = charId;
+  } catch(e) {
+    body.innerHTML = `<p class="muted">加载失败：${escapeHtml(String(e.message||e))}</p>`;
+  }
+}
+window.openCharDetail = openCharDetail;
+
+function closeCharDetail() {
+  const overlay = $("charDetailOverlay");
+  if (overlay) overlay.classList.add("hidden");
+}
+window.closeCharDetail = closeCharDetail;
+
+// ESC key to close
+document.addEventListener("keydown", function(e) {
+  if (e.key === "Escape") {
+    const overlay = $("charDetailOverlay");
+    if (overlay && !overlay.classList.contains("hidden")) closeCharDetail();
+  }
+});
+
+function addInvItem() {
+  const list = $("cdInvList");
+  if (!list) return;
+  const idx = list.querySelectorAll(".cd-inv-row").length;
+  const row = document.createElement("div");
+  row.className = "cd-inv-row";
+  row.innerHTML = `
+    <div class="cd-inv-main">
+      <input class="cd-inv-name" placeholder="物品名" data-inv-idx="${idx}" data-inv-field="name">
+      <input class="cd-inv-desc" placeholder="描述" data-inv-idx="${idx}" data-inv-field="description">
+      <input class="cd-inv-usage" placeholder="用法/效果" data-inv-idx="${idx}" data-inv-field="usage">
+    </div>
+    <div class="cd-inv-meta">
+      <input type="number" min="1" value="1" data-inv-idx="${idx}" data-inv-field="quantity" style="width:50px" title="数量">
+      <input value="" placeholder="来源章" data-inv-idx="${idx}" data-inv-field="source_chapter" style="width:70px" title="来源章节">
+      <select data-inv-idx="${idx}" data-inv-field="status" style="font-size:0.72rem">
+        <option value="携带中" selected>携带中</option>
+        <option value="已使用">已使用</option>
+        <option value="已失去">已失去</option>
+        <option value="已损坏">已损坏</option>
+      </select>
+      <button class="btn-sm cd-inv-del" onclick="this.closest('.cd-inv-row').remove()">×</button>
+    </div>`;
+  list.appendChild(row);
+  // Remove empty placeholder if present
+  const empty = list.querySelector("p.muted");
+  if (empty) empty.remove();
+}
+window.addInvItem = addInvItem;
+
+function deleteInvItem(btn, idx) {
+  btn.closest(".cd-inv-row")?.remove();
+}
+window.deleteInvItem = deleteInvItem;
+
+async function saveCharDetail(charId) {
+  if (!state.world?.meta?.id) return;
+  const wid = state.world.meta.id;
+  const statusEl = $("cdSaveStatus");
+  if (statusEl) statusEl.textContent = "保存中…";
+
+  // Collect inventory
+  const invRows = document.querySelectorAll("#cdInvList .cd-inv-row");
+  const inventory = [];
+  invRows.forEach(row => {
+    const item = {};
+    row.querySelectorAll("[data-inv-field]").forEach(el => {
+      item[el.dataset.invField] = el.value;
+    });
+    if (item.name) {
+      item.quantity = parseInt(item.quantity) || 1;
+      inventory.push(item);
+    }
+  });
+
+  const body = {
+    power_tier: $("cdPowerTier")?.value || "",
+    profession_id: $("cdProfession")?.value || "",
+    age: $("cdAge")?.value || "",
+    inventory: inventory,
+  };
+
+  try {
+    const res = await api(`/api/worlds/${wid}/characters/${charId}`, {
+      method: "PATCH", body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      state.world = res.world;
+      if (statusEl) { statusEl.textContent = "已保存"; statusEl.className = "agent-status-active tiny"; }
+      // Refresh roster if visible
+      setTimeout(() => { if (statusEl) { statusEl.textContent = ""; } }, 2000);
+    }
+  } catch(e) {
+    if (statusEl) { statusEl.textContent = "保存失败: " + e.message; statusEl.className = "muted tiny"; }
+  }
+}
+window.saveCharDetail = saveCharDetail;
+
+// Hook: click character card to open detail
+document.addEventListener("click", function(e) {
+  const card = e.target.closest(".char-roster-card");
+  if (card) {
+    const codeEl = card.querySelector(".char-roster-code");
+    if (codeEl) openCharDetail(codeEl.textContent.trim());
+  }
+});
+
+// ── Power System Batch Progress Tracker ─────────────────────────
+
+function togglePowerBatchGuide() {
+  const body = $("powerBatchBody");
+  const btn = document.querySelector("#powerBatchHint button");
+  if (!body || !btn) return;
+  if (body.style.display === "none") {
+    body.style.display = "";
+    btn.textContent = "收起";
+  } else {
+    body.style.display = "none";
+    btn.textContent = "展开";
+  }
+}
+
+function updatePowerBatchProgress() {
+  const steps = document.querySelectorAll("#powerBatchSteps input[type=checkbox]");
+  const progressDiv = $("powerBatchProgress");
+  const fillEl = $("powerBatchFill");
+  const textEl = $("powerBatchProgressText");
+  if (!steps.length || !fillEl || !textEl || !progressDiv) return;
+  const done = Array.from(steps).filter(cb => cb.checked).length;
+  const total = steps.length;
+  const pct = Math.round(done / total * 100);
+  fillEl.style.width = pct + "%";
+  textEl.textContent = `${done}/${total} 步完成 (${pct}%)`;
+  progressDiv.style.display = done > 0 ? "" : "none";
+  // Persist to localStorage
+  try {
+    const state = Array.from(steps).map(cb => cb.checked);
+    localStorage.setItem("mcw_power_batch_progress", JSON.stringify(state));
+  } catch (_) {}
+}
+
+// Restore progress on page load
+(function _restorePowerBatchProgress() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("mcw_power_batch_progress") || "[]");
+    const steps = document.querySelectorAll("#powerBatchSteps input[type=checkbox]");
+    steps.forEach((cb, i) => { if (saved[i]) cb.checked = true; });
+    if (saved.some(Boolean)) updatePowerBatchProgress();
+  } catch (_) {}
+})();
 
 function applyAllWorldviewEditModes() {
   for (const id of WORLDVIEW_EDIT_PANEL_IDS) applyWorldviewPanelEditMode(id);
@@ -353,7 +603,23 @@ function renderCharCastCardEditHtml(ent, variant = "protagonists") {
   const spAvoid = Array.isArray(sp.avoidance_topics) ? sp.avoidance_topics.join("，") : "";
   const spSilence = String(sp.silence_meaning || "");
   const spStress = String(sp.under_stress || "");
-  const avIc = variant === "supporting" ? "person" : "badge";
+  // Select avatar icon based on character data: power_tier > profession > cast_role
+  const tierName = String(ent?.power_tier || "").trim();
+  const profId = String(ent?.profession_id || "").trim();
+  const tierIcons = {
+    "拓雾者": "visibility", "凝痕者": "fingerprint", "塑脉师": "psychology",
+    "锻脉师": "build", "域主": "domain", "逆理行者": "auto_awesome",
+    "共鸣体": "hub", "同尘": "blur_on",
+  };
+  const roleIcons = {
+    protagonist_core: "star", protagonist: "star",
+    supporting_major: "person", supporting_minor: "person_outline",
+    antagonist: "skull", background: "public",
+  };
+  const avIc = tierIcons[tierName]
+    || tierIcons[Object.keys(tierIcons).find(k => tierName.includes(k)) || ""]
+    || (profId ? "school" : "")
+    || roleIcons[roleRaw] || (variant === "supporting" ? "person" : "badge");
   return `<article class="char-roster-card char-roster-card--edit" data-char-edit-card="1" data-char-entity-id="${escapeAttr(
     idRaw
   )}" style="--char-card-hue:${hue}">
@@ -366,7 +632,12 @@ function renderCharCastCardEditHtml(ent, variant = "protagonists") {
             <input type="text" class="char-roster-field-ctrl" data-char-field="name" value="${escapeAttr(
               String(ent?.name ?? "").trim()
             )}" autocomplete="off" spellcheck="true" /></label>
-          <div class="char-roster-idline"><span class="char-roster-k">id</span><code class="char-roster-code">${id}</code></div>
+          <div class="char-roster-idline">
+            <span class="char-roster-k">id</span><code class="char-roster-code">${id}</code>
+            <button class="char-roster-detail-btn" onclick="event.stopPropagation();window.openCharDetail('${escapeAttr(idRaw)}')" title="查看角色详情（力量境界/职业/物品）">
+              <span class="ms" aria-hidden="true" style="font-size:16px">info</span>
+            </button>
+          </div>
         </div>
         <div class="char-roster-edit-head-actions">
           <label class="char-roster-field char-roster-field--inline"><span class="char-roster-field-lbl">卡司位</span>
@@ -611,7 +882,22 @@ function renderCharCastCardHtml(ent, opts = {}) {
     facRow || homeRow
       ? `<section class="char-roster-block char-roster-block--meta" aria-label="引用锚点"><div class="char-roster-block-hd">边界 · 引用锚点</div><div class="char-roster-block-bd">${facRow}${homeRow}</div></section>`
       : "";
-  const avIc = opts.variant === "supporting" ? "person" : "badge";
+  const tierName2 = String(ent?.power_tier || "").trim();
+  const profId2 = String(ent?.profession_id || "").trim();
+  const tierIcons2 = {
+    "拓雾者": "visibility", "凝痕者": "fingerprint", "塑脉师": "psychology",
+    "锻脉师": "build", "域主": "domain", "逆理行者": "auto_awesome",
+    "共鸣体": "hub", "同尘": "blur_on",
+  };
+  const roleIcons2 = {
+    protagonist_core: "star", protagonist: "star",
+    supporting_major: "person", supporting_minor: "person_outline",
+    antagonist: "skull", background: "public",
+  };
+  const avIc = tierIcons2[tierName2]
+    || tierIcons2[Object.keys(tierIcons2).find(k => tierName2.includes(k)) || ""]
+    || (profId2 ? "school" : "")
+    || roleIcons2[roleRaw] || (opts.variant === "supporting" ? "person" : "badge");
   return `<article class="char-roster-card" style="--char-card-hue:${hue}">
     <div class="char-roster-card-rim" aria-hidden="true"></div>
     <div class="char-roster-card-inner">
@@ -619,10 +905,19 @@ function renderCharCastCardHtml(ent, opts = {}) {
         <div class="char-roster-avatar" aria-hidden="true"><span class="ms char-roster-avatar-ic">${avIc}</span></div>
         <div class="char-roster-head-main">
           <h3 class="char-roster-name">${name}</h3>
-          <div class="char-roster-idline"><span class="char-roster-k">id</span><code class="char-roster-code">${id}</code></div>
+          <div class="char-roster-idline">
+            <span class="char-roster-k">id</span><code class="char-roster-code">${id}</code>
+            <button class="char-roster-detail-btn" onclick="event.stopPropagation();window.openCharDetail('${escapeAttr(idRaw)}')" title="查看角色详情（力量境界/职业/物品）">
+              <span class="ms" aria-hidden="true" style="font-size:16px">info</span>
+            </button>
+          </div>
         </div>
         <span class="char-roster-role-chip" title="cast_role">${roleLab}</span>
       </header>
+      ${(tierName2 || profId2) ? `<div class="char-roster-tags">
+        ${tierName2 ? `<span class="char-roster-tier-tag" title="力量境界"><span class="ms" aria-hidden="true" style="font-size:14px;vertical-align:-3px">bolt</span> ${escapeHtml(tierName2)}</span>` : ''}
+        ${profId2 ? `<span class="char-roster-prof-tag" title="职业"><span class="ms" aria-hidden="true" style="font-size:14px;vertical-align:-3px">school</span> ${escapeHtml(profId2)}</span>` : ''}
+      </div>` : ''}
       ${
         aliasesStr
           ? `<section class="char-roster-block"><div class="char-roster-block-hd">别名 aliases</div><div class="char-roster-block-bd char-roster-aliases">${aliasesStr}</div></section>`
@@ -1936,6 +2231,14 @@ function renderPowerTierSystemModules(w) {
             lims.join("\n"),
             "每行一条限制或代价",
             "lims",
+            4
+          )}
+          ${htmlPowerTierEditableField(
+            "activation_rules",
+            "&#x1F4CB; 发动规则（作者书写）",
+            tier.activation_rules || "",
+            "角色必须 100% 满足的条件才能使用本境界能力。该规则将在故事 Agent 决策前自动校验。\n例如：完成刻痕仪式 + 凝痕节点稳定 ≥ 3 天 + 雾蚀浓度 ≥ 中等",
+            "rules",
             4
           )}
           ${htmlPowerTierEditableField(
@@ -3714,6 +4017,14 @@ function refreshContextPanel() {
   if (rawEl) rawEl.textContent = JSON.stringify(w, null, 2);
   void refreshSnapshotPanel();
   void refreshTokenUsagePanel();
+  // Refresh token usage when the details panel is reopened
+  const tokenDetails = $("ctxTokenUsage");
+  if (tokenDetails && !tokenDetails._tokenToggleBound) {
+    tokenDetails._tokenToggleBound = true;
+    tokenDetails.addEventListener("toggle", () => {
+      if (tokenDetails.open) void refreshTokenUsagePanel();
+    });
+  }
   applyAllWorldviewEditModes();
 }
 
@@ -4004,6 +4315,14 @@ function storyMetaToForm() {
   if ($("storyChatToggleChunking")) $("storyChatToggleChunking").checked = wd.enable_scene_chunking !== false;
   if ($("storyToggleUnified")) $("storyToggleUnified").checked = wd.enable_unified_extractors === true;
   if ($("storyChatToggleUnified")) $("storyChatToggleUnified").checked = wd.enable_unified_extractors === true;
+  if ($("storyToggleAgents")) $("storyToggleAgents").checked = wd.enable_character_agents === true;
+  if ($("storyChatToggleAgents")) $("storyChatToggleAgents").checked = wd.enable_character_agents === true;
+  if ($("storyAgentMaxRounds")) $("storyAgentMaxRounds").value = String(wd.agent_max_rounds ?? 4);
+  if ($("storyChatAgentMaxRounds")) $("storyChatAgentMaxRounds").value = String(wd.agent_max_rounds ?? 4);
+  // Update agent panel visual state
+  _updateAgentPanelUI(wd.enable_character_agents === true);
+  // Sync agent toggles between panels
+  _bindAgentToggleSync();
   if ($("storyToggleKnowledge")) $("storyToggleKnowledge").checked = wd.enable_knowledge_track !== false;
   if ($("storyToggleDecisions")) $("storyToggleDecisions").checked = wd.enable_decision_track !== false;
   if ($("storyTogglePhysical")) $("storyTogglePhysical").checked = wd.enable_physical_state_track !== false;
@@ -4095,6 +4414,50 @@ function storyChapterOptionLabel(c, displayRow) {
   const status = (c.status || "planned").trim();
   const beatMark = displayRow?.has_beat === false ? "" : " · 有细纲";
   return `${c.order}. ${title}（${status}${beatMark}）`;
+}
+
+// ── Agent Panel UI ──────────────────────────────────────────────
+
+let _agentToggleSyncBound = false;
+
+function _updateAgentPanelUI(active) {
+  const panels = document.querySelectorAll('.agent-panel');
+  panels.forEach(p => p.classList.toggle('active', active));
+  const statusEls = [
+    $("storyAgentStatus"), $("storyChatAgentStatus"),
+  ];
+  statusEls.forEach(el => {
+    if (el) {
+      el.textContent = active ? '已激活' : '未激活';
+      el.className = active ? 'agent-status-active tiny' : 'agent-status-idle tiny';
+    }
+  });
+}
+
+function _bindAgentToggleSync() {
+  if (_agentToggleSyncBound) return;
+  _agentToggleSyncBound = true;
+  const writeToggle = $("storyToggleAgents");
+  const chatToggle = $("storyChatToggleAgents");
+  const writeRounds = $("storyAgentMaxRounds");
+  const chatRounds = $("storyChatAgentMaxRounds");
+
+  const sync = (srcToggle, dstToggle, srcRounds, dstRounds) => {
+    if (!srcToggle || !dstToggle) return;
+    srcToggle.addEventListener('change', () => {
+      dstToggle.checked = srcToggle.checked;
+      _updateAgentPanelUI(srcToggle.checked);
+      if (srcRounds && dstRounds) dstRounds.value = srcRounds.value;
+    });
+  };
+
+  sync(writeToggle, chatToggle, writeRounds, chatRounds);
+  sync(chatToggle, writeToggle, chatRounds, writeRounds);
+
+  if (writeRounds && chatRounds) {
+    writeRounds.addEventListener('change', () => { chatRounds.value = writeRounds.value; });
+    chatRounds.addEventListener('change', () => { writeRounds.value = chatRounds.value; });
+  }
 }
 
 function refreshStoryChapterSelects(chaptersDisplay) {
@@ -4246,6 +4609,7 @@ function setStorySubView(name) {
     write: "storyPaneWrite",
     audit: "storyPaneAudit",
     stats: "storyPaneStats",
+    agent: "storyPaneAgent",
   };
   for (const [key, pid] of Object.entries(panes)) {
     $(pid)?.classList.toggle("hidden", key !== name);
@@ -4254,6 +4618,7 @@ function setStorySubView(name) {
   if (name === "chapter") void loadStoryManuscript();
   if (name === "write") renderRuntimeStates();
   if (name === "stats") void renderStoryStats();
+  if (name === "agent") void refreshAgentPanel();
   if (name === "audit") {
     // Sync audit chapter select to active chapter
     const auditSel = $("storyAuditChapterSelect");
@@ -4489,7 +4854,7 @@ async function refreshSentimentArc() {
       logsEl.innerHTML = '<p class="muted tiny" style="padding:8px 14px">暂无情感数据</p>';
     }
   } catch (e) {
-    // silent
+    console.error("refreshSentimentArc failed:", e);
   }
 }
 
@@ -4520,6 +4885,145 @@ function buildSentimentChartHtml(chartData) {
   </div>`;
 }
 
+
+// ── Agent 决策分析面板 ──────────────────────────────────────
+
+async function refreshAgentPanel() {
+  if (!state.world?.meta?.id) return;
+  const wid = state.world.meta.id;
+
+  // Populate chapter select
+  const sel = $("storyAgentChapterSelect");
+  if (sel) {
+    const chapters = sortedStoryChapters();
+    sel.innerHTML = chapters.map(c =>
+      `<option value="${c.id}" ${c.id === state.storyActiveChapterId ? 'selected' : ''}>第${c.order}章 ${escapeHtml(c.title || c.id)}</option>`
+    ).join("");
+  }
+  const chId = sel?.value || state.storyActiveChapterId;
+  if (!chId) return;
+
+  try {
+    // Fetch agent decisions
+    const decRes = await api(`/api/worlds/${wid}/story/agent-decisions/${chId}`);
+    // Fetch agent states
+    const statesRes = await api(`/api/worlds/${wid}/agents`);
+
+    // Render quality chart (multi-chapter trend)
+    _renderAgentQualityChart(wid);
+
+    // Render decision sequence
+    _renderAgentDecisionList(decRes);
+
+    // Render deviation tracking
+    _renderAgentDeviationList(decRes);
+
+    // Render agent states overview
+    _renderAgentStatesList(statesRes);
+  } catch (e) {
+    console.error("refreshAgentPanel failed:", e);
+    const grid = $("storyAgentGrid");
+    if (grid) grid.innerHTML = '<p class="muted tiny" style="padding:16px">Agent 数据暂不可用。请先生成至少一章，或检查 Agent 系统是否启用。</p>';
+  }
+}
+
+async function _renderAgentQualityChart(wid) {
+  const container = $("agentQualityChart");
+  if (!container) return;
+  try {
+    // Try to get quality history for POV character
+    const povId = state.world?.story?.narrator?.character_id || "ch_yunhe";
+    const res = await api(`/api/worlds/${wid}/agents/${povId}/quality-history`);
+    const chapters = res.chapters || [];
+    if (!chapters.length) {
+      container.innerHTML = '<p class="muted tiny">暂无质量数据。请生成章节以积累评分。</p>';
+      return;
+    }
+    const grades = {A:5, B:4, C:3, D:2, F:1};
+    const gradeColors = {A:"#16a34a", B:"#6366f1", C:"#f59e0b", D:"#f97316", F:"#dc2626"};
+    container.innerHTML = '<div class="agent-quality-bars">' +
+      chapters.slice(-12).map(ch => {
+        const g = ch.grade || '?';
+        const color = gradeColors[g] || '#94a3b8';
+        const h = Math.max(8, (ch.overall || 0) * 0.8);
+        return `<div class="aq-bar-col" title="${ch.chapter_id}: ${ch.overall}分 ${g}级\n节奏:${ch.scores?.pacing||0} 弧光:${ch.scores?.character_arc||0} 对话:${ch.scores?.dialog||0}">
+          <div class="aq-bar-grade" style="color:${color}">${g}</div>
+          <div class="aq-bar-fill" style="height:${h}%;background:${color}20;border-top:3px solid ${color}"></div>
+          <div class="aq-bar-label">${(ch.chapter_id||'').replace('ch','')||'?'}</div>
+        </div>`;
+      }).join("") +
+      '<div class="aq-legend">' +
+      Object.entries(gradeColors).map(([g,c]) => `<span style="color:${c};margin:0 4px">${g}级</span>`).join("") +
+      '</div></div>';
+  } catch (e) {
+    container.innerHTML = '<p class="muted tiny">质量数据加载失败</p>';
+  }
+}
+
+function _renderAgentDecisionList(decRes) {
+  const container = $("agentDecisionList");
+  if (!container) return;
+  const chars = decRes?.characters || {};
+  const charIds = Object.keys(chars);
+  if (!charIds.length) {
+    container.innerHTML = '<p class="muted tiny">该章节暂无 Agent 决策数据。</p>';
+    return;
+  }
+  const toneLabels = {"positive":"正面","negative":"负面","tense":"紧张","calm":"平静","mixed":"混合"};
+  container.innerHTML = charIds.map(cid => {
+    const cd = chars[cid];
+    const decs = cd.decisions || [];
+    const name = decs[0]?.character_id || cid;
+    return `<div class="ad-char-block">
+      <div class="ad-char-name">&#x1F9E0; ${escapeHtml(name)} <span class="muted tiny">(${cd.count} 个决策)</span></div>
+      ${decs.slice(0, 4).map((d,i) => `
+        <div class="ad-decision">
+          <span class="ad-round">R${(d.decision_round||0)+1}</span>
+          ${d.intended_speech ? `<span class="ad-speech">"${escapeHtml(d.intended_speech)}"</span>` : ''}
+          ${d.intended_action ? `<span class="ad-action">${escapeHtml(d.intended_action)}</span>` : ''}
+          ${d.emotional_shift ? `<span class="ad-emotion">${escapeHtml(d.emotional_shift)}</span>` : ''}
+          ${d.hidden_intent ? `<span class="ad-intent" title="隐藏意图">${escapeHtml(d.hidden_intent)}</span>` : ''}
+        </div>
+      `).join("")}
+    </div>`;
+  }).join("");
+}
+
+function _renderAgentDeviationList(decRes) {
+  const container = $("agentDeviationList");
+  if (!container) return;
+  // Deviation data comes from the quality history
+  container.innerHTML = '<p class="muted tiny">节拍偏离数据在每次生成时记录到终端日志。查看终端 <code>[MCW-AGENT]</code> 输出获取详细信息。</p>';
+}
+
+function _renderAgentStatesList(statesRes) {
+  const container = $("agentStatesList");
+  if (!container) return;
+  const agents = statesRes?.agents || {};
+  const ids = Object.keys(agents);
+  if (!ids.length) {
+    container.innerHTML = '<p class="muted tiny">暂无 Agent 状态。请先启用角色 Agent 并生成至少一章。</p>';
+    return;
+  }
+  container.innerHTML = ids.map(cid => {
+    const a = agents[cid];
+    const pressureColor = a.pressure_level > 60 ? '#dc2626' : a.pressure_level > 30 ? '#f59e0b' : '#16a34a';
+    return `<div class="as-card">
+      <div class="as-card-head">
+        <strong>${escapeHtml(a.name || cid)}</strong>
+        <span class="as-pressure" style="color:${pressureColor}">压力 ${a.pressure_level}</span>
+      </div>
+      <div class="as-card-body">
+        <div class="as-row"><span>情绪</span><span>${escapeHtml(a.emotional_state || '—')}</span></div>
+        <div class="as-row"><span>目标</span><span>${escapeHtml(a.current_goal || '—')}</span></div>
+        <div class="as-row"><span>位置</span><span>${escapeHtml(a.current_location || '—')}</span></div>
+        <div class="as-row"><span>决策总数</span><span>${a.total_decisions_made || 0}</span></div>
+        <div class="as-row"><span>后遗症</span><span>${a.active_aftermaths_count || 0} 项活跃</span></div>
+        <div class="as-row"><span>最后章节</span><span>${a.last_chapter || '—'}</span></div>
+      </div>
+    </div>`;
+  }).join("");
+}
 
 // ── 角色运行时状态渲染 ──────────────────────────────────────
 
@@ -4796,6 +5300,10 @@ async function _saveWritingDefaultsFromForm() {
     ),
     enable_scene_chunking: $("storyToggleChunking")?.checked ?? $("storyChatToggleChunking")?.checked,
     enable_unified_extractors: $("storyToggleUnified")?.checked ?? $("storyChatToggleUnified")?.checked,
+    enable_character_agents: $("storyToggleAgents")?.checked ?? $("storyChatToggleAgents")?.checked ?? false,
+    agent_max_rounds: parseInt(
+      $("storyAgentMaxRounds")?.value || $("storyChatAgentMaxRounds")?.value || "4", 10
+    ),
   };
   try {
     const res = await api(`/api/worlds/${state.world.meta.id}/story/writing-defaults`, {
@@ -5920,6 +6428,8 @@ async function generateStoryManuscriptFromUI(opts = {}) {
                 const timingContainerId = useChat ? "timingBreakdownChat" : "timingBreakdownWrite";
                 showTimingBreakdown(event.timing_breakdown, timingContainerId);
               }
+              // Refresh sentiment arc after generation (may have been updated by post-hooks)
+              void refreshSentimentArc();
               // Replace streamed text with polished version when available
               if (event.polished_text) {
                 fullText = event.polished_text;
@@ -5995,6 +6505,8 @@ async function generateStoryManuscriptFromUI(opts = {}) {
         const timingContainerId = useChat ? "timingBreakdownChat" : "timingBreakdownWrite";
         showTimingBreakdown(res.timing_breakdown, timingContainerId);
       }
+      // Refresh sentiment arc after generation
+      void refreshSentimentArc();
       if (opts.navigate !== false) switchView("storyChapter");
     }
   } catch (e) {
@@ -7432,6 +7944,7 @@ async function init() {
     state.messages.push({ role: "assistant", content: res.reply });
     renderMessages();
     setThinking(false);
+    void refreshTokenUsagePanel();  // update cumulative token display
 
     let shouldPersist = false;
     let syncUpdatedSections = null;

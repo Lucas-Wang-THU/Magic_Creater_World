@@ -94,8 +94,9 @@ The app opens automatically at `http://127.0.0.1:8765`. Start building your worl
 | 🧠 **Semantic Memory (RAG)** | Local vector index (ChromaDB) with semantic retrieval of prior narrative fragments for coherence |
 | 🔍 **Data Tools** | Full-text search, reference consistency linting & auto-fix, world.json version snapshots with diff & rollback, chapter version snapshots |
 | 📤 **Multi-format Export** | Auto-generated `world.md`; EPUB / DOCX / Markdown full-book export; outlines written to `outlines/` |
-| 📈 **Writing Stats Dashboard** | Chart.js visualization: word count progress, chapter completion, foreshadowing status, sentiment distribution |
-| ⏱️ **LLM Timing Analysis** | Per-generation timing breakdown showing LLM call duration for each stage (outline/beats/manuscript/summary/KG/sentiment) |
+| 📈 **Writing Stats Dashboard** | Chart.js visualization: word count, chapter completion, foreshadowing status, sentiment distribution |
+| 🧠 **Character Agent Emergent Narrative** | 15+ module Agent system: character decision engine, multi-character scene simulator, single-POV filter, quality scoring (A-F), multi-chapter semi-autonomous runner |
+| ⏱️ **LLM Timing Analysis** | Per-generation timing breakdown showing LLM call duration for each stage |
 | 💾 **Local-First** | All data lives on your disk — no cloud service required |
 
 </div>
@@ -204,7 +205,7 @@ sequenceDiagram
 
 ## Story Writing Multi-Agent Orchestra
 
-The story writing module uses a **Multi-Agent Orchestra** architecture, where 10+ specialized agents collaborate to take a chapter from outline to polished manuscript. Each agent has a single responsibility and independently tuned temperature, achieving high efficiency and quality through **parallel post-processing** and an **optional feedback loop**.
+The story writing module uses a **Multi-Agent Orchestra** architecture, where 15+ specialized agents collaborate to take a chapter from outline to polished manuscript. Each agent has a single responsibility and independently tuned temperature, achieving high efficiency and quality through **parallel post-processing** and an **optional feedback loop**. New: **Character Agent Emergent Narrative System** — important characters have independent LLM-driven decision engines; narrative emerges from autonomous character interactions.
 
 ### Agent Collaboration Architecture
 
@@ -326,6 +327,11 @@ flowchart TB
 | **Polisher Agent** | Consistency-audit ↔ polish feedback loop (up to N rounds), 9 hard rules for de-AI-ification (dash restraint / paragraph merging / sentence variation / show-don't-tell / etc.), original ↔ polished side-by-side diff comparison |
 | **Creative Modes** | Novel / Game / CoC / DnD — each injects different system prompts and terminology |
 | **One-click Ecology** | Auto-generate ecology settings from current world context |
+| **Character Agent System** | 15+ modules: LLM decision engine, scene simulator, POV filter, intent leak detection, emotional contagion, dialog quality scoring, beat deviation coordination, WorldClock, shadow influence, 5-dim quality evaluator (A-F), 3-tier autonomy (Advisor/Semi/Full), multi-chapter runner |
+| **Chinese Punctuation Norm** | Deterministic rule engine (zero token cost): fullwidth/halfwidth unification, quote pairing, ellipsis/dash fixes |
+| **Truncation Auto-Continuation** | Detects LLM output truncation → up to 5 rounds of auto-continuation → wrap-up paragraph |
+| **Macro Outline Large Token** | 32768 max_tokens + auto-continuation for 85+ chapter outlines |
+| **Terminal Error Logging** | Global HTTP/Validation/Unhandled exception handlers — UI errors printed to terminal |
 
 ### 🔧 Data Tools
 
@@ -523,21 +529,20 @@ worldforger/
   ├─ chapter_indexer.py              ← ChromaDB RAG
   ├─ consistency_checker.py, sentiment_tracker.py, narrative_kg.py  ← Analysis
   ├─ reference_linter.py, world_search.py  ← Tools
+  ├─ punctuation_normalize.py        ← Chinese punctuation norm
   │
   ├─ story/              ← Story system (7 files)
   │   ├─ story_service.py    ← Generation core
   │   ├─ story_agent.py      ← Chat agent with tools
-  │   ├─ story_prompts.py    ← All LLM prompts (~1,700 lines)
-  │   ├─ story_store.py      ← File I/O for chapters/beats
-  │   ├─ story_chapter_sync.py ← Chapter reconciliation
-  │   ├─ story_chat_artifacts.py ← Code block auto-apply
-  │   └─ foreshadow_apply.py ← Foreshadowing operations
+  │   ├─ story_prompts.py    ← All LLM prompts (~2,000 lines)
+  │   └─ ...
+  │
+  ├─ agents/             ← Character Agent system (17 files)
+  │   ├─ character_agent.py, scene_simulator.py, pov_filter.py
+  │   ├─ quality_evaluator.py, autonomy.py, chapter_runner.py
+  │   └─ ...
   │
   └─ sync/               ← Structured sync (4 files)
-      ├─ panel_sync.py        ← Second-pass sync + proofreader
-      ├─ panel_merge.py       ← Incremental merge logic
-      ├─ structure_normalize.py ← JSON normalization
-      └─ patch_validator.py   ← Patch validation
 
 app/
   └─ main.py             ← FastAPI routes (all /api/* endpoints)
@@ -573,6 +578,7 @@ worlds/
     │   ├── arc_summaries/     ← Rolling arc summaries (every 10 chapters)
     │   ├── knowledge_graph.json ← Character knowledge graph
     │   └── token_usage.json   ← Token usage statistics
+    ├── agents/            ← Character agent states (agent_state.json / decision_log.jsonl)
     ├── sessions/           ← Chat session logs (optional)
     └── snapshots/          ← Version snapshots
         ├── v001.json
@@ -625,7 +631,15 @@ worlds/
 | `GET` | `/api/worlds/{id}/story/chapters/{chapter_id}/snapshots/diff` | Line-level diff between chapter snapshots |
 | `GET` | `/api/worlds/{id}/story/export` | Export full book (epub/docx/md) |
 | `GET` | `/api/worlds/{id}/story/stats` | Writing statistics (word count / progress / foreshadowing / sentiment) |
-| `PATCH` | `/api/worlds/{id}/story/writing-defaults` | Toggle writing enhancement switches (KG / audit / sentiment / polisher / max rounds) |
+| `PATCH` | `/api/worlds/{id}/story/writing-defaults` | Toggle writing switches (KG/audit/sentiment/polisher/character agents/max rounds) |
+| `POST` | `/api/worlds/{id}/story/generate/multi-chapter` | Multi-chapter semi-autonomous run |
+| `GET` | `/api/worlds/{id}/story/quality-benchmark` | Quality benchmark report |
+| `GET` | `/api/worlds/{id}/story/agent-decisions/{ch}` | Agent decision logs |
+| `GET` | `/api/worlds/{id}/agents` | List all agent states |
+| `GET` | `/api/worlds/{id}/agents/{char_id}` | Agent detail |
+| `POST` | `/api/worlds/{id}/agents/init` | Initialize agents from world.json |
+| `POST` | `/api/worlds/{id}/agents/{char_id}/reset` | Reset agent state |
+| `GET` | `/api/worlds/{id}/agents/{char_id}/quality-history` | Agent quality history |
 | `*` | `/api/worlds/{id}/story/*` | Story CRUD (chapters, outlines, beats, manuscripts, foreshadowing) |
 
 ---
@@ -633,7 +647,7 @@ worlds/
 ## Testing
 
 ```bash
-python -m pytest tests -q
+python -m pytest tests -q  # 538 tests
 ```
 
 For VS Code / Cursor debugging, use the included `.vscode/launch.json` configurations (F5). Install `debugpy` if missing.
