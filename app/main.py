@@ -2429,6 +2429,7 @@ class CharacterDetailBody(BaseModel):
     profession_id: str | None = None
     age: str | None = None
     inventory: list[dict[str, Any]] | None = None
+    attributes: dict[str, int] | None = None  # {stat_id: value}
 
 
 @app.patch("/api/worlds/{world_id}/characters/{character_id}")
@@ -2474,6 +2475,12 @@ def api_update_character_detail(
                 })
         char["inventory"] = inv
         updated_fields.append("inventory")
+    if body.attributes is not None:
+        existing = char.get("attributes", {}) or {}
+        for stat_id, val in body.attributes.items():
+            existing[str(stat_id)] = max(0, min(100, int(val)))
+        char["attributes"] = existing
+        updated_fields.append("attributes")
 
     w.bump_version()
     save_world(w, export_markdown=False)
@@ -2520,6 +2527,20 @@ def api_get_character_detail(world_id: str, character_id: str) -> dict[str, Any]
     items_active = [i for i in inventory if i.get("status") != "已失去"]
     items_lost = [i for i in inventory if i.get("status") == "已失去"]
 
+    # Build attribute values with stat names
+    char_attrs = char.get("attributes", {}) or {}
+    attr_details = []
+    for stat in w.attribute_system.stats:
+        val = char_attrs.get(stat.id, stat.reference_percent)
+        attr_details.append({
+            "stat_id": stat.id,
+            "name": stat.name,
+            "abbreviation": stat.abbreviation,
+            "value": val,
+            "reference_percent": stat.reference_percent,
+            "intro": stat.intro,
+        })
+
     return {
         "character_id": character_id,
         "name": char.get("name", ""),
@@ -2529,6 +2550,8 @@ def api_get_character_detail(world_id: str, character_id: str) -> dict[str, Any]
         "profession_name": profession_name,
         "age": char.get("age", ""),
         "cast_role": char.get("cast_role", ""),
+        "attributes": attr_details,
+        "attributes_count": len(attr_details),
         "inventory": inventory,
         "items_active_count": len(items_active),
         "items_lost_count": len(items_lost),

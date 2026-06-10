@@ -100,14 +100,17 @@ def build_character_system_prompt(state: CharacterAgentState) -> str:
         for inj in injuries[:3]:
             parts.append(f"- {inj}")
 
-    # Activation rules — inject if provided by caller via state extension
-    activation_info = getattr(state, '_activation_rules_context', None)
-    if activation_info:
-        parts.append(f"\n## 你的能力发动规则（必须严格遵守）")
-        parts.append("以下是你当前所掌握能力的发动条件。你**不能**在条件不满足时使用这些能力。")
-        parts.append("如果你不确定条件是否满足，默认假设**不满足**。")
-        for rule in activation_info:
-            parts.append(f"- {rule}")
+    # ── Character capabilities: skills, items, attributes, activation rules ──
+    capabilities = getattr(state, '_activation_rules_context', None)
+    if capabilities:
+        for line in capabilities:
+            parts.append(line)
+        parts.append(f"\n【战斗/冲突中的能力使用规则】")
+        parts.append("1. 你可以使用上面列出的任何技能——但必须满足其发动条件。")
+        parts.append("2. 你可以使用携带的物品——描述你如何使用它，以及它产生的效果。")
+        parts.append("3. 当与其他角色发生对抗时，参考你的属性值：属性高的一方更有优势，但不能保证必胜。")
+        parts.append("4. 属性差距 > 20 点时才有明显优势；差距 < 10 点时结果更多取决于策略和环境。")
+        parts.append("5. 你不应该说出属性数值——用叙事描述代替（如'他的体能远超常人'而非'他的VIT是85'）。")
 
     parts.extend([
         f"",

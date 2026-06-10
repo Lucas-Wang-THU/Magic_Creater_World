@@ -2021,12 +2021,13 @@ button.ghost {
 #vizFactionHost.faction-global-host,
 #vizCulturesHost.faction-global-host {
   width: 100%;
+  height: 420px;
   min-height: 280px;
-  max-height: min(58vh, 560px);
+  max-height: min(62vh, 600px);
   overflow: hidden;
-  background: transparent;
-  border: none;
-  border-radius: 0;
+  background: #fafbfd;
+  border: 1px solid #e8ecf1;
+  border-radius: 8px;
 }
 
 /* 地理区域网络（地理页） */
@@ -2161,6 +2162,8 @@ button.ghost {
   border-color: #c7d2fe;
   color: #334155;
 }
+
+.panel-subtab-badge { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 18px; background: #6366f1; color: #fff; border-radius: 9px; font-size: 0.65rem; font-weight: 700; padding: 0 5px; margin-left: 4px; vertical-align: middle; }
 
 .panel-subtab.is-active {
   border-color: #818cf8;
@@ -3366,12 +3369,13 @@ label.tiny {
 
 .faction-global-host {
   width: 100%;
+  height: 420px;
   min-height: 280px;
-  max-height: min(58vh, 560px);
+  max-height: min(62vh, 600px);
   overflow: hidden;
-  background: transparent;
-  border: none;
-  border-radius: 0;
+  background: #fafbfd;
+  border: 1px solid #e8ecf1;
+  border-radius: 8px;
 }
 
 .faction-global-toolbar {
@@ -7444,6 +7448,20 @@ textarea.json-editor-tiny {
 .cd-legend-damaged { background: #8b5cf6; }
 .cd-inv-del { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer; color: #94a3b8; transition: all 0.15s; }
 .cd-inv-del:hover { background: #fef2f2; border-color: #fecaca; color: #ef4444; }
+
+/* Character attributes */
+.cd-attr-list { display: flex; flex-direction: column; gap: 10px; }
+.cd-attr-row { background: #f8fafc; border-radius: 8px; padding: 10px 12px; border: 1px solid #f1f5f9; }
+.cd-attr-info { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+.cd-attr-name { font-size: 0.8rem; font-weight: 600; color: #334155; }
+.cd-attr-abbr { font-size: 0.65rem; color: #6366f1; background: #eef2ff; padding: 1px 5px; border-radius: 4px; font-weight: 600; }
+.cd-attr-val { font-size: 0.8rem; font-weight: 700; color: #6366f1; margin-left: auto; min-width: 28px; text-align: right; }
+.cd-attr-intro { font-size: 0.65rem; color: #94a3b8; cursor: help; border: 1px solid #d1d5db; border-radius: 50%; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; }
+.cd-attr-bar-wrap { position: relative; }
+.cd-attr-slider { width: 100%; height: 6px; -webkit-appearance: none; appearance: none; background: #e2e8f0; border-radius: 3px; outline: none; cursor: pointer; }
+.cd-attr-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #6366f1; cursor: pointer; border: 2px solid #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+.cd-attr-ticks { display: flex; justify-content: space-between; font-size: 0.58rem; color: #cbd5e1; padding: 2px 2px 0; position: relative; }
+.cd-attr-ref { position: absolute; color: #f59e0b; font-size: 0.65rem; transform: translateX(-50%); top: 0; }
 
 /* ── Power batch progress ── */
 .power-batch-step { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 0.76rem; cursor: pointer; }

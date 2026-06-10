@@ -867,8 +867,8 @@ async def _generate_manuscript_with_agents(
         )
 
     # Step 7: Create agent instances and run simulation
-    # Inject activation rules from world power_system into agent states
-    _inject_activation_rules(agent_states, world)
+    # Inject character capabilities (skills, items, attributes, activation rules)
+    _inject_character_capabilities(agent_states, world)
 
     agents = {
         cid: CharacterAgent(
@@ -1080,18 +1080,21 @@ def _char_agent_temp(char_id: str) -> float:
     return _TEMP_MAP.get(char_id, 0.55)
 
 
-def _inject_activation_rules(
+def _inject_character_capabilities(
     agent_states: dict, world,
 ) -> None:
-    """Inject power_system activation rules into each character agent's state.
+    """Inject character capabilities into each agent state for combat/conflict.
 
-    For each character, find the tier they belong to (based on their
-    runtime_state or notable_skills) and attach the tier's activation_rules
-    and skill node activation_rules as a `_activation_rules_context` attribute.
+    Injects four categories:
+    1. Skills — from power_system tier's skill_tree/subclass_paths
+    2. Inventory — from character.inventory (items with usage descriptions)
+    3. Attributes — from character.attributes {stat_id: value}
+    4. Activation rules — from power_system tier/skill_node activation_rules
+
+    All stored as `_activation_rules_context` for the character prompt builder.
     """
     tiers = getattr(getattr(world, 'power_system', None), 'tiers', None) or []
-    if not tiers:
-        return
+    attr_stats = getattr(getattr(world, 'attribute_system', None), 'stats', None) or []
 
     for cid, state in agent_states.items():
         rules: list[str] = []
@@ -1101,39 +1104,79 @@ def _inject_activation_rules(
             (e for e in (getattr(world, 'characters', None) and getattr(world.characters, 'entities', None) or [])
              if isinstance(e, dict) and e.get('id') == cid), None
         )
+        if not char_ent:
+            continue
 
-        # Determine character's tier from notable_skills or runtime_state
-        skills = char_ent.get('notable_skills', []) if char_ent else []
+        # ── 1. Skills ──
+        char_tier_name = char_ent.get('power_tier', '')
         known_skill_ids = set()
-        for s in skills:
-            if isinstance(s, str):
-                # Check if any skill node name appears in the skill string
-                for tier in tiers:
-                    for sn in (tier.skill_tree or []):
-                        if sn.name and sn.name in s:
-                            known_skill_ids.add(sn.id)
-                    for sp in (tier.subclass_paths or []):
-                        for sn in (sp.skill_tree or []):
-                            if sn.name and sn.name in s:
-                                known_skill_ids.add(sn.id)
-
-        # Collect tier-level activation rules
-        for tier in tiers:
-            # If character has skills from this tier, apply its activation rules
-            tier_skill_ids = {sn.id for sn in (tier.skill_tree or [])}
-            for sp in (tier.subclass_paths or []):
-                tier_skill_ids.update(sn.id for sn in (sp.skill_tree or []))
-            if known_skill_ids & tier_skill_ids:
-                if getattr(tier, 'activation_rules', None) and str(tier.activation_rules).strip():
-                    rules.append(f"【{tier.name}境】{tier.activation_rules.strip()}")
-                # Also add per-node activation rules
+        if char_tier_name:
+            tier = next((t for t in tiers if t.name == char_tier_name), None)
+            if tier:
+                rules.append(f"\n## 你掌握的技能")
                 for sn in (tier.skill_tree or []):
-                    if sn.id in known_skill_ids and getattr(sn, 'activation_rules', None) and str(sn.activation_rules).strip():
-                        rules.append(f"【技能 {sn.name}】{sn.activation_rules.strip()}")
+                    known_skill_ids.add(sn.id)
+                    desc = f"{sn.name}"
+                    if sn.description:
+                        desc += f" — {sn.description[:80]}"
+                    if sn.cost:
+                        desc += f"（代价: {sn.cost}）"
+                    rules.append(f"- {desc}")
                 for sp in (tier.subclass_paths or []):
+                    sp_name = getattr(sp, 'name', '') or sp.id or '子流派'
                     for sn in (sp.skill_tree or []):
+                        known_skill_ids.add(sn.id)
+                        desc = f"[{sp_name}] {sn.name}"
+                        if sn.description:
+                            desc += f" — {sn.description[:80]}"
+                        if sn.cost:
+                            desc += f"（代价: {sn.cost}）"
+                        rules.append(f"- {desc}")
+
+        # ── 2. Inventory ──
+        inventory = char_ent.get('inventory', []) or []
+        active_items = [i for i in inventory if i.get('status') != '已失去' and i.get('name', '').strip()]
+        if active_items:
+            rules.append(f"\n## 你携带的物品（可以在场景中使用）")
+            for item in active_items:
+                desc = f"【{item.get('name','')}】"
+                if item.get('description', '').strip():
+                    desc += f" — {item.get('description','')[:60]}"
+                if item.get('usage', '').strip():
+                    desc += f"。用法: {item.get('usage','')[:80]}"
+                if item.get('quantity', 1) > 1:
+                    desc += f"（×{item.get('quantity')}）"
+                rules.append(f"- {desc}")
+
+        # ── 3. Attributes ──
+        char_attrs = char_ent.get('attributes', {}) or {}
+        if char_attrs and attr_stats:
+            rules.append(f"\n## 你的属性值（0-100，用于对抗判定参考）")
+            for stat in attr_stats:
+                val = char_attrs.get(stat.id, stat.reference_percent)
+                rules.append(f"- {stat.name}（{stat.abbreviation or stat.id}）: {val}/100"
+                             + (f" — {stat.intro}" if stat.intro else ""))
+
+        # ── 4. Activation rules ──
+        if char_tier_name:
+            tier = next((t for t in tiers if t.name == char_tier_name), None)
+            if tier:
+                # Collect tier-level activation rules
+                tier_skill_ids = {sn.id for sn in (tier.skill_tree or [])}
+                for sp in (tier.subclass_paths or []):
+                    tier_skill_ids.update(sn.id for sn in (sp.skill_tree or []))
+                if known_skill_ids & tier_skill_ids:
+                    if getattr(tier, 'activation_rules', None) and str(tier.activation_rules).strip():
+                        rules.append(f"\n## 能力发动规则（必须严格遵守）")
+                        rules.append(f"【{tier.name}境】{tier.activation_rules.strip()}")
+                    # Per-node activation rules
+                    for sn in (tier.skill_tree or []):
                         if sn.id in known_skill_ids and getattr(sn, 'activation_rules', None) and str(sn.activation_rules).strip():
                             rules.append(f"【技能 {sn.name}】{sn.activation_rules.strip()}")
+                    for sp in (tier.subclass_paths or []):
+                        for sn in (sp.skill_tree or []):
+                            if sn.id in known_skill_ids and getattr(sn, 'activation_rules', None) and str(sn.activation_rules).strip():
+                                rules.append(f"【技能 {sn.name}】{sn.activation_rules.strip()}")
 
         if rules:
             state._activation_rules_context = rules

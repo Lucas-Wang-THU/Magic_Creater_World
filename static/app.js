@@ -260,6 +260,34 @@ async function openCharDetail(charId) {
           <select id="cdProfession" class="cd-select" title="选择角色在力量体系中的职业"><option value="">— 无 —</option>${profOpts}</select>
         </div>
       </div>
+      ${(res.attributes||[]).length ? `
+      <div class="cd-section">
+        <div class="cd-section-head">
+          <span class="cd-section-title"><span class="ms cd-field-ic" aria-hidden="true">bar_chart</span> 角色属性</span>
+          <span class="muted tiny">拖拽滑块动态调整，保存后生效</span>
+        </div>
+        <div class="cd-attr-list">
+          ${res.attributes.map(a => `
+            <div class="cd-attr-row">
+              <div class="cd-attr-info">
+                <span class="cd-attr-name">${escapeHtml(a.name)}</span>
+                ${a.abbreviation ? `<span class="cd-attr-abbr">${escapeHtml(a.abbreviation)}</span>` : ''}
+                <span class="cd-attr-val" id="cdAttrVal_${escapeAttr(a.stat_id)}">${a.value}</span>
+                ${a.intro ? `<span class="cd-attr-intro" title="${escapeHtml(a.intro)}">?</span>` : ''}
+              </div>
+              <div class="cd-attr-bar-wrap">
+                <input type="range" class="cd-attr-slider" data-attr-id="${escapeAttr(a.stat_id)}"
+                  min="0" max="100" value="${a.value}"
+                  oninput="document.getElementById('cdAttrVal_${escapeAttr(a.stat_id)}').textContent=this.value"
+                  title="${escapeHtml(a.name)}: ${a.value}/100">
+                <div class="cd-attr-ticks">
+                  <span>0</span><span>25</span><span class="cd-attr-ref" style="left:${a.reference_percent||55}%" title="参考值 ${a.reference_percent||55}">▼</span><span>75</span><span>100</span>
+                </div>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>` : '<p class="muted tiny" style="padding:8px 12px">该世界暂无属性体系定义。请在「属性」面板中创建 stats。</p>'}
       <div class="cd-section">
         <div class="cd-section-head">
           <span class="cd-section-title"><span class="ms cd-field-ic" aria-hidden="true">inventory_2</span> 物品清单 <span class="cd-badge">${inv.length}</span></span>
@@ -367,6 +395,14 @@ async function saveCharDetail(charId) {
     profession_id: $("cdProfession")?.value || "",
     age: $("cdAge")?.value || "",
     inventory: inventory,
+    // Collect attribute values from sliders
+    attributes: (() => {
+      const attrs = {};
+      document.querySelectorAll(".cd-attr-slider").forEach(slider => {
+        attrs[slider.dataset.attrId] = parseInt(slider.value) || 0;
+      });
+      return Object.keys(attrs).length > 0 ? attrs : null;
+    })(),
   };
 
   try {
@@ -1333,7 +1369,6 @@ const TIER_BLOCK_ICONS = {
 
 function tierBlockHead(title, variant) {
   const ic = TIER_BLOCK_ICONS[variant] || "label";
-  const v = variant ? escapeHtml(variant) : "";
   return `<header class="tier-viz-block__head">
     <span class="ms tier-viz-block__ic" aria-hidden="true">${ic}</span>
     <h4 class="tier-viz-h">${escapeHtml(title)}</h4>
@@ -1529,6 +1564,7 @@ function collectPowerTiersFromViz() {
       description,
       typical_capabilities: splitLines(card, "typical_capabilities"),
       limitations: splitLines(card, "limitations"),
+      activation_rules: strOf(card, "activation_rules").trim(),
       examples: splitLines(card, "examples"),
       skill_tree,
       subclass_paths,
@@ -1555,6 +1591,14 @@ function scheduleSyncPowerTiersFromVizToStateAndJson() {
     });
     updatePowerTierSkillTreePreviews(tiers);
     updatePowerProfessionPreviews(tiers, state.world.power_system.profession_system);
+    // Update profession count badge on sub-tab
+    const profBadge = $("powerProfessionCount");
+    if (profBadge) {
+      const totalProf = (state.world.power_system?.profession_system?.by_tier || [])
+        .reduce((s, b) => s + (b?.professions?.length || 0), 0);
+      profBadge.textContent = totalProf;
+      profBadge.style.display = totalProf > 0 ? "" : "none";
+    }
     document.querySelectorAll("#vizPowerProfessionModules .power-tier-viz--professions").forEach((el) => {
       const idx = Number.parseInt(el.getAttribute("data-power-tier-index") || "0", 10);
       const tn = tiers[idx]?.name;
@@ -2235,7 +2279,7 @@ function renderPowerTierSystemModules(w) {
           )}
           ${htmlPowerTierEditableField(
             "activation_rules",
-            "&#x1F4CB; 发动规则（作者书写）",
+            "\u{1F4CB} 发动规则（作者书写）",
             tier.activation_rules || "",
             "角色必须 100% 满足的条件才能使用本境界能力。该规则将在故事 Agent 决策前自动校验。\n例如：完成刻痕仪式 + 凝痕节点稳定 ≥ 3 天 + 雾蚀浓度 ≥ 中等",
             "rules",
@@ -2484,6 +2528,14 @@ function setPowerSubView(which) {
     b.setAttribute("aria-selected", on ? "true" : "false");
   });
   if (which === "professions") requestAnimationFrame(() => refreshProfessionPromotionViz());
+  // Update profession count badge on the sub-tab
+  const badge = $("powerProfessionCount");
+  if (badge) {
+    const ps = state.world?.power_system?.profession_system;
+    const total = (ps?.by_tier || []).reduce((s, b) => s + (b?.professions?.length || 0), 0);
+    badge.textContent = total;
+    badge.style.display = total > 0 ? "" : "none";
+  }
 }
 
 function setEcologySubView(which) {
@@ -5957,6 +6009,13 @@ function worldToForm(w) {
     $("powerProfessionSummary").value = w.power_system?.profession_system?.summary ?? "";
   if ($("powerProfessionDesign"))
     $("powerProfessionDesign").value = w.power_system?.profession_system?.design_notes ?? "";
+  // Update profession count badge
+  const profBadge2 = $("powerProfessionCount");
+  if (profBadge2) {
+    const tot = (w.power_system?.profession_system?.by_tier || []).reduce((s, b) => s + (b?.professions?.length || 0), 0);
+    profBadge2.textContent = tot;
+    profBadge2.style.display = tot > 0 ? "" : "none";
+  }
 
   $("itemSummary").value = w.item_quality_system?.summary ?? "";
   $("itemGradesJson").value = JSON.stringify(w.item_quality_system?.grades ?? [], null, 2);
@@ -7989,7 +8048,7 @@ async function init() {
           body: JSON.stringify({
             user_message: userMsg,
             assistant_reply: res.reply,
-            persist: false,
+            persist: true,
             scope: syncScope,
             creative_mode: $("genreMode")?.value || null,
             proofreader_max_retries: prMax,
@@ -8138,7 +8197,7 @@ async function init() {
           body: JSON.stringify({
             user_message: userMsg,
             assistant_reply: res.reply,
-            persist: false,
+            persist: true,
             scope: syncScopeForRequest(),
             creative_mode: $("genreMode")?.value || null,
             proofreader_max_retries:
@@ -8293,7 +8352,7 @@ async function init() {
         body: JSON.stringify({
           user_message: userMsg,
           assistant_reply: res.reply,
-          persist: false,
+          persist: true,
           scope: syncScope,
           creative_mode: $("genreMode")?.value || null,
           proofreader_max_retries:

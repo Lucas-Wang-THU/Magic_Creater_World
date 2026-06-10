@@ -710,6 +710,13 @@ export function renderFactionGlobalNetwork(entities, containerId) {
   if (_facGlobalNet) { _facGlobalNet.destroy(); _facGlobalNet = null; }
   container.innerHTML = "";
 
+  // Guard: check vis library is loaded
+  if (typeof vis === "undefined" || !vis.Network || !vis.DataSet) {
+    container.innerHTML = `<p class="muted" style="padding:1rem;text-align:center">vis-network 库未加载，请刷新页面重试</p>`;
+    console.error("[MCW-VIZ] vis-network not loaded — cannot render faction network");
+    return;
+  }
+
   const data = { nodes, edges };
   const options = {
     physics: { solver: "forceAtlas2Based", stabilization: { iterations: 100 } },
@@ -717,7 +724,18 @@ export function renderFactionGlobalNetwork(entities, containerId) {
     interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true },
     nodes: { borderWidth: 2, shadow: { enabled: true, size: 6 }, font: { color: "#1a1a1a" } },
   };
-  _facGlobalNet = new vis.Network(container, data, options);
+
+  try {
+    _facGlobalNet = new vis.Network(container, data, options);
+  } catch (e) {
+    console.error("[MCW-VIZ] Failed to create faction network:", e);
+    container.innerHTML = `<p class="muted" style="padding:1rem;text-align:center">派系网络渲染失败：${escapeHtml(String(e.message||e))}</p>`;
+    return;
+  }
+
+  // Force redraw after attach (fixes height:0 when rendered in hidden tab)
+  setTimeout(() => { if (_facGlobalNet) _facGlobalNet.redraw(); }, 100);
+  setTimeout(() => { if (_facGlobalNet) _facGlobalNet.fit(); }, 300);
 
   _facGlobalNet.on("click", function (params) {
     if (params.edges.length > 0) {

@@ -128,7 +128,8 @@
       "Bash(node -e ' *)",
       "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/test_layer3.py::TestStoryServiceHooks::test_consistency_check_hook -xvs --tb=short)",
       "Bash(E:/ananconda/envs/Agent/python.exe -c \"from app.main import app; print\\('API OK'\\)\")",
-      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/test_sync_repair.py -v --tb=short)"
+      "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/test_sync_repair.py -v --tb=short)",
+      "Bash(E:/ananconda/envs/Agent/python.exe d:/Magic_Creater_World/update_ragnarok_history.py)"
     ]
   }
 }
