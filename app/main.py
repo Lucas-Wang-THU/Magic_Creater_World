@@ -270,7 +270,7 @@ class SyncPanelsBody(BaseModel):
     """由「结构化同步器」读取对话，将可落盘设定合并进各板块。"""
 
     user_message: str = Field(min_length=1, max_length=16000)
-    assistant_reply: str = Field(min_length=1, max_length=64000)
+    assistant_reply: str = Field(default="", max_length=64000)
     persist: bool = False
     scope: SyncScope = "all"
     creative_mode: str | None = None
@@ -824,6 +824,18 @@ async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict
         if body.proofreader_max_retries is not None
         else get_settings().proofreader_max_retries
     )
+    if not (body.assistant_reply or "").strip():
+        return {
+            "ok": True, "world": w.model_dump(mode="json"),
+            "updated_sections": [], "applied_patch": {},
+            "structure_output_keys": [],
+            "scope_applied": body.scope,
+            "merge_warnings": ["assistant_reply 为空，跳过同步"],
+            "normalize_notes": {}, "proofreader_rounds": 0,
+            "proofreader_final_verdict": "skipped",
+            "proofreader_issues": [],
+            "format_proofreader_used": False, "format_stages": [],
+        }
     result = await sync_panels_from_dialogue(
         w,
         user_message=body.user_message,

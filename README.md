@@ -261,6 +261,46 @@ flowchart TB
   Core -.->|"手稿正本"| Output
 ```
 
+### 角色 Agent 涌现叙事系统（Phase 0-3 全部完成）
+
+让每个重要角色拥有独立的 LLM 驱动决策引擎。叙事不再由单一"作家 Agent"预先规划，而是从多个角色 Agent 在场景中的自主互动中**涌现**。
+
+**核心架构**：
+
+```
+generate_manuscript()
+  │
+  ├── enable_character_agents == true?
+  │     │
+  │     └── YES → _generate_manuscript_with_agents()
+  │               ├── OutlineConstraint.parse()        # 粗纲硬约束
+  │               ├── AgentStore.load_all_states()     # 加载角色状态
+  │               ├── _inject_character_capabilities() # 技能/物品/属性/发动规则
+  │               ├── WorldClock.advance_chapter()     # 时间推进 + 外部事件
+  │               ├── SceneSimulator.run()             # 角色互动（意图泄露 + 情绪传染）
+  │               ├── POVFilter.filter()               # 单 POV 严格过滤
+  │               ├── ShadowInfluence                  # 离线角色→环境线索
+  │               ├── BeatCoordinator.classify()       # 细纲偏离协调
+  │               ├── chat_completion()                # 作家 Agent 记录
+  │               └── QualityEvaluator.evaluate()      # A-F 质量评分
+  │
+  └── 失败 → 自动回退正常路径（终端 + 前端 toast）
+```
+
+**17 个 Agent 模块**：`character_agent`（角色决策引擎）· `scene_simulator`（多角色互动编排器，V2 含意图泄露检测 + 情绪传染 + 6 种僵局打破器）· `pov_filter`（单 POV 过滤器）· `state_injector`（状态→prompt）· `outline_constraint`（粗纲约束解析）· `beat_reference`（细纲软参考）· `continuity_checker`（跨章连续性校验）· `agent_store`（持久化）· `dialog_quality`（对话质量评分 3 维）· `beat_coordinator`（节拍偏离量化 4 级 + 自动协调）· `world_clock`（时间推进 + 外部事件注入）· `shadow_influence`（离线角色→环境线索 + 伏笔关联）· `scene_assembler`（场景检测 + 过渡 + 节奏）· `quality_evaluator`（5 维叙事质量评分 A-F）· `autonomy`（3 级自主模式）· `chapter_runner`（多章节半自主运行器）
+
+**关键特性**：
+- **单 POV 优先**：POVFilter 严格限制输出为视角角色的感知边界，其他角色的内心独白绝对不可进入正文
+- **粗纲为骨架**：OutlineConstraint 将世界事件注入为硬约束，角色只能决定"如何应对"
+- **细纲为参考**：BeatReference 提供软参考，角色决策优先于细纲
+- **前后章通顺**：ContinuityChecker 每章前后校验 7 项状态延续
+- **角色个性化**：每个角色独立温度（秦渊 0.35 / 云鹤 0.55 / 黛娜 0.65 / K 0.75）
+- **失败回退**：Agent 路径异常 → 终端 + 前端 toast 通知具体原因 → 自动回退正常 LLM 生成
+
+**UI**：写作面板「角色 Agent 涌现叙事」卡片开关 + 互动轮数（2-8）+ Agent 决策分析面板（质量趋势图 + 决策序列 + 状态总览）+ 角色详情覆盖层（技能/物品/属性/发动规则）
+
+**测试**：55 个专项测试（25 Phase 0 + 30 Phase 1/2）+ 14 个 E2E 测试
+
 ### 智能体职责一览
 
 | 阶段 | Agent | 温度 | 职责 |
@@ -357,6 +397,8 @@ flowchart TB
     CHAT[世界观构建]
     CHARCHAT[人物生成]
     STORYCHAT[故事 Agent]
+    AGENT[🧠 角色 Agent 涌现叙事]
+    CHARDETAIL[角色详情 境界/职业/物品/属性]
     GEO[地理]
     ECO[生态]
     POW[境界·技能树·职业]
@@ -373,6 +415,7 @@ flowchart TB
   JSON[(📄 world.json)]
   MD[📝 world.md 导出]
   OL[📁 outlines/]
+  ADIR[📁 agents/ 角色状态]
 
   CHAT --> JSON
   CHARCHAT --> JSON
@@ -391,6 +434,10 @@ flowchart TB
   JSON --> MD
   TOOLS --> JSON
   OL --> JSON
+  AGENT --> JSON
+  CHARDETAIL --> JSON
+  AGENT --> ADIR
+  STORY -.->|涌现生成| AGENT
 ```
 
 ---
@@ -673,34 +720,11 @@ VS Code / Cursor 中可使用 `.vscode/launch.json` 配置 F5 调试；需安装
 
 ## 后续路线
 
-```mermaid
-flowchart LR
-  subgraph 近期["🟢 近期"]
-    A1[关系图筛选与布局]
-    A2[引用校验覆盖扩展]
-  end
-  subgraph 中期["🟡 中期"]
-    B1[大纲与卡司版本联动]
-    B2[批量导出 / 模板]
-  end
-  subgraph 已完成["✅ 已完成"]
-    C1[三 Agent 校对者流水线]
-    C2[ID 感知增量合并]
-    C3[RAG 语义检索]
-    C4[叙事知识图谱]
-    C5[一致性审校 Agent]
-    C6[情感弧线追踪]
-    C7[润色者 Agent + 审校↔润色 Loop]
-    C8[并行后处理优化]
-    C9[统一校对者 + 节拍并行生成]
-    C10[章节版本快照 + Diff]
-    C11[vis.js 人物关系网络]
-    C12[EPUB/DOCX 多格式导出]
-    C13[写作统计看板]
-    C14[LLM 计时分析面板]
-  end
-  A1 --> A2 --> B1 --> B2
-```
+**🟢 近期**：关系图筛选与布局 / 引用校验覆盖扩展
+
+**🟡 中期**：大纲与卡司版本联动 / 批量导出与模板
+
+**✅ 已完成**：三 Agent 校对者流水线 / ID 感知增量合并 / RAG 语义检索 / 叙事知识图谱 / 一致性审校 Agent / 情感弧线追踪 / 润色者 Agent + 审校↔润色 Loop / 并行后处理优化 / 统一校对者 + 节拍并行生成 / 章节版本快照 + Diff / vis.js 人物关系网络 / EPUB/DOCX 多格式导出 / 写作统计看板 / LLM 计时分析面板 / 角色 Agent 涌现叙事 17 模块 / 角色详情面板 / 战斗能力注入 / 结构同步 C1-C4 / 中文标点规范化 / 朴素文风约束 / 境界卡片删除 + 技能节点徽章 / 发动规则 UI / 章节截断自动续写
 
 详见 [`todolist.md`](todolist.md)。
 

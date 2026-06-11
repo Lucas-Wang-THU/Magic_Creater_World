@@ -1487,6 +1487,21 @@ function scheduleItemGradesVizFromForm() {
   }
 }
 
+function deletePowerTier(idx) {
+  if (!state.world?.power_system?.tiers) return;
+  const tier = state.world.power_system.tiers[idx];
+  if (!tier) return;
+  const name = tier.name || `境 ${idx + 1}`;
+  if (!confirm(`确定删除境界「${name}」吗？此操作不可撤销。`)) return;
+  state.world.power_system.tiers.splice(idx, 1);
+  setDirty(true);
+  toast(`已删除境界「${name}」`);
+  // Re-render the system tab
+  if (typeof renderPowerTierSystemModules === 'function') renderPowerTierSystemModules(state.world);
+  if (typeof renderPowerTierSkillTreeModules === 'function') renderPowerTierSkillTreeModules(state.world);
+}
+window.deletePowerTier = deletePowerTier;
+
 /** 境界体系卡片：可编辑字段（data-power-field） */
 function htmlPowerTierEditableField(fieldKey, title, value, placeholder, variant, rows) {
   const v = (value ?? "").toString();
@@ -2238,6 +2253,9 @@ function renderPowerTierSystemModules(w) {
     const exs = (Array.isArray(tier.examples) ? tier.examples : [])
       .map((x) => String(x).trim())
       .filter(Boolean);
+    const skCount = (tier.skill_tree || []).length;
+    const scCount = (tier.subclass_paths || []).reduce((s, sp) => s + (sp.skill_tree || []).length, 0);
+    const totalNodes = skCount + scCount;
     const nameId = `power-tier-name-${idx}`;
     block.innerHTML = `
       <div class="power-tier-viz-accent" aria-hidden="true"></div>
@@ -2249,7 +2267,9 @@ function renderPowerTierSystemModules(w) {
             tier.name || ""
           )}" placeholder="例如：筑基、第三环…" autocomplete="off" />
           <span class="viz-module-meta muted tiny">下列可直接编辑；列表类一行一条</span>
+          ${totalNodes > 0 ? `<span class="power-tier-sk-badge" title="通用技能: ${skCount} + 子类技能: ${scCount}"><span class="ms" style="font-size:14px;vertical-align:-3px">account_tree</span> ${totalNodes} 技能节点</span>` : `<span class="power-tier-sk-badge power-tier-sk-badge--empty">暂无技能树</span>`}
         </div>
+        <button class="power-tier-del-btn" onclick="deletePowerTier(${idx})" title="删除此境界（不可撤销）" aria-label="删除境界 ${tier.name||idx+1}"><span class="ms" aria-hidden="true" style="font-size:18px">delete</span></button>
       </div>
       <div class="power-tier-viz-body" role="region" aria-label="境界 ${idx + 1} 体系">
         ${htmlPowerTierEditableField(

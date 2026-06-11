@@ -267,6 +267,45 @@ flowchart TB
   Core -.->|"manuscript"| Output
 ```
 
+### Character Agent Emergent Narrative System (Phase 0-3 Complete)
+
+Each major character has an independent LLM-driven decision engine. The narrative is no longer pre-planned by a single "writer agent" — it **emerges** from autonomous interactions between multiple character agents within a scene.
+
+**Core Architecture**:
+
+```
+generate_manuscript()
+  │
+  ├── enable_character_agents == true?
+  │     └── YES → _generate_manuscript_with_agents()
+  │               ├── OutlineConstraint.parse()        # macro constraints
+  │               ├── AgentStore.load_all_states()     # character states
+  │               ├── _inject_character_capabilities() # skills/items/attrs/rules
+  │               ├── WorldClock.advance_chapter()     # time + external events
+  │               ├── SceneSimulator.run()             # intent leak + emotional contagion
+  │               ├── POVFilter.filter()               # single-POV filtering
+  │               ├── ShadowInfluence                  # off-screen → environment hints
+  │               ├── BeatCoordinator.classify()       # beat deviation coordination
+  │               ├── chat_completion()                # writer agent
+  │               └── QualityEvaluator.evaluate()      # A-F quality scoring
+  │
+  └── failure → auto-fallback to normal generation (terminal + frontend toast)
+```
+
+**17 Agent Modules**: `character_agent` · `scene_simulator` (V2: intent leak + emotional contagion + 6 stuck breakers) · `pov_filter` · `state_injector` · `outline_constraint` · `beat_reference` · `continuity_checker` · `agent_store` · `dialog_quality` (3-axis scoring) · `beat_coordinator` (4-level deviation + auto-coordination) · `world_clock` · `shadow_influence` · `scene_assembler` · `quality_evaluator` (5-dim A-F) · `autonomy` (L1-L3) · `chapter_runner` (multi-chapter semi-autonomous)
+
+**Key Features**:
+- **Single POV**: POVFilter strictly limits output to the viewpoint character's perception boundary
+- **Macro outline as skeleton**: world events are hard constraints; characters decide "how to respond"
+- **Beat as reference**: optional soft hints; character decisions take priority
+- **Cross-chapter continuity**: 7-point state continuity check before and after each chapter
+- **Per-character temperature**: rational (0.35) → protagonist (0.55) → emotional (0.65) → semi-nonhuman (0.75)
+- **Graceful fallback**: agent failure → terminal + toast notification → automatic normal generation
+
+**UI**: Writing panel toggle switch + Agent Decision Analysis dashboard (quality chart + decision log + state overview) + Character Detail overlay (skills/items/attributes/activation rules)
+
+**Tests**: 55 dedicated unit tests + 14 E2E tests
+
 ### Agent Responsibilities
 
 | Phase | Agent | Temp | Responsibility |
@@ -364,6 +403,8 @@ flowchart TB
     CHAT[World-building Chat]
     CHARCHAT[Character Gen]
     STORYCHAT[Story Agent]
+    AGENT[🧠 Character Agent Emergent Narrative]
+    CHARDETAIL[Character Detail Tier/Job/Items/Attrs]
     GEO[Geography]
     ECO[Ecology]
     POW[Powers·Skills·Professions]
@@ -380,6 +421,7 @@ flowchart TB
   JSON[(📄 world.json)]
   MD[📝 world.md export]
   OL[📁 outlines/]
+  ADIR[📁 agents/ Character States]
 
   CHAT --> JSON
   CHARCHAT --> JSON
@@ -398,6 +440,10 @@ flowchart TB
   JSON --> MD
   TOOLS --> JSON
   OL --> JSON
+  AGENT --> JSON
+  CHARDETAIL --> JSON
+  AGENT --> ADIR
+  STORY -.->|emergent generation| AGENT
 ```
 
 ---
@@ -656,34 +702,11 @@ For VS Code / Cursor debugging, use the included `.vscode/launch.json` configura
 
 ## Roadmap
 
-```mermaid
-flowchart LR
-  subgraph Near["🟢 Near Term"]
-    A1[Relationship graph filtering & layout]
-    A2[Extended reference linting coverage]
-  end
-  subgraph Mid["🟡 Mid Term"]
-    B1[Outline & cast version linking]
-    B2[Batch export / templates]
-  end
-  subgraph Done["✅ Completed"]
-    C1[3-Agent Proofreader Pipeline]
-    C2[ID-Aware Incremental Merge]
-    C3[RAG Semantic Retrieval]
-    C4[Narrative Knowledge Graph]
-    C5[Consistency Audit Agent]
-    C6[Sentiment Arc Tracker]
-    C7[Polisher Agent + Audit↔Polish Loop]
-    C8[Parallel Post-processing Optimization]
-    C9[Unified Proofreader + Parallel Beat Gen]
-    C10[Chapter Version Snapshots + Diff]
-    C11[vis.js Character Network]
-    C12[EPUB/DOCX Multi-format Export]
-    C13[Writing Stats Dashboard]
-    C14[LLM Timing Analysis Panel]
-  end
-  A1 --> A2 --> B1 --> B2
-```
+**🟢 Near Term**: Relationship graph filtering & layout / Extended reference linting coverage
+
+**🟡 Mid Term**: Outline & cast version linking / Batch export / templates
+
+**✅ Completed**: 3-Agent Proofreader Pipeline / ID-Aware Incremental Merge / RAG Semantic Retrieval / Narrative Knowledge Graph / Consistency Audit Agent / Sentiment Arc Tracker / Polisher Agent + Audit↔Polish Loop / Parallel Post-processing Optimization / Unified Proofreader + Parallel Beat Gen / Chapter Version Snapshots + Diff / vis.js Character Network / EPUB/DOCX Multi-format Export / Writing Stats Dashboard / LLM Timing Analysis Panel / Character Agent Emergent Narrative (17 modules) / Character Detail Panel / Combat Capability Injection / Structure Sync C1-C4 / Chinese Punctuation Normalization / Plain Prose Style Guide / Tier Card Delete + Skill Badge / Activation Rules UI / Chapter Truncation Auto-Continuation
 
 See [`todolist.md`](todolist.md) for details.
 

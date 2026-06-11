@@ -734,8 +734,16 @@ export function renderFactionGlobalNetwork(entities, containerId) {
   }
 
   // Force redraw after attach (fixes height:0 when rendered in hidden tab)
-  setTimeout(() => { if (_facGlobalNet) _facGlobalNet.redraw(); }, 100);
-  setTimeout(() => { if (_facGlobalNet) _facGlobalNet.fit(); }, 300);
+  setTimeout(() => { if (_facGlobalNet) { _facGlobalNet.redraw(); _facGlobalNet.fit(); } }, 200);
+  setTimeout(() => { if (_facGlobalNet) { _facGlobalNet.redraw(); _facGlobalNet.fit(); } }, 600);
+  // Also redraw when container becomes visible (tab switch)
+  const _facObserver = new ResizeObserver(() => {
+    if (container.offsetHeight > 0 && _facGlobalNet) {
+      _facGlobalNet.redraw();
+      _facGlobalNet.fit();
+    }
+  });
+  _facObserver.observe(container);
 
   _facGlobalNet.on("click", function (params) {
     if (params.edges.length > 0) {
@@ -891,6 +899,12 @@ export function renderSingleFactionNetwork(entity, allEntities, container) {
   }
 
   container.innerHTML = "";
+
+  if (typeof vis === "undefined" || !vis.Network) {
+    container.innerHTML = `<p class="muted" style="padding:1rem;text-align:center">vis-network 未加载</p>`;
+    return;
+  }
+
   const nodes = new vis.DataSet(nodesArr);
   const edges = new vis.DataSet(edgeList);
   const data = { nodes, edges };
@@ -900,8 +914,21 @@ export function renderSingleFactionNetwork(entity, allEntities, container) {
     interaction: { hover: true, tooltipDelay: 100, zoomView: true, dragView: true },
     nodes: { borderWidth: 2, font: { color: "#1a1a1a" } },
   };
-  const net = new vis.Network(container, data, options);
+  let net;
+  try {
+    net = new vis.Network(container, data, options);
+  } catch (e) {
+    console.error("[MCW-VIZ] Single faction network failed:", e);
+    container.innerHTML = `<p class="muted" style="padding:1rem;text-align:center">渲染失败</p>`;
+    return;
+  }
   _facCardNets.push({ container, net });
+
+  // Redraw when container becomes visible
+  const obs = new ResizeObserver(() => {
+    if (container.offsetHeight > 0 && net) { net.redraw(); net.fit(); }
+  });
+  obs.observe(container);
 
   net.on("click", function (params) {
     if (params.edges.length > 0) {
