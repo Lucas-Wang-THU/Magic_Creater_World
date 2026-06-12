@@ -27,6 +27,14 @@ def merge_section_conservative(
         if isinstance(bv, str) and isinstance(pv, str):
             if not pv.strip() and bv.strip():
                 continue
+            # Protect 'name' field: if patch name looks like an ID (underscore English)
+            # and base name is real (contains CJK or spaces), keep base name
+            if k == "name" and bv.strip() and pv.strip():
+                import re as _re2
+                _id_like = bool(_re2.match(r'^[a-z][a-z0-9_]*$', pv.strip()))
+                _real_name = bool(_re2.search(r'[一-鿿]', bv)) or ' ' in bv.strip()
+                if _id_like and _real_name:
+                    continue  # don't overwrite real name with ID-like string
             out[k] = pv
             continue
         if isinstance(bv, list) and isinstance(pv, list):

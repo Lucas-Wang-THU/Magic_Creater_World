@@ -299,6 +299,17 @@ def parse_structure_json(raw: str) -> dict[str, Any]:
     t = _strip_code_fence(raw)
     # ── C3: Normalize Chinese punctuation BEFORE parsing ──
     t = _normalize_json_punctuation(t)
+
+    # ── If output doesn't end with }, it's truncated — try auto-close first ──
+    if not t.rstrip().endswith("}"):
+        auto_closed = _auto_close_json(t)
+        try:
+            result = json.loads(auto_closed)
+            print("[MCW-SYNC] Auto-closed truncated JSON successfully")
+            return result
+        except json.JSONDecodeError:
+            pass  # fall through to standard repair attempts
+
     start = t.find("{")
     end = t.rfind("}")
     if start == -1 or end == -1 or end <= start:
@@ -372,6 +383,18 @@ def _salvage_partial_json(text: str) -> dict[str, Any]:
             return result
         except json.JSONDecodeError:
             continue
+
+    # Strategy 3b: more aggressive — trim to last valid comma, then auto-close
+    last_comma = segment.rfind(',"')
+    if last_comma > 0:
+        trimmed = segment[:last_comma + 1]  # keep the comma
+        repaired3b = _auto_close_json(trimmed)
+        try:
+            result = json.loads(repaired3b)
+            print("[MCW-SYNC] Salvage: trimmed to last valid comma successfully")
+            return result
+        except json.JSONDecodeError:
+            pass
 
     # Strategy 4: per-key extraction as last resort
     result = _extract_top_level_keys(segment)

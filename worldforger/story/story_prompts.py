@@ -2,12 +2,155 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 import json
 
 from worldforger.creative_modes import normalize_creative_mode, outline_mode_addon
 from worldforger.schemas import StoryPerson, World
 from worldforger.story.story_store import resolve_unit_label, sorted_chapters
 from worldforger.world_store import world_context_for_prompt
+
+
+@dataclass(frozen=True)
+class ManuscriptContextBlock:
+    """One structured context block for manuscript prompt assembly."""
+
+    title: str
+    body: str
+    tier: str
+    priority: int = 0
+    hard: bool = False
+    min_chars: int = 400
+
+
+_MEMORY_TIER_ORDER = ("working", "chapter", "archival", "optional")
+_MEMORY_TIER_LABELS = {
+    "hard": "Hard Context",
+    "working": "Working Memory",
+    "chapter": "Chapter Memory",
+    "archival": "Archival Memory",
+    "optional": "Optional Context",
+}
+_MEMORY_TIER_BUDGETS = {
+    "working": 8200,
+    "chapter": 5200,
+    "archival": 3600,
+    "optional": 2200,
+}
+
+
+def _render_context_block(block: ManuscriptContextBlock, body: str | None = None) -> str:
+    content = (block.body if body is None else body).strip()
+    if not content:
+        return ""
+    return f"\n【{_MEMORY_TIER_LABELS.get(block.tier, block.tier)} / {block.title}】\n{content}"
+
+
+def _trim_context_block(block: ManuscriptContextBlock, char_budget: int) -> str:
+    header_len = len(f"\n【{_MEMORY_TIER_LABELS.get(block.tier, block.tier)} / {block.title}】\n")
+    marker = "\n…(软上下文已按记忆层预算折叠)"
+    body_budget = max(0, char_budget - header_len - len(marker))
+    if body_budget <= 0:
+        return ""
+    return _render_context_block(block, block.body.strip()[:body_budget] + marker)
+
+
+def assemble_manuscript_context(
+    blocks: list[ManuscriptContextBlock],
+    *,
+    soft_budget: int = 18000,
+    tier_budgets: dict[str, int] | None = None,
+) -> tuple[str, dict]:
+    """Assemble Hard/Soft manuscript context with MemGPT-style tiers.
+
+    Hard blocks are always included in full. Soft blocks are admitted by memory
+    tier and priority, so long-range context is retrieved/condensed instead of
+    blindly truncating the latest raw manuscripts.
+    """
+    budgets = dict(_MEMORY_TIER_BUDGETS)
+    if tier_budgets:
+        budgets.update({k: max(0, int(v)) for k, v in tier_budgets.items()})
+
+    parts: list[str] = []
+    report = {
+        "hard_chars": 0,
+        "soft_budget": soft_budget,
+        "soft_chars": 0,
+        "tiers": {tier: {"budget": budgets.get(tier, 0), "used": 0} for tier in _MEMORY_TIER_ORDER},
+        "included": [],
+        "truncated": [],
+        "dropped": [],
+    }
+
+    seen_soft = False
+    hard_prefix: list[ManuscriptContextBlock] = []
+    hard_suffix: list[ManuscriptContextBlock] = []
+    for block in blocks:
+        if block.hard and not seen_soft:
+            hard_prefix.append(block)
+        elif block.hard:
+            hard_suffix.append(block)
+        else:
+            seen_soft = True
+
+    for block in hard_prefix:
+        if not block.hard:
+            continue
+        rendered = _render_context_block(block)
+        if not rendered:
+            continue
+        parts.append(rendered)
+        report["hard_chars"] += len(rendered)
+        report["included"].append({"title": block.title, "tier": "hard", "chars": len(rendered)})
+
+    for tier in _MEMORY_TIER_ORDER:
+        tier_blocks = [
+            (idx, b) for idx, b in enumerate(blocks)
+            if not b.hard and b.tier == tier and b.body.strip()
+        ]
+        tier_blocks.sort(key=lambda item: (-item[1].priority, item[0]))
+        tier_remaining = budgets.get(tier, 0)
+
+        for _, block in tier_blocks:
+            if tier_remaining <= 0 or report["soft_chars"] >= soft_budget:
+                report["dropped"].append({"title": block.title, "tier": tier, "reason": "budget_exhausted"})
+                continue
+            remaining = min(tier_remaining, soft_budget - report["soft_chars"])
+            rendered = _render_context_block(block)
+            if len(rendered) <= remaining:
+                parts.append(rendered)
+                tier_remaining -= len(rendered)
+                report["soft_chars"] += len(rendered)
+                report["tiers"][tier]["used"] += len(rendered)
+                report["included"].append({"title": block.title, "tier": tier, "chars": len(rendered)})
+                continue
+
+            if remaining >= block.min_chars:
+                trimmed = _trim_context_block(block, remaining)
+                if trimmed:
+                    parts.append(trimmed)
+                    tier_remaining -= len(trimmed)
+                    report["soft_chars"] += len(trimmed)
+                    report["tiers"][tier]["used"] += len(trimmed)
+                    report["truncated"].append({
+                        "title": block.title,
+                        "tier": tier,
+                        "from_chars": len(rendered),
+                        "to_chars": len(trimmed),
+                    })
+                    continue
+
+            report["dropped"].append({"title": block.title, "tier": tier, "reason": "too_large_for_remaining_budget"})
+
+    for block in hard_suffix:
+        rendered = _render_context_block(block)
+        if not rendered:
+            continue
+        parts.append(rendered)
+        report["hard_chars"] += len(rendered)
+        report["included"].append({"title": block.title, "tier": "hard", "chars": len(rendered)})
+
+    return "\n".join(parts).strip(), report
 
 _PERSON_LABELS: dict[StoryPerson, str] = {
     "first_person": "第一人称",
@@ -1269,15 +1412,24 @@ def format_previous_sentiment_for_prompt(world: World, chapter_id: str) -> str:
 
 
 def format_rag_chunks(chunks: list[dict]) -> str:
-    """将 RAG 检索到的 chunk 格式化为 prompt 片段。"""
+    """将 RAG/LongRAG 检索到的 chunk 格式化为 prompt 片段。"""
     if not chunks:
         return ""
     lines = []
     for i, c in enumerate(chunks, 1):
         meta = c.get("metadata", {})
         source_type = meta.get("source_type", "manuscript")
+        unit_type = meta.get("unit_type", "")
         if source_type == "manuscript":
-            label = f"来源：第 {meta.get('chapter_order', '?')} 章「{meta.get('chapter_title', '')}」"
+            if unit_type == "scene":
+                label = (
+                    f"完整场景：第 {meta.get('chapter_order', '?')} 章「{meta.get('chapter_title', '')}」"
+                    f" / scene#{meta.get('scene_index', '?')}"
+                )
+                if meta.get("scene_part", 0):
+                    label += f".{meta.get('scene_part')}"
+            else:
+                label = f"来源：第 {meta.get('chapter_order', '?')} 章「{meta.get('chapter_title', '')}」"
         elif source_type == "character":
             label = f"来源：人物卡「{meta.get('character_name', '')}」"
         elif source_type == "world_md":
@@ -1285,8 +1437,9 @@ def format_rag_chunks(chunks: list[dict]) -> str:
         else:
             label = f"来源：{source_type}"
         doc = c.get("document", "")
-        if len(doc) > 800:
-            doc = doc[:800] + "\n…(片段已截断)"
+        max_doc = 2400 if unit_type == "scene" else 800
+        if len(doc) > max_doc:
+            doc = doc[:max_doc] + "\n…(片段已截断)"
         lines.append(f"[片段 {i} — {label}]\n{doc}")
     return "\n\n".join(lines)
 
@@ -1375,7 +1528,7 @@ def build_hard_context(world, chapter_id, beat_text):
 
     # 1. Beat text (always full, short by nature)
     if beat_text.strip():
-        lines.append(f'【本章细纲】{beat_text.strip()[:2000]}')
+        lines.append(f'【本章细纲】{beat_text.strip()}')
 
     # 2. Previous chapter ending (look back up to 5)
     cards = summaries_before(world.meta.id, chapter_id, 1, world)
@@ -1424,13 +1577,34 @@ def build_manuscript_user_payload(
     rag_chunks: list[dict] | None = None,
     person: StoryPerson | None = None,
 ) -> str:
-    """Assemble the manuscript user prompt with budget-aware layered context.
+    """Assemble the manuscript user prompt with Hard/Soft memory tiers."""
+    payload, _debug = build_manuscript_context_debug(
+        world,
+        chapter_id=chapter_id,
+        macro_outline=macro_outline,
+        beat_text=beat_text,
+        prev_manuscripts=prev_manuscripts,
+        user_hint=user_hint,
+        include_world_md=include_world_md,
+        rag_chunks=rag_chunks,
+        person=person,
+    )
+    return payload
 
-    Uses a total budget of ~18,000 chars.  Sections are filled in priority
-    order; lower-priority sections are truncated or dropped when the budget
-    is exhausted.  This prevents prompt bloat for long novels (50+ chapters).
-    """
-    import re as _re
+
+def build_manuscript_context_debug(
+    world: World,
+    *,
+    chapter_id: str,
+    macro_outline: str,
+    beat_text: str,
+    prev_manuscripts: list[tuple[str, str]],
+    user_hint: str,
+    include_world_md: bool,
+    rag_chunks: list[dict] | None = None,
+    person: StoryPerson | None = None,
+) -> tuple[str, dict]:
+    """Build manuscript context plus an assembly report for tests/debug UI."""
 
     ch = next((c for c in world.story.chapters if c.id == chapter_id), None)
     title = ch.title if ch else chapter_id
@@ -1438,77 +1612,52 @@ def build_manuscript_user_payload(
     person_eff = person or world.story.narrator.person
     pov_label = person_instruction(person_eff)
 
-    TOTAL_BUDGET = 18000
-    budget = TOTAL_BUDGET
+    blocks: list[ManuscriptContextBlock] = []
+    blocks.append(ManuscriptContextBlock(
+        "任务",
+        f"撰写「{unit}」文稿：{title}（id={chapter_id}）",
+        "hard",
+        priority=100,
+        hard=True,
+    ))
 
-    def _append(text: str, priority: int = 0) -> bool:
-        """Try to append *text*; return True if it fit within budget."""
-        nonlocal budget
-        n = len(text)
-        if n <= budget:
-            parts.append(text)
-            budget -= n
-            return True
-        if priority >= 9:
-            return False  # Critical sections never get truncated
-        # For lower-priority sections: try truncated version
-        if n > 300 and budget > 400:
-            truncated = text[:budget - 50] + "\n…(已截断)"
-            parts.append(truncated)
-            budget = 0
-        return False
-
-    parts = []
-
-    # ═══ P0 — 必须包含（不消耗预算检查，必定放入） ═══
-    parts.append(f"【任务】撰写「{unit}」文稿：{title}（id={chapter_id}）")
-    budget -= len(parts[-1])
-
-    # Inject Hard Context (untruncatable, rule-based) before the budget system
     hard = build_hard_context(world, chapter_id, beat_text)
     if hard.strip():
-        parts.append(hard)
-        budget -= len(hard)
+        blocks.append(ManuscriptContextBlock("规则抽取", hard, "hard", priority=95, hard=True))
 
     target = ch.target_word_count if ch else 0
     if target > 0:
-        _append(f"\n【字数要求】本章目标 {target:,} 字（±15%）")
+        blocks.append(ManuscriptContextBlock(
+            "字数要求",
+            f"本章目标 {target:,} 字（±15%）",
+            "hard",
+            priority=90,
+            hard=True,
+        ))
 
-    _append(
-        f"\n【叙事人称硬约束 — 本章写作开始前务必确认】\n"
+    blocks.append(ManuscriptContextBlock(
+        "叙事人称硬约束",
         f"本章叙事人称：{pov_label}\n"
         + (
             "严禁出现任何第一人称叙述（「我」「我们」作为叙述主体）。\n"
             if person_eff != "first_person" else ""
         )
         + "如果写到一半发现人称错误，请立即回头修改。",
-        priority=9,
-    )
+        "hard",
+        priority=90,
+        hard=True,
+    ))
 
-    # ═══ P1 — 工作层：世界设定 + 本章细纲 ═══
+    # Working memory: immediately relevant material for this generation.
     world_snippet = compact_world_snippet(world, include_markdown=include_world_md)
-    if len(world_snippet) > 2000:
-        world_snippet = world_snippet[:2000] + "\n…(世界设定已截断)"
-    _append(f"\n【世界设定摘要】\n{world_snippet}", priority=8)
+    blocks.append(ManuscriptContextBlock("世界设定摘要", world_snippet, "working", priority=80, min_chars=900))
 
     if beat_text.strip():
-        _append(f"\n【本章细纲】\n{beat_text.strip()}", priority=8)
+        blocks.append(ManuscriptContextBlock("本章细纲", beat_text.strip(), "working", priority=95, min_chars=1000))
 
-    # ═══ P1 — 粗纲（截断适配剩余空间） ═══
     if macro_outline.strip():
-        cap = macro_outline.strip()
-        max_macro = min(10000, max(2000, budget - 2000))
-        if len(cap) > max_macro:
-            cap = cap[:max_macro] + "\n…(粗纲已截断)"
-        _append(f"\n【粗纲】\n{cap}", priority=7)
+        blocks.append(ManuscriptContextBlock("粗纲", macro_outline.strip(), "working", priority=60, min_chars=1200))
 
-    # ═══ P2 — 近期层：前章摘要 + RAG + 运行时状态 ═══
-    # Arc summaries for distant chapters
-    arc_text = _build_arc_summary_context(world, chapter_id)
-    if arc_text:
-        _append(f"\n【阶段摘要】\n{arc_text}", priority=7)
-
-    # RAG + runtime + sentiment (bundled)
     immediate_parts = []
     if rag_chunks:
         rag_text = format_rag_chunks(rag_chunks)
@@ -1521,101 +1670,124 @@ def build_manuscript_user_payload(
     if prev_sent_text:
         immediate_parts.append(prev_sent_text)
     if immediate_parts:
-        _append("\n" + "\n\n".join(immediate_parts), priority=6)
+        blocks.append(ManuscriptContextBlock(
+            "即时检索与状态",
+            "\n\n".join(immediate_parts),
+            "working",
+            priority=90,
+            min_chars=1200,
+        ))
 
-    # Recent chapter summaries (last 2-3 chapters)
+    # Chapter memory: compressed recency. Raw previous manuscripts are only a
+    # fallback tail, never the primary memory source.
     if prev_manuscripts:
         from worldforger.story.story_store import summaries_before
         summary_cards = summaries_before(world.meta.id, chapter_id, len(prev_manuscripts), world)
         if summary_cards:
-            _append("\n【前文摘要（保持衔接）】", priority=5)
+            summary_lines = []
             for card in summary_cards:
-                cid = card.get("chapter_id", "")
                 ctitle = card.get("title", "")
                 main = card.get("main_events", "")
                 hook = card.get("ending_hook", "")
-                card_text = f"\n### {ctitle}\n**事件**：{main}"
+                card_text = f"### {ctitle}\n**事件**：{main}"
                 if hook:
                     card_text += f"\n**钩子**：{hook}"
-                _append(card_text, priority=5)
+                summary_lines.append(card_text)
+            blocks.append(ManuscriptContextBlock(
+                "前文摘要",
+                "\n\n".join(summary_lines),
+                "chapter",
+                priority=80,
+                min_chars=900,
+            ))
+        elif prev_manuscripts[-1][1].strip():
+            blocks.append(ManuscriptContextBlock(
+                "上一章结尾回声",
+                f"上一章 {prev_manuscripts[-1][0]} 结尾：\n{prev_manuscripts[-1][1].strip()[-1200:]}",
+                "chapter",
+                priority=70,
+                min_chars=700,
+            ))
 
-    # ═══ P3 — 归档层：全局摘要 + 角色系统（有预算才加入） ═══
+    arc_text = _build_arc_summary_context(world, chapter_id)
+    if arc_text:
+        blocks.append(ManuscriptContextBlock("阶段摘要", arc_text, "chapter", priority=65, min_chars=900))
+
+    # Archival memory: durable story state and long-range constraints.
     book_summary = build_book_summary(world)
     if book_summary.strip():
-        _append(f"\n{book_summary}", priority=4)
+        blocks.append(ManuscriptContextBlock("全局叙事摘要", book_summary, "archival", priority=70, min_chars=900))
 
-    # Knowledge boundaries (filtered: only active, recent entries)
     if world.story.writing_defaults.enable_knowledge_track:
         kb = format_knowledge_boundaries(world, chapter_id)
         if kb.strip():
-            _append(kb, priority=3)
+            blocks.append(ManuscriptContextBlock("角色知识边界", kb, "archival", priority=75, min_chars=700))
 
-    # Decision history (last 4 per character)
     if world.story.writing_defaults.enable_decision_track:
         dh = format_decision_history(world)
         if dh.strip():
-            _append(dh, priority=3)
+            blocks.append(ManuscriptContextBlock("关键决策历史", dh, "archival", priority=55, min_chars=700))
 
-    # Physical states
     if world.story.writing_defaults.enable_physical_state_track:
         ps = format_physical_state_for_prompt(world)
         if ps.strip():
-            _append(ps, priority=2)
+            blocks.append(ManuscriptContextBlock("身体状态", ps, "archival", priority=50, min_chars=600))
 
     if world.story.writing_defaults.enable_speech_profile:
         beat_chars = _chars_in_beat(world, beat_text)
         if beat_chars:
             sp = format_speech_profiles(world)
             if sp.strip():
-                _append(sp, priority=3)
+                blocks.append(ManuscriptContextBlock("角色语言档案", sp, "archival", priority=55, min_chars=600))
 
     if world.story.writing_defaults.enable_aftermath_track:
         am = format_aftermaths_for_prompt(world)
         if am.strip():
-            _append(am, priority=3)
+            blocks.append(ManuscriptContextBlock("情感余波", am, "archival", priority=55, min_chars=600))
 
     if world.story.writing_defaults.enable_breathing_room:
-        _append(format_breathing_room_prompt(), priority=4)
+        blocks.append(ManuscriptContextBlock("呼吸感规则", format_breathing_room_prompt(), "optional", priority=45, min_chars=500))
 
     if world.story.writing_defaults.enable_flaw_track:
         beat_chars = _chars_in_beat(world, beat_text)
         if beat_chars:
             fl = format_flaws_prompt(world)
             if fl.strip():
-                _append(fl, priority=3)
+                blocks.append(ManuscriptContextBlock("角色缺陷", fl, "archival", priority=58, min_chars=600))
 
     if world.story.writing_defaults.enable_micro_habit_track:
         mh = format_micro_habits_prompt(world)
         if mh.strip():
-            _append(mh, priority=2)
+            blocks.append(ManuscriptContextBlock("微习惯", mh, "optional", priority=35, min_chars=500))
 
     if world.story.writing_defaults.enable_narrative_state_injection:
         mc = format_mystery_context(world, chapter_id)
         if mc.strip():
-            _append(mc, priority=6)
+            blocks.append(ManuscriptContextBlock("谜题状态", mc, "chapter", priority=75, min_chars=800))
         ac = format_arc_context(world)
         if ac.strip():
-            _append(ac, priority=5)
+            blocks.append(ManuscriptContextBlock("角色弧线状态", ac, "chapter", priority=70, min_chars=800))
 
     if world.story.writing_defaults.enable_break_mechanism:
         br = format_break_risk(world)
         if br.strip():
-            _append(br, priority=5)
+            blocks.append(ManuscriptContextBlock("失控风险", br, "chapter", priority=72, min_chars=700))
 
-    # ═══ P4 — 伏笔台账（按相关性排序 + 截断） ═══
     if user_hint.strip():
-        _append(f"\n【用户补充要求】\n{user_hint.strip()}", priority=4)
+        blocks.append(ManuscriptContextBlock("用户补充要求", user_hint.strip(), "working", priority=100, min_chars=500))
 
-    from worldforger.story.foreshadow_apply import foreshadow_ledger_text
     fs_text = _format_foreshadowing_relevant(world, chapter_id)
-    _append(fs_text, priority=5)
+    if fs_text.strip():
+        blocks.append(ManuscriptContextBlock("伏笔台账", fs_text, "chapter", priority=68, min_chars=900))
 
-    # ═══ 尾部署名 ═══
-    _append(
-        f"\n现在请直接开始撰写「{title}」的正文。你是一位专业作家，请直接输出小说正文。",
-        priority=10,
-    )
-    return "\n".join(parts)
+    blocks.append(ManuscriptContextBlock(
+        "输出指令",
+        f"现在请直接开始撰写「{title}」的正文。你是一位专业作家，请直接输出小说正文。",
+        "hard",
+        priority=100,
+        hard=True,
+    ))
+    return assemble_manuscript_context(blocks)
 
 
 def _format_foreshadowing_relevant(world: World, chapter_id: str) -> str:

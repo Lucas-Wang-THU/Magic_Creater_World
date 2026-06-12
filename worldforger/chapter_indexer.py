@@ -17,6 +17,17 @@ logger = logging.getLogger(__name__)
 _MODEL_NAME = os.environ.get("MCW_EMBEDDING_MODEL", "BAAI/bge-small-zh-v1.5")
 _CHUNK_MAX_CHARS = 600
 _CHUNK_OVERLAP_CHARS = 80
+_SCENE_TARGET_CHARS = 1600
+_SCENE_MAX_CHARS = 2200
+_SCENE_MIN_CHARS = 260
+_SCENE_BOUNDARY_RE = re.compile(
+    r"^\s*(?:"
+    r"#{1,4}\s+.+|"
+    r"第[一二三四五六七八九十百千万\d]+[场幕节]\b.*|"
+    r"[【\[]\s*(?:场景|镜头|Scene|SCENE)\s*[\]】].*|"
+    r"(?:-{3,}|\*{3,}|={3,})\s*$"
+    r")"
+)
 
 _model = None
 _use_api_fallback = False
@@ -249,6 +260,112 @@ class ChapterIndexer:
             chunks.append(current.strip())
         return chunks
 
+    @staticmethod
+    def _split_explicit_scenes(text: str) -> list[tuple[str, str]]:
+        """Split by visible scene headings/separators while keeping headings."""
+        scenes: list[tuple[str, str]] = []
+        current: list[str] = []
+        boundary = "implicit"
+        for raw_line in text.splitlines():
+            line = raw_line.rstrip()
+            is_boundary = bool(_SCENE_BOUNDARY_RE.match(line))
+            if is_boundary and current and "\n".join(current).strip():
+                scenes.append(("\n".join(current).strip(), boundary))
+                current = []
+                boundary = "explicit"
+            current.append(line)
+            if is_boundary:
+                boundary = "explicit"
+        if current and "\n".join(current).strip():
+            scenes.append(("\n".join(current).strip(), boundary))
+        return scenes
+
+    @classmethod
+    def _split_long_scene(cls, scene: str, *, max_chars: int = _SCENE_MAX_CHARS) -> list[str]:
+        """Split an oversized scene on paragraph boundaries without tiny shards."""
+        if len(scene) <= max_chars:
+            return [scene.strip()] if scene.strip() else []
+        chunks: list[str] = []
+        current = ""
+        for para in re.split(r"\n\s*\n", scene):
+            para = para.strip()
+            if not para:
+                continue
+            if len(para) > max_chars:
+                if current.strip():
+                    chunks.append(current.strip())
+                    current = ""
+                chunks.extend(cls._chunk_text(para, max_chars=max_chars))
+                continue
+            if current and len(current) + len(para) + 2 > max_chars:
+                chunks.append(current.strip())
+                current = para
+            else:
+                current = f"{current}\n\n{para}" if current else para
+        if current.strip():
+            chunks.append(current.strip())
+        return chunks
+
+    @classmethod
+    def _scene_chunks(
+        cls,
+        text: str,
+        *,
+        target_chars: int = _SCENE_TARGET_CHARS,
+        max_chars: int = _SCENE_MAX_CHARS,
+    ) -> list[dict]:
+        """Build LongRAG scene-level chunks from a chapter manuscript.
+
+        Prefer explicit Markdown/Chinese scene boundaries.  If a manuscript has
+        no visible scene marks, merge paragraphs into longer complete units
+        instead of fixed 500-600 char shards.
+        """
+        if not text or not text.strip():
+            return []
+        explicit = cls._split_explicit_scenes(text)
+        has_explicit = any(boundary == "explicit" for _, boundary in explicit)
+        scene_texts: list[tuple[str, str]] = []
+
+        if has_explicit:
+            scene_texts = explicit
+        else:
+            current = ""
+            for para in re.split(r"\n\s*\n", text):
+                para = para.strip()
+                if not para:
+                    continue
+                if current and len(current) + len(para) + 2 > target_chars:
+                    scene_texts.append((current.strip(), "paragraph_group"))
+                    current = para
+                else:
+                    current = f"{current}\n\n{para}" if current else para
+            if current.strip():
+                scene_texts.append((current.strip(), "paragraph_group"))
+
+        chunks: list[dict] = []
+        for scene_index, (scene, boundary) in enumerate(scene_texts):
+            for part_index, part in enumerate(cls._split_long_scene(scene, max_chars=max_chars)):
+                chunks.append({
+                    "text": part,
+                    "unit_type": "scene",
+                    "scene_index": scene_index,
+                    "scene_part": part_index,
+                    "boundary": boundary,
+                    "chars": len(part),
+                })
+        return chunks
+
+    @classmethod
+    def debug_chunk_plan(cls, text: str) -> dict:
+        """Return chunking diagnostics without touching the vector store."""
+        scenes = cls._scene_chunks(text)
+        return {
+            "strategy": "scene_longrag",
+            "scene_chunks": len(scenes),
+            "total_chars": len(text or ""),
+            "chunks": scenes,
+        }
+
     # ── embedding ──
 
     def _embed(self, texts: list[str]) -> list[list[float]]:
@@ -260,20 +377,32 @@ class ChapterIndexer:
     # ── index ──
 
     def index_chapter(self, chapter_id: str, manuscript_text: str, metadata: dict | None = None) -> int:
-        """将章节手稿分块并写入向量索引。返回新增 chunk 数。"""
+        """将章节手稿按场景级长块写入向量索引。返回新增 chunk 数。"""
         if not manuscript_text.strip():
             return 0
         meta = dict(metadata or {})
         meta.setdefault("source_type", "manuscript")
         meta["chapter_id"] = chapter_id
-        chunks = self._chunk_text(manuscript_text)
-        if not chunks:
+        scene_chunks = self._scene_chunks(manuscript_text)
+        if not scene_chunks:
             return 0
+        chunks = [c["text"] for c in scene_chunks]
         embeddings = self._embed(chunks)
-        ids = [f"ch_{chapter_id}_{i}" for i in range(len(chunks))]
-        metadatas = [dict(meta, chunk_index=i) for i in range(len(chunks))]
+        ids = [f"scene_{chapter_id}_{i}" for i in range(len(chunks))]
+        metadatas = [
+            dict(
+                meta,
+                chunk_index=i,
+                unit_type="scene",
+                scene_index=scene_chunks[i]["scene_index"],
+                scene_part=scene_chunks[i]["scene_part"],
+                scene_boundary=scene_chunks[i]["boundary"],
+                chars=scene_chunks[i]["chars"],
+            )
+            for i in range(len(chunks))
+        ]
         self._collection.add(embeddings=embeddings, documents=chunks, ids=ids, metadatas=metadatas)
-        logger.info("indexed %d chunks for chapter %s", len(chunks), chapter_id)
+        logger.info("indexed %d scene chunks for chapter %s", len(chunks), chapter_id)
         return len(chunks)
 
     def index_world_md(self, world_md_text: str) -> int:
@@ -481,7 +610,6 @@ class ChapterIndexer:
 
         组合查询来源：节拍大纲关键词 + 出场人物名 + 待推进伏笔 ID。
         """
-        from worldforger.story.story_store import read_text
         from worldforger.world_store import load_world
 
         queries: list[str] = []
@@ -519,6 +647,43 @@ class ChapterIndexer:
             source_types=["manuscript", "character", "world_md"],
         )
 
+    def retrieve_for_chapter_debug(
+        self,
+        chapter_id: str,
+        *,
+        beat_text: str = "",
+        character_ids: list[str] | None = None,
+        foreshadowing_ids: list[str] | None = None,
+        top_k: int = 5,
+    ) -> dict:
+        """Retrieve with diagnostics for LongRAG panels/tests."""
+        results = self.retrieve_for_chapter(
+            chapter_id,
+            beat_text=beat_text,
+            character_ids=character_ids,
+            foreshadowing_ids=foreshadowing_ids,
+            top_k=top_k,
+        )
+        return {
+            "chapter_id": chapter_id,
+            "strategy": "scene_longrag",
+            "beat_query_chars": len((beat_text or "").strip()[:800]),
+            "character_ids": list(character_ids or []),
+            "foreshadowing_ids": list(foreshadowing_ids or []),
+            "top_k": top_k,
+            "result_count": len(results),
+            "results": [
+                {
+                    "chunk_id": r.get("chunk_id", ""),
+                    "unit_type": (r.get("metadata") or {}).get("unit_type", ""),
+                    "source_type": (r.get("metadata") or {}).get("source_type", ""),
+                    "chars": len(r.get("document", "") or ""),
+                    "distance": r.get("distance", 1.0),
+                }
+                for r in results
+            ],
+        }
+
     # ── stats ──
 
     def get_stats(self) -> dict:
@@ -529,6 +694,7 @@ class ChapterIndexer:
             total = len(metas)
             chapter_ids = set()
             source_counts: dict[str, int] = {}
+            unit_counts: dict[str, int] = {}
             for m in metas:
                 if isinstance(m, dict):
                     cid = m.get("chapter_id", "")
@@ -536,14 +702,17 @@ class ChapterIndexer:
                         chapter_ids.add(cid)
                     st = m.get("source_type", "unknown")
                     source_counts[st] = source_counts.get(st, 0) + 1
+                    unit = m.get("unit_type") or ("chunk" if st == "manuscript" else st)
+                    unit_counts[unit] = unit_counts.get(unit, 0) + 1
             return {
                 "total_chunks": total,
                 "indexed_chapters": len(chapter_ids),
                 "chapter_ids": sorted(chapter_ids),
                 "source_counts": source_counts,
+                "unit_counts": unit_counts,
             }
         except Exception:
-            return {"total_chunks": 0, "indexed_chapters": 0, "chapter_ids": [], "source_counts": {}}
+            return {"total_chunks": 0, "indexed_chapters": 0, "chapter_ids": [], "source_counts": {}, "unit_counts": {}}
 
 
 def _slug(s: str) -> str:

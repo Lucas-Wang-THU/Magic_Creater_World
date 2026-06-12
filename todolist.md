@@ -630,27 +630,59 @@ Scene Summary（叶子层）
 
 | 任务 | 说明 | 状态 |
 |:--|:--|:--:|
-| 场景级分块 | 将章节按场景边界切分为长块（800-2000 字），而非固定 500 字 | ▢ |
-| LongRAG Reader | 主 LLM 接收检索到的完整场景块，而非碎 chunk 拼接 | ▢ |
+| 场景级分块 | 将章节按 Markdown/中文场景边界切分为长块；无显式边界时按段落合并成长叙事单元 | ✅ |
+| LongRAG Reader | 主 LLM 接收 `unit_type=scene` 的完整场景块，场景块 prompt 注入上限提升到 2400 字 | ✅ |
+| 检索调试 | `debug_chunk_plan()` / `retrieve_for_chapter_debug()` / `get_stats().unit_counts` 提供分块与检索可观测性 | ✅ |
+
+**2026-06-12 已实现（P1）**
+
+| 文件 | 改动 |
+|:--|:--|
+| `worldforger/chapter_indexer.py` | 新增 `_scene_chunks()`、`_split_explicit_scenes()`、`_split_long_scene()`、`debug_chunk_plan()`；`index_chapter()` 改为写入场景级长块 metadata（`unit_type=scene`、`scene_index`、`scene_boundary`、`chars`） |
+| `worldforger/story/story_prompts.py` | `format_rag_chunks()` 识别完整场景块，注入标签显示 `scene#`，场景文本上限从 800 提升到 2400 字 |
+| `tests/test_rag.py` | 新增显式场景边界、段落合并长块、场景 metadata、LongRAG prompt 注入、检索 debug 报告测试 |
+
+**当前行为**：章节定稿后索引器优先按 `## 场景`、`第X场/幕/节`、`【场景】`、`---/***` 等边界切完整场景；没有显式边界时，将多个自然段合并到约 1600 字的长块，超长场景再按段落安全拆分。检索仍走现有 ChromaDB，但返回的是完整叙事单元而非固定 500-600 字碎片。
 
 #### 4. MemGPT — 分层记忆管理
 
 **论文**：[MemGPT: Towards LLMs as Operating Systems](https://arxiv.org/abs/2310.08560) (arXiv 2310.08560)
 
-**核心方法**：借鉴操作系统虚拟内存管理，LLM 自主管理分层记忆——Core Memory（永久）→ Working Memory（当前）→ Archival Memory（按需检索），自行决定何时从 Archival 加载信息到 Working。
+**核心方法**：借鉴操作系统虚拟内存管理，LLM 自主管理分层记忆——Core Memory（永久）→ Working Memory（当前）→ Archival Memory（按需检索），避免把长篇上下文简单切成前 N 字。
 
-**MCW 适用场景**：替代当前的"预算截断"方式：
+**MCW 落地方式**：不让正文 prompt 继续走线性 `TOTAL_BUDGET` 截断，而是将输入拆成 Hard Context 与 Soft Context。Hard Context 永不截断；Soft Context 按 memory tier、层级预算、优先级和最小可读长度装配。
 
 ```
-Core Memory（永久保留）：世界基本规则 / 主角身份 / 核心谜题 / 当前卷目标
-Working Memory（本章）：当前地点 / 出场角色 / 本章任务 / 上章结尾
-Archival Memory（按需检索）：旧伏笔 / 历史事件 / 远距离关系 / 已发生细节
+Hard Context（不可丢）：任务 / 规则抽取 / 字数 / 叙事人称 / 输出指令
+Working Memory（本章）：用户要求 / 本章细纲 / RAG 即时检索 / 运行时状态 / 世界摘要 / 粗纲
+Chapter Memory（近期）：前章摘要卡片 / 阶段摘要 / 谜题状态 / 角色弧线 / 伏笔台账 / 失控风险
+Archival Memory（长期）：全局叙事摘要 / 角色知识边界 / 关键决策 / 身体状态 / 语言档案 / 情感余波
+Optional Context（可折叠）：呼吸感规则 / 微习惯等风格与细节增强
 ```
 
 | 任务 | 说明 | 状态 |
 |:--|:--|:--:|
-| Memory Tier 定义 | 在 prompt 构建中显式区分 Core/Working/Archival 三层 | ▢ |
+| Memory Tier 定义 | 在 prompt 构建中显式区分 Hard / Working / Chapter / Archival / Optional 五层 | ✅ |
+| Hard/Soft Context 装配 | Hard Context 永不截断；Soft Context 按层级预算 + 优先级装配，并输出调试报告 | ✅ |
+| 前章原文替换 | 优先使用摘要卡片、RAG、运行时状态与阶段摘要；原文只作为上一章尾声兜底 | ✅ |
+| 调试可观测性 | `build_manuscript_context_debug()` 返回 included / truncated / dropped / tier used | ✅ |
 | 主动记忆管理 | LLM 可在生成中请求从 Archival 加载特定信息（function call） | ▢ |
+
+**2026-06-12 已实现（P0）**
+
+| 文件 | 改动 |
+|:--|:--|
+| `worldforger/story/story_prompts.py` | 新增 `ManuscriptContextBlock`、`assemble_manuscript_context()`、`build_manuscript_context_debug()`；`build_manuscript_user_payload()` 改走分层装配器 |
+| `tests/test_rag.py` | 新增 Hard/Soft 预算报告测试；新增“摘要卡片替代前章原文”测试 |
+
+**当前行为**
+
+- Hard Context：完整保留，且尾部输出指令保持在 prompt 末尾。
+- Soft Context：按 Working → Chapter → Archival → Optional 依次装配；同层内按 priority 排序；不足预算时只折叠软上下文。
+- 长篇记忆：前章内容不再按字符粗暴截断；优先消费摘要卡片、RAG 片段、运行时状态、阶段摘要与长期叙事状态。
+- 调试信息：可查看每个 block 是否 included / truncated / dropped，以及各 tier 的 budget/used。
+
+**测试**：`tests/test_rag.py` 新增装配器预算/报告测试，以及“摘要卡片替代前章原文”的正文上下文测试。当前本地环境缺 `pytest` / `pydantic_settings`，已通过 `py_compile` 与 `git diff --check`。
 
 #### 5. Critic-as-Compiler — 编译式审校
 
@@ -673,11 +705,11 @@ Archival Memory（按需检索）：旧伏笔 / 历史事件 / 远距离关系 /
 ### 实施路线图
 
 ```
-P0：分层记忆 + Hard/Soft Context
+P0：分层记忆 + Hard/Soft Context ✅ 已完成（2026-06-12）
   MemGPT 式 memory tier → 替代预算截断
   规则 + 结构化的上下文装配
 
-P1：场景级 LongRAG
+P1：场景级 LongRAG ✅ 已完成（2026-06-12）
   场景边界分块 + 完整场景检索
   替代当前 500 字定长 chunk
 

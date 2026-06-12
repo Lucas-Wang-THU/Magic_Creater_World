@@ -129,6 +129,36 @@ def test_chunk_text_preserves_boundaries():
     assert len(chunks) >= 2
 
 
+def test_scene_chunks_respect_explicit_scene_boundaries():
+    from worldforger.chapter_indexer import ChapterIndexer
+
+    text = (
+        "## 场景一：城门\n"
+        "李铁站在城门下，听见北风穿过旗杆。\n\n"
+        "守军低声谈论昨夜的火光。\n\n"
+        "## 场景二：烽塔\n"
+        "王素瑶登上烽塔，看见远处陌生旗帜。\n\n"
+        "她把信纸压进袖口。"
+    )
+    chunks = ChapterIndexer._scene_chunks(text)
+    assert len(chunks) == 2
+    assert chunks[0]["unit_type"] == "scene"
+    assert "场景一" in chunks[0]["text"]
+    assert "场景二" in chunks[1]["text"]
+    assert all(c["boundary"] == "explicit" for c in chunks)
+
+
+def test_scene_chunks_merge_paragraphs_into_long_units():
+    from worldforger.chapter_indexer import ChapterIndexer
+
+    paras = [f"第{i}段。" + "叙事内容。" * 24 for i in range(14)]
+    text = "\n\n".join(paras)
+    chunks = ChapterIndexer._scene_chunks(text, target_chars=900, max_chars=1200)
+    assert 1 < len(chunks) < len(paras)
+    assert all(c["chars"] <= 1200 for c in chunks)
+    assert any(c["boundary"] == "paragraph_group" for c in chunks)
+
+
 # ── format functions ──
 
 
@@ -205,6 +235,31 @@ def test_format_rag_chunks_truncates_long():
     ]
     result = format_rag_chunks(chunks)
     assert "已截断" in result or len(result) < len(long_text) + 200
+
+
+def test_format_rag_chunks_keeps_complete_scene_longer():
+    from worldforger.story.story_prompts import format_rag_chunks
+
+    long_scene = "完整场景内容。" * 150
+    chunks = [
+        {
+            "chunk_id": "scene_ch_1_0",
+            "document": long_scene,
+            "metadata": {
+                "source_type": "manuscript",
+                "unit_type": "scene",
+                "chapter_order": 2,
+                "chapter_title": "烽火",
+                "scene_index": 1,
+            },
+            "distance": 0.1,
+        }
+    ]
+    result = format_rag_chunks(chunks)
+    assert "完整场景" in result
+    assert "scene#1" in result
+    assert "已截断" not in result
+    assert len(result) > 900
 
 
 # ── book summary ──
@@ -345,6 +400,36 @@ def test_get_stats(indexer):
     assert stats["indexed_chapters"] >= 2
     assert "ch_s1" in stats["chapter_ids"]
     assert "ch_s2" in stats["chapter_ids"]
+    assert stats["unit_counts"].get("scene", 0) >= 2
+
+
+def test_index_chapter_records_scene_metadata(indexer):
+    idx, w = indexer
+    idx.clear_all()
+    text = (
+        "## 场景一\n北境长城守卫军发现异动。\n\n"
+        "## 场景二\n李铁将军召集斥候，命他们追查陌生旗帜。"
+    )
+    n = idx.index_chapter("ch_scene_meta", text, {"chapter_order": 4, "chapter_title": "边声"})
+    assert n == 2
+    got = idx._collection.get(where={"chapter_id": "ch_scene_meta"}, include=["metadatas", "documents"])
+    metas = got.get("metadatas", [])
+    docs = got.get("documents", [])
+    assert len(metas) == 2
+    assert all(m.get("unit_type") == "scene" for m in metas)
+    assert all(m.get("scene_boundary") == "explicit" for m in metas)
+    assert any("李铁将军" in d for d in docs)
+
+
+def test_retrieve_for_chapter_debug_reports_longrag(indexer):
+    idx, w = indexer
+    idx.clear_all()
+    idx.index_chapter("ch_debug_a", "北境长城守卫军发现陌生旗帜。" * 20, {"chapter_order": 1, "chapter_title": "北境"})
+    report = idx.retrieve_for_chapter_debug("ch_target", beat_text="李铁追查陌生旗帜", top_k=2)
+    assert report["strategy"] == "scene_longrag"
+    assert report["top_k"] == 2
+    assert report["result_count"] >= 1
+    assert any(r["unit_type"] == "scene" for r in report["results"])
 
 
 def test_clear_all(indexer):
@@ -410,6 +495,64 @@ def test_build_manuscript_user_payload_without_rag(world):
     )
     assert "世界设定摘要" in result
     assert "测试章" in result
+
+
+def test_manuscript_context_assembler_keeps_hard_and_reports_soft_budget():
+    from worldforger.story.story_prompts import (
+        ManuscriptContextBlock,
+        assemble_manuscript_context,
+    )
+
+    blocks = [
+        ManuscriptContextBlock("硬规则", "HARD_RULE_" * 80, "hard", hard=True),
+        ManuscriptContextBlock("工作层", "WORKING_" * 200, "working", priority=10, min_chars=120),
+        ManuscriptContextBlock("归档层", "ARCHIVE_" * 200, "archival", priority=1, min_chars=120),
+        ManuscriptContextBlock("输出", "START_WRITING", "hard", hard=True),
+    ]
+
+    payload, report = assemble_manuscript_context(
+        blocks,
+        soft_budget=350,
+        tier_budgets={"working": 220, "chapter": 0, "archival": 120, "optional": 0},
+    )
+
+    assert "HARD_RULE_" in payload
+    assert payload.endswith("START_WRITING")
+    assert report["hard_chars"] > 0
+    assert report["soft_chars"] <= 350
+    assert report["truncated"] or report["dropped"]
+
+
+def test_build_manuscript_context_debug_uses_summary_instead_of_prev_raw(world):
+    from worldforger.story.story_prompts import build_manuscript_context_debug
+    from worldforger.story.story_service import add_chapter
+    from worldforger.story.story_store import write_summary_card
+
+    prev = add_chapter(world, title="旧章")
+    current = add_chapter(world, title="新章")
+    raw_prev = "RAW_SECRET_SHOULD_NOT_LEAK " * 200 + "上一章末尾。"
+    write_summary_card(world.meta.id, prev.id, {
+        "chapter_id": prev.id,
+        "title": prev.title,
+        "main_events": "摘要事件：李铁发现北境异动。",
+        "ending_hook": "城门外出现陌生旗帜。",
+    })
+
+    payload, report = build_manuscript_context_debug(
+        world,
+        chapter_id=current.id,
+        macro_outline="",
+        beat_text="李铁迎战。",
+        prev_manuscripts=[(prev.id, raw_prev)],
+        user_hint="",
+        include_world_md=False,
+        rag_chunks=None,
+    )
+
+    assert "Chapter Memory / 前文摘要" in payload
+    assert "摘要事件：李铁发现北境异动" in payload
+    assert "RAW_SECRET_SHOULD_NOT_LEAK" not in payload
+    assert any(item["title"] == "前文摘要" for item in report["included"])
 
 
 def test_character_extraction_from_beat(world):
