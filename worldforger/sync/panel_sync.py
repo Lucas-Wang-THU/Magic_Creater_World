@@ -970,10 +970,8 @@ async def sync_panels_from_dialogue(
                     f"keys: {list(raw_patch.keys())}"
                 )
             except ValueError as salvage_err:
-                raise ValueError(
-                    "synchronizer output appears truncated (no closing '}' after stripping fences); "
-                    f"length={len(raw)}, last 100 chars: {raw[-100:]}"
-                ) from salvage_err
+                print(f"[MCW-SYNC] Salvage failed: {salvage_err} — returning empty patch")
+                raw_patch = {}  # graceful degradation: return empty, user sees "no changes"
         else:
             try:
                 raw_patch = parse_structure_json(raw)

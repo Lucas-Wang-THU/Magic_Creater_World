@@ -329,7 +329,7 @@ async def generate_manuscript(
 
     # ── Agent path: character-driven emergent narrative ──
     target_words = ch.target_word_count if ch else 0
-    dynamic_max_tokens = min(16384, max(4096, int(target_words * 2.5) + 500)) if target_words > 0 else 8192
+    dynamic_max_tokens = min(32768, max(4096, int(target_words * 2.5) + 500)) if target_words > 0 else 8192
     used_chunked_path = False
 
     # Try agent path first if enabled; fall back to normal generation on failure
@@ -451,14 +451,20 @@ async def generate_manuscript(
         # Heuristic fallback: check if text looks incomplete (runs for both paths)
         if not was_truncated:
             was_truncated = _text_looks_truncated(reply)
+        # LLM-based completeness check (more reliable than heuristic)
+        if not was_truncated and len(reply.strip()) > 500:
+            was_truncated = await _check_chapter_incomplete(reply, beat)
         if not was_truncated:
             break
 
         # Continue writing — use larger max_tokens to reduce chained truncation
-        continue_max_tokens = max(dynamic_max_tokens, 8192)
+        continue_max_tokens = min(32768, max(dynamic_max_tokens, 16384))
         continue_user = (
-            f"请继续写下去，直到本章自然结束。从以下内容结尾接着写:\n"
-            f"…{reply.strip()[-500:]}\n\n请直接续写正文："
+            f"请继续写下去，直到本章自然结束。以下是本章的细纲和当前已写到的位置，"
+            f"请基于细纲判断还剩下哪些内容需要写，然后从截断处接着写：\n\n"
+            f"【本章细纲（参考需要覆盖的场景）】\n{beat[:1200] if beat else '（无）'}\n\n"
+            f"【当前已写到的位置（请从此处接着写）】\n…{reply.strip()[-3000:]}\n\n"
+            f"请直接续写正文，不要重复已有内容，直到本章自然结束："
         )
         continuation = await chat_completion(
             [{"role": "system", "content": "你是一位专业小说作家。请续写章节正文，直接输出，不要重复已有内容。"},
@@ -959,7 +965,7 @@ async def _generate_manuscript_with_agents(
     # Call writer agent — use same dynamic sizing as normal path
     ch_num_real = next((c.order for c in world.story.chapters if c.id == chapter_id), 1)
     target_wc = next((c.target_word_count for c in world.story.chapters if c.id == chapter_id), 0)
-    _writer_max_tokens = min(16384, max(8192, int(target_wc * 2.5) + 500)) if target_wc > 0 else 8192
+    _writer_max_tokens = min(32768, max(8192, int(target_wc * 2.5) + 500)) if target_wc > 0 else 8192
     draft = await chat_completion(
         [{"role": "system", "content": writer_system},
          {"role": "user", "content": agent_writer_user}],
@@ -978,10 +984,18 @@ async def _generate_manuscript_with_agents(
     # ── Truncation continuation for writer agent ──
     for _wc in range(3):
         if not _writer_truncated and not _text_looks_truncated(draft):
-            break
+            # Additional LLM completeness check (more reliable)
+            if len(draft.strip()) > 500:
+                incomplete = await _check_chapter_incomplete(draft, beat_text)
+                if not incomplete:
+                    break
+            else:
+                break
         cont_user = (
-            f"请继续写下去，直到本章自然结束。从以下内容结尾接着写:\n"
-            f"…{draft.strip()[-500:]}\n\n请直接续写正文："
+            f"请继续写下去，直到本章自然结束。以下是本章的细纲和当前已写到的位置：\n\n"
+            f"【本章细纲（参考需要覆盖的场景）】\n{beat_text[:1200] if beat_text else '（无）'}\n\n"
+            f"【当前已写到的位置（请从此处接着写）】\n…{draft.strip()[-3000:]}\n\n"
+            f"请直接续写正文，不要重复已有内容，直到本章自然结束："
         )
         cont = await chat_completion(
             [{"role": "system", "content": "你是一位专业小说作家。请续写章节正文，直接输出，不要重复已有内容。"},
@@ -1180,6 +1194,34 @@ def _inject_character_capabilities(
 
         if rules:
             state._activation_rules_context = rules
+
+
+async def _check_chapter_incomplete(text: str, beat_text: str = "") -> bool:
+    """LLM-based check: does this chapter appear to have finished naturally?
+
+    More reliable than heuristic checks. Uses a minimal prompt and low max_tokens.
+    Returns True if the chapter looks INCOMPLETE (needs continuation).
+    """
+    tail = text.strip()[-2000:]
+    beat_hint = f"细纲参考: {beat_text[:600]}" if beat_text and beat_text.strip() else ""
+    prompt = (
+        f"检查以下小说章节是否已经写完。只回答 YES（已完成）或 NO（未完成）。\n"
+        f"{beat_hint}\n"
+        f"章节结尾部分:\n...{tail}\n\n"
+        f"判断标准: 1) 场景是否有自然收束 2) 对话/行动是否完整 3) 是否明显在中途截断。"
+        f"只输出 YES 或 NO:"
+    )
+    try:
+        raw = await chat_completion(
+            [{"role": "system", "content": "你是一个文本完整性检查器。只输出 YES 或 NO。"},
+             {"role": "user", "content": prompt}],
+            temperature=0.1, max_tokens=10,
+            timing_label="completeness_check",
+        )
+        result = raw.strip().upper()
+        return "NO" in result  # True = incomplete, needs continuation
+    except Exception:
+        return False  # on error, assume complete (don't loop forever)
 
 
 def _text_looks_truncated(text: str) -> bool:

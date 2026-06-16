@@ -247,6 +247,15 @@ async function openCharDetail(charId) {
           <span class="cd-val">${escapeHtml(res.cast_role||'—')}</span>
         </div>
         <div class="cd-field">
+          <label class="cd-label"><span class="ms cd-field-ic" aria-hidden="true">wc</span> 性别</label>
+          <select id="cdGender" class="cd-select" title="角色性别">
+            <option value="" ${!res.gender?'selected':''}>— 未知 —</option>
+            <option value="男" ${res.gender==='男'?'selected':''}>男</option>
+            <option value="女" ${res.gender==='女'?'selected':''}>女</option>
+            <option value="其他" ${res.gender==='其他'?'selected':''}>其他</option>
+          </select>
+        </div>
+        <div class="cd-field">
           <label class="cd-label"><span class="ms cd-field-ic" aria-hidden="true">calendar_today</span> 年龄</label>
           <input id="cdAge" class="cd-input" value="${escapeAttr(res.age||'')}" placeholder="未知">
         </div>
@@ -394,6 +403,7 @@ async function saveCharDetail(charId) {
     power_tier: $("cdPowerTier")?.value || "",
     profession_id: $("cdProfession")?.value || "",
     age: $("cdAge")?.value || "",
+    gender: $("cdGender")?.value || "",
     inventory: inventory,
     // Collect attribute values from sliders
     attributes: (() => {
@@ -853,7 +863,12 @@ function deleteCharacterEntityById(entityId) {
   $("charRelationsJson").value = JSON.stringify(nextRel, null, 2);
   setDirty(true);
   refreshCharactersVizFromForm();
-  toast("已删除该角色并清理相关关系边");
+  // Auto-save after deletion
+  persistWorldFromForm().then(() => {
+    toast("已删除该角色并清理相关关系边（已落盘）");
+  }).catch(() => {
+    toast("已删除（落盘失败，请手动保存）");
+  });
 }
 
 function appendCharacterEntity(defaultRole) {
@@ -876,7 +891,11 @@ function appendCharacterEntity(defaultRole) {
   $("charEntitiesJson").value = JSON.stringify(entities, null, 2);
   setDirty(true);
   refreshCharactersVizFromForm();
-  toast("已添加角色，可在卡片中填写详情");
+  persistWorldFromForm().then(() => {
+    toast("已添加角色并落盘，可在卡片中填写详情");
+  }).catch(() => {
+    toast("已添加角色（落盘失败，请手动保存）");
+  });
 }
 
 function renderCharCastCardHtml(ent, opts = {}) {
@@ -1118,6 +1137,7 @@ function setupCharRosterInlineEditors() {
       if (!del) return;
       if (!isWorldviewPanelEditEnabled(panelId)) return;
       ev.preventDefault();
+      ev.stopPropagation();  // prevent card click from opening detail panel
       const eid = del.getAttribute("data-char-delete-entity");
       if (!eid || !confirm("确定从卡司删除该角色？相关关系边将一并删除。")) return;
       deleteCharacterEntityById(eid);

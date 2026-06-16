@@ -167,6 +167,7 @@ CHARACTER_CHAT_SCHEMA_HINT = """【与 world.json 的 characters 对齐】
 - **characters.summary**：卡司总览、谁在驱动主线/副线冲突。
 - **characters.design_notes**：与派系要人、历史事件、地理籍贯等 **id** 的对齐与防漂移约定。
 - **characters.entities[]**：每项 **id**、**name**；**cast_role** 取 `protagonist_core`（主角团核心）| `supporting_major`（重要配角）| `supporting_minor` | `antagonist` | `background`；**faction_ids[]** 须对齐已有 **factions.entities[].id**；**home_region_id** 须对齐已有 **geography.regions[].id**；可选 **aliases[]**、**one_line_hook**、**notes**、**notable_skills[]**（人物叙事或玩法向特长短句，**非**境界 **power_system.skill_tree** 节点）。
+- **新增人物字段**：**age**（年龄）、**gender**（性别：男/女/其他）、**profession_id**（对齐 **power_system.profession_system.by_tier[].professions[].id**）、**power_tier**（对齐 **power_system.tiers[].name**）、**attributes**（{stat_id: 0-100} 对齐 **attribute_system.stats[].id**）、**inventory[]**（每项含 name、description、usage、quantity、source_chapter、status）。生成新角色时必须同步给出这些字段。
 - **characters.relations[]**：**source_id**、**target_id**（均为 **entities[].id**）；**relation_type**（如 ally/rival/family/debt/secret）；可选 **visibility**（reader/author_only）、**notes**。"""
 
 SYSTEM_CHARACTER_ARCHITECT = """你是「人物与卡司」策划助手，帮助用户基于**已有**世界设定（派系、文化、地理、历史、属性体系等）扩展或修订**人物卡司**。

@@ -2440,6 +2440,7 @@ class CharacterDetailBody(BaseModel):
     power_tier: str | None = None
     profession_id: str | None = None
     age: str | None = None
+    gender: str | None = None
     inventory: list[dict[str, Any]] | None = None
     attributes: dict[str, int] | None = None  # {stat_id: value}
 
@@ -2473,6 +2474,9 @@ def api_update_character_detail(
     if body.age is not None:
         char["age"] = str(body.age).strip()
         updated_fields.append("age")
+    if body.gender is not None:
+        char["gender"] = str(body.gender).strip()
+        updated_fields.append("gender")
     if body.inventory is not None:
         inv = []
         for item in body.inventory:
@@ -2561,6 +2565,7 @@ def api_get_character_detail(world_id: str, character_id: str) -> dict[str, Any]
         "profession_id": prof_id,
         "profession_name": profession_name,
         "age": char.get("age", ""),
+        "gender": char.get("gender", ""),
         "cast_role": char.get("cast_role", ""),
         "attributes": attr_details,
         "attributes_count": len(attr_details),
