@@ -300,6 +300,217 @@ def test_sync_panels_endpoint(mock_sync):
     assert kwargs.get("scope") == "geography"
 
 
+@patch("app.main.sync_panels_from_dialogue", new_callable=AsyncMock)
+@patch("app.main.chat_completion", new_callable=AsyncMock, return_value="structured geography reply")
+def test_chat_auto_sync_persists_world_json(mock_chat, mock_sync):
+    from worldforger.world_store import load_world
+
+    wid = client.post("/api/worlds", json={"name": "auto sync chat"}).json()["world"]["meta"]["id"]
+    original = load_world(wid)
+    merged = original.model_copy(deep=True)
+    merged.geography.summary = "auto persisted geography"
+    mock_sync.return_value = {
+        "ok": True,
+        "world": merged,
+        "updated_sections": ["geography"],
+        "applied_patch": {"geography": {"summary": "auto persisted geography"}},
+        "structure_output_keys": ["geography"],
+        "scope_applied": "geography",
+        "merge_warnings": [],
+        "normalize_notes": {},
+        "proofreader_rounds": 0,
+        "proofreader_final_verdict": "ok",
+        "proofreader_issues": [],
+        "format_proofreader_used": False,
+        "format_stages": [],
+    }
+
+    r = client.post(
+        f"/api/worlds/{wid}/chat",
+        json={
+            "messages": [{"role": "user", "content": "please add a plateau"}],
+            "auto_sync": True,
+            "persist_sync": True,
+            "sync_scope": "geography",
+            "proofreader_max_retries": 0,
+        },
+    )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["reply"] == "structured geography reply"
+    assert body["sync"]["ok"] is True
+    assert body["sync"]["persisted"] is True
+    assert body["world"]["geography"]["summary"] == "auto persisted geography"
+    saved = load_world(wid)
+    assert saved.geography.summary == "auto persisted geography"
+    assert saved.meta.version == original.meta.version + 1
+    mock_chat.assert_awaited()
+    mock_sync.assert_awaited()
+    _args, kwargs = mock_sync.call_args
+    assert kwargs["user_message"] == "please add a plateau"
+    assert kwargs["assistant_reply"] == "structured geography reply"
+    assert kwargs["scope"] == "geography"
+    assert kwargs["proofreader_max_retries"] == 0
+
+
+@patch("app.main.sync_panels_from_dialogue", new_callable=AsyncMock)
+@patch("app.main.chat_completion", new_callable=AsyncMock, return_value="structured character reply")
+def test_character_chat_auto_sync_defaults_to_characters(mock_chat, mock_sync):
+    from worldforger.world_store import load_world
+
+    wid = client.post("/api/worlds", json={"name": "auto sync characters"}).json()["world"]["meta"]["id"]
+    original = load_world(wid)
+    merged = original.model_copy(deep=True)
+    merged.characters.summary = "auto persisted cast"
+    mock_sync.return_value = {
+        "ok": True,
+        "world": merged,
+        "updated_sections": ["characters"],
+        "applied_patch": {"characters": {"summary": "auto persisted cast"}},
+        "structure_output_keys": ["characters"],
+        "scope_applied": "characters",
+        "merge_warnings": [],
+        "normalize_notes": {},
+        "proofreader_rounds": 0,
+        "proofreader_final_verdict": "ok",
+        "proofreader_issues": [],
+        "format_proofreader_used": False,
+        "format_stages": [],
+    }
+
+    r = client.post(
+        f"/api/worlds/{wid}/character-chat",
+        json={
+            "messages": [{"role": "user", "content": "add the main cast"}],
+            "auto_sync": True,
+            "persist_sync": True,
+            "proofreader_max_retries": 0,
+        },
+    )
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["sync"]["persisted"] is True
+    assert body["world"]["characters"]["summary"] == "auto persisted cast"
+    assert load_world(wid).characters.summary == "auto persisted cast"
+    mock_chat.assert_awaited()
+    mock_sync.assert_awaited()
+    _args, kwargs = mock_sync.call_args
+    assert kwargs["scope"] == "characters"
+
+
+@patch("app.main.sync_panels_from_dialogue", new_callable=AsyncMock)
+@patch("app.main.chat_completion", new_callable=AsyncMock, return_value="plain reply")
+def test_chat_does_not_sync_unless_requested(mock_chat, mock_sync):
+    wid = client.post("/api/worlds", json={"name": "manual sync chat"}).json()["world"]["meta"]["id"]
+    r = client.post(
+        f"/api/worlds/{wid}/chat",
+        json={"messages": [{"role": "user", "content": "hello"}]},
+    )
+
+    assert r.status_code == 200
+    assert r.json() == {"reply": "plain reply"}
+    mock_chat.assert_awaited()
+    mock_sync.assert_not_awaited()
+
+
+@patch("app.main.chat_completion", new_callable=AsyncMock)
+def test_chat_writes_each_turn_to_world_sessions(mock_chat):
+    import json
+
+    from worldforger.world_store import sessions_dir
+
+    mock_chat.side_effect = ["reply one", "reply two"]
+    wid = client.post("/api/worlds", json={"name": "session turns"}).json()["world"]["meta"]["id"]
+
+    for text in ("first user turn", "second user turn"):
+        r = client.post(
+            f"/api/worlds/{wid}/chat",
+            json={"messages": [{"role": "user", "content": text}]},
+        )
+        assert r.status_code == 200
+
+    sdir = sessions_dir(wid)
+    md_files = sorted(p for p in sdir.glob("*.md") if p.name != "world.md")
+    assert len(md_files) >= 2
+    assert len({p.name for p in md_files}) == len(md_files)
+    jsonl = sdir / "dialogues.jsonl"
+    assert jsonl.is_file()
+    rows = [json.loads(line) for line in jsonl.read_text(encoding="utf-8").splitlines() if line.strip()]
+    assert len(rows) >= 2
+    assert rows[-2]["user"] == "first user turn"
+    assert rows[-2]["assistant"] == "reply one"
+    assert rows[-1]["user"] == "second user turn"
+    assert rows[-1]["assistant"] == "reply two"
+    assert rows[-1]["kind"] == "chat"
+
+
+@patch("app.main.chat_completion", new_callable=AsyncMock)
+def test_chat_token_usage_is_persisted_for_world(mock_chat):
+    from worldforger.llm import drain_token_usage, record_token_usage
+    from worldforger.story.story_store import read_token_usage
+
+    drain_token_usage()
+
+    async def _reply(_messages, **_kwargs):
+        record_token_usage(
+            "chat_completion",
+            prompt_chars=400,
+            completion_chars=200,
+        )
+        return "reply with usage"
+
+    mock_chat.side_effect = _reply
+    wid = client.post("/api/worlds", json={"name": "token persist chat"}).json()["world"]["meta"]["id"]
+    r = client.post(
+        f"/api/worlds/{wid}/chat",
+        json={"messages": [{"role": "user", "content": "hello"}]},
+    )
+    assert r.status_code == 200
+
+    saved = read_token_usage(wid)
+    assert saved["prompt_tokens"] == 100
+    assert saved["completion_tokens"] == 50
+    assert saved["total_tokens"] == 150
+    assert saved["by_context"]["world_chat"]["total_tokens"] == 150
+    assert saved["by_label"]["chat_completion"]["total_tokens"] == 150
+
+    usage = client.get(f"/api/worlds/{wid}/token-usage")
+    assert usage.status_code == 200
+    body = usage.json()
+    assert body["persisted"]["total_tokens"] == 150
+    assert body["persisted"]["by_context"]["world_chat"]["total_tokens"] == 150
+    assert body["total"]["total_tokens"] == 150
+
+
+def test_add_profession_requires_existing_power_tier():
+    from worldforger.schemas import PowerTier
+    from worldforger.world_store import load_world, save_world
+
+    wid = client.post("/api/worlds", json={"name": "profession existing tier"}).json()["world"]["meta"]["id"]
+    w = load_world(wid)
+    w.power_system.tiers.append(PowerTier(name="Tier A", description="known"))
+    save_world(w, export_markdown=False)
+
+    missing = client.post(
+        f"/api/worlds/{wid}/power-system/professions",
+        json={"tier_name": "Tier B", "profession": {"id": "prof_b", "name": "Profession B"}},
+    )
+    assert missing.status_code == 404
+    assert load_world(wid).power_system.profession_system.by_tier == []
+
+    ok = client.post(
+        f"/api/worlds/{wid}/power-system/professions",
+        json={"tier_name": "Tier A", "profession": {"id": "prof_a", "name": "Profession A"}},
+    )
+    assert ok.status_code == 200
+    saved = load_world(wid)
+    assert len(saved.power_system.profession_system.by_tier) == 1
+    assert saved.power_system.profession_system.by_tier[0].tier_name == "Tier A"
+    assert saved.power_system.profession_system.by_tier[0].professions[0].id == "prof_a"
+
+
 def test_normalize_creative_mode():
     assert normalize_creative_mode(None) is None
     assert normalize_creative_mode("") is None

@@ -711,7 +711,7 @@ worlds/
 ## 测试
 
 ```bash
-python -m pytest tests -q  # 538 tests
+python -m pytest tests -q  # 598 tests
 ```
 
 VS Code / Cursor 中可使用 `.vscode/launch.json` 配置 F5 调试；需安装 `debugpy`。
@@ -724,7 +724,7 @@ VS Code / Cursor 中可使用 `.vscode/launch.json` 配置 F5 调试；需安装
 
 **🟡 中期**：大纲与卡司版本联动 / 批量导出与模板
 
-**✅ 已完成**：三 Agent 校对者流水线 / ID 感知增量合并 / RAG 语义检索 / 叙事知识图谱 / 一致性审校 Agent / 情感弧线追踪 / 润色者 Agent + 审校↔润色 Loop / 并行后处理优化 / 统一校对者 + 节拍并行生成 / 章节版本快照 + Diff / vis.js 人物关系网络 / EPUB/DOCX 多格式导出 / 写作统计看板 / LLM 计时分析面板 / 角色 Agent 涌现叙事 17 模块 / 角色详情面板 / 战斗能力注入 / 结构同步 C1-C4 / 中文标点规范化 / 朴素文风约束 / 境界卡片删除 + 技能节点徽章 / 发动规则 UI / 章节截断自动续写
+**✅ 已完成**：三 Agent 校对者流水线 / ID 感知增量合并 / RAG 语义检索 / 叙事知识图谱 / 一致性审校 Agent / 情感弧线追踪 / 润色者 Agent + 审校↔润色 Loop / 并行后处理优化 / 统一校对者 + 节拍并行生成 / 章节版本快照 + Diff / vis.js 人物关系网络 / EPUB/DOCX 多格式导出 / 写作统计看板 / LLM 计时分析面板 / 角色 Agent 涌现叙事 17 模块 / 角色详情面板（性别/境界/职业/物品/属性） / 战斗能力注入 / 结构同步 C1-C4 / 中文标点规范化 / 朴素文风约束 / 境界卡片删除 + 技能节点徽章 / 发动规则 UI + Agent 强制检查 / 章节截断三层修复（32768 token + LLM 完整性检查 + 上下文续写） / tier_name 归一化 / 派系名称保护 / 同步自动落盘
 
 详见 [`todolist.md`](todolist.md)。
 

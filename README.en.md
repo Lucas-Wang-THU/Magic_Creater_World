@@ -693,7 +693,7 @@ worlds/
 ## Testing
 
 ```bash
-python -m pytest tests -q  # 538 tests
+python -m pytest tests -q  # 598 tests
 ```
 
 For VS Code / Cursor debugging, use the included `.vscode/launch.json` configurations (F5). Install `debugpy` if missing.
@@ -706,7 +706,7 @@ For VS Code / Cursor debugging, use the included `.vscode/launch.json` configura
 
 **🟡 Mid Term**: Outline & cast version linking / Batch export / templates
 
-**✅ Completed**: 3-Agent Proofreader Pipeline / ID-Aware Incremental Merge / RAG Semantic Retrieval / Narrative Knowledge Graph / Consistency Audit Agent / Sentiment Arc Tracker / Polisher Agent + Audit↔Polish Loop / Parallel Post-processing Optimization / Unified Proofreader + Parallel Beat Gen / Chapter Version Snapshots + Diff / vis.js Character Network / EPUB/DOCX Multi-format Export / Writing Stats Dashboard / LLM Timing Analysis Panel / Character Agent Emergent Narrative (17 modules) / Character Detail Panel / Combat Capability Injection / Structure Sync C1-C4 / Chinese Punctuation Normalization / Plain Prose Style Guide / Tier Card Delete + Skill Badge / Activation Rules UI / Chapter Truncation Auto-Continuation
+**✅ Completed**: 3-Agent Proofreader Pipeline / ID-Aware Incremental Merge / RAG Semantic Retrieval / Narrative Knowledge Graph / Consistency Audit Agent / Sentiment Arc Tracker / Polisher Agent + Audit↔Polish Loop / Parallel Post-processing Optimization / Unified Proofreader + Parallel Beat Gen / Chapter Version Snapshots + Diff / vis.js Character Network / EPUB/DOCX Multi-format Export / Writing Stats Dashboard / LLM Timing Analysis Panel / Character Agent Emergent Narrative (17 modules) / Character Detail Panel (Gender/Tier/Job/Items/Attrs) / Combat Capability Injection / Structure Sync C1-C4 / Chinese Punctuation Normalization / Plain Prose Style Guide / Tier Card Delete + Skill Badge / Activation Rules UI + Agent Enforcement / Chapter Truncation 3-Layer Fix (32768 tokens + LLM Completeness Check + Context Continuation) / tier_name Normalization / Faction Name Protection / Sync Auto-Persist
 
 See [`todolist.md`](todolist.md) for details.
 

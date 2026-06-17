@@ -7594,3 +7594,523 @@ textarea.json-editor-tiny {
 .as-card-body { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 10px; }
 .as-row { display: flex; justify-content: space-between; font-size: 0.72rem; padding: 2px 0; }
 .as-row span:first-child { color: #94a3b8; }
+
+/* ===== UI Refresh: 更现代、更易上手的全局与情节工作台优化 ===== */
+
+/* 1. 色彩与变量微调 */
+:root {
+  --bg: #f3f5f9;
+  --bg-deep: #e8ecf3;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-elevated: #f1f5f9;
+  --text: #0f172a;
+  --muted: #5f6b7a;
+  --border: #d9e0ea;
+  --primary: #2b6cb0;
+  --primary-soft: #ebf4ff;
+  --primary-hover: #1e4e8c;
+  --accent: #0d9488;
+  --accent-soft: #e6f7f5;
+  --danger: #dc2626;
+  --warning: #f59e0b;
+  --success: #16a34a;
+  --radius: 14px;
+  --radius-sm: 10px;
+  --shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 6px 20px rgba(15, 23, 42, 0.08);
+  --shadow-lg: 0 16px 48px rgba(15, 23, 42, 0.10);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: radial-gradient(1200px 600px at 10% -10%, #dbeafe 0%, transparent 45%),
+    radial-gradient(900px 500px at 100% 0%, #e0f2fe 0%, transparent 40%), var(--bg);
+  background-attachment: fixed;
+}
+
+/* 2. 全局聚焦与输入体验 */
+*:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.18);
+}
+
+input[type="text"],
+input[type="number"],
+input[type="search"],
+select,
+textarea {
+  border-color: var(--border);
+  border-radius: 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  background: #fff;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="search"]:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.10);
+}
+
+select {
+  min-height: 40px;
+}
+
+textarea {
+  line-height: 1.65;
+}
+
+button {
+  transition: transform 0.1s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+button.primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 16px rgba(43, 108, 176, 0.28);
+}
+
+button.ghost:hover {
+  background: var(--surface-2);
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+/* 3. 顶部导航与流程条 */
+.app-header {
+  padding: 12px 24px;
+  background: rgba(255, 255, 255, 0.94);
+  backdrop-filter: blur(12px);
+  border-bottom-color: var(--border);
+  box-shadow: var(--shadow);
+}
+
+.brand {
+  font-size: 19px;
+  letter-spacing: 0.01em;
+}
+
+.brand-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+}
+
+.header-actions {
+  gap: 12px;
+}
+
+.api-badge {
+  background: var(--primary-soft);
+  border-color: #bfdbfe;
+}
+
+.workflow-strip {
+  padding: 9px 22px;
+}
+
+.wf-step {
+  font-size: 12px;
+  color: #475569;
+}
+
+.wf-n {
+  width: 19px;
+  height: 19px;
+  font-size: 10px;
+}
+
+/* 4. 左侧导航 */
+.nav {
+  padding: 14px 10px;
+  gap: 5px;
+  background: var(--surface);
+  border-right-color: var(--border);
+}
+
+.nav button {
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.nav button:hover {
+  background: var(--surface-2);
+}
+
+.nav button.active {
+  background: linear-gradient(90deg, var(--primary-soft), #fff);
+  color: var(--primary);
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--primary), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.nav-label {
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: #94a3b8;
+  margin: 16px 8px 6px;
+}
+
+/* 5. 卡片与主内容区 */
+main {
+  padding: 22px 26px 40px;
+}
+
+.card {
+  padding: 24px 26px;
+  border-radius: var(--radius);
+  box-shadow: var(--shadow), 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+}
+
+.card h2 {
+  font-size: 22px;
+  margin: 0 0 14px;
+}
+
+.card-head {
+  margin-bottom: 12px;
+}
+
+/* 6. 对话气泡 */
+.messages {
+  background: var(--surface-2);
+  border-radius: 16px;
+  border-color: var(--border);
+}
+
+.msg {
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+/* 7. JSON 编辑器可读性 */
+.json-editor-compact {
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.55;
+  background: #f8fafc;
+  border-left: 3px solid var(--primary);
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 140px;
+}
+
+.json-editor-compact:focus {
+  background: #fff;
+}
+
+/* 8. 空状态增强 */
+.empty-card {
+  padding: 40px 34px;
+}
+
+.empty-title {
+  font-size: 28px;
+}
+
+/* 9. 情节工作台整体 */
+.story-workbench {
+  padding: 22px 24px 28px;
+}
+
+.story-wb-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.story-wb-header h2 {
+  margin: 0;
+  font-size: 22px;
+}
+
+.story-wb-header .rag-status-dot {
+  margin-left: auto;
+}
+
+#storyUnitLine {
+  margin: 0;
+  flex-basis: 100%;
+}
+
+/* 情节子页标签栏 */
+.story-wb-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 16px;
+  padding: 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.story-wb-tabs button {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 13px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.story-wb-tabs button:hover {
+  background: #e2e8f0;
+  color: var(--text);
+}
+
+.story-wb-tabs button.active {
+  background: #fff;
+  color: var(--primary);
+  box-shadow: var(--shadow);
+}
+
+/* 10. 三栏布局与章节导航 */
+.story-wb-layout {
+  grid-template-columns: minmax(180px, 210px) minmax(0, 1fr) 260px;
+  gap: 18px;
+  align-items: start;
+}
+
+.story-wb-aside {
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 12px;
+  max-height: calc(100vh - 200px);
+}
+
+.story-wb-aside-head {
+  margin-bottom: 10px;
+}
+
+.story-chapter-nav {
+  gap: 4px;
+}
+
+.story-ch-nav-btn {
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  margin-bottom: 2px;
+  transition: all 0.12s ease;
+}
+
+.story-ch-nav-btn:hover {
+  background: var(--primary-soft);
+  border-color: #bfdbfe;
+}
+
+.story-ch-nav-btn.active {
+  background: #fff;
+  border-color: var(--accent);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
+}
+
+.story-ch-nav-btn .story-ch-status-dot {
+  width: 7px;
+  height: 7px;
+}
+
+/* 11. 编辑器分栏 */
+.story-wb-main {
+  min-width: 0;
+}
+
+.story-wb-split {
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.story-editor {
+  width: 100%;
+  min-height: 55vh;
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.75;
+  padding: 14px;
+  border-radius: 12px;
+  background: #fbfbfb;
+  border: 1px solid var(--border);
+  resize: vertical;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
+}
+
+.story-editor:focus {
+  background: #fff;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.10);
+}
+
+.story-preview {
+  min-height: 55vh;
+  max-height: 70vh;
+  padding: 16px;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid var(--border);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
+  overflow: auto;
+}
+
+.story-preview-h3 {
+  font-size: 13px;
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* 12. 编辑器工具条 */
+.story-editor-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.story-wc {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+/* 13. 写作页控件 */
+.story-write-row {
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+
+.story-chat-write-strip {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+/* 14. 右侧上下文面板 */
+.story-wb-context {
+  background: var(--surface);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 12px;
+}
+
+.ctx-block {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 4px 8px;
+  margin-bottom: 8px;
+}
+
+.ctx-block-summary {
+  padding: 6px 4px;
+  font-size: 12px;
+}
+
+.ctx-block-body {
+  padding: 4px 2px 6px 22px;
+}
+
+/* 15. 伏笔时间轴卡片 */
+.story-fs-timeline {
+  background: #fff;
+}
+
+.story-fs-card {
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+/* 16. 按钮与标签细节 */
+.card-tag {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+.status-pill {
+  background: var(--surface-2);
+}
+
+.status-pill.dirty {
+  background: #fff7ed;
+}
+
+/* 17. 响应式：情节工作台 */
+@media (max-width: 1200px) {
+  .story-wb-layout {
+    grid-template-columns: minmax(160px, 190px) minmax(0, 1fr);
+  }
+  .story-wb-context {
+    display: none;
+  }
+}
+
+@media (max-width: 960px) {
+  .story-wb-layout {
+    grid-template-columns: 1fr;
+  }
+  .story-wb-aside {
+    position: static;
+    max-height: 45vh;
+  }
+  .story-wb-split {
+    grid-template-columns: 1fr;
+  }
+  .story-editor,
+  .story-preview {
+    min-height: 40vh;
+  }
+}
+
+/* 18. 小屏整体优化 */
+@media (max-width: 640px) {
+  .app-header {
+    padding: 10px 14px;
+  }
+  .header-actions {
+    gap: 8px;
+  }
+  .workflow-strip {
+    display: none;
+  }
+  main {
+    padding: 16px 14px 28px;
+  }
+  .card {
+    padding: 18px 18px;
+  }
+}
+
+/* 情节对话页没有右侧上下文栏，使用两栏布局 */
+.story-workbench--chat .story-wb-layout {
+  grid-template-columns: minmax(160px, 200px) minmax(0, 1fr);
+}
+
+@media (max-width: 960px) {
+  .story-workbench--chat .story-wb-layout {
+    grid-template-columns: 1fr;
+  }
+}

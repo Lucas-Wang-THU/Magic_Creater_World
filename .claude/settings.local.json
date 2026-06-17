@@ -130,7 +130,8 @@
       "Bash(E:/ananconda/envs/Agent/python.exe -c \"from app.main import app; print\\('API OK'\\)\")",
       "Bash(E:/ananconda/envs/Agent/python.exe -m pytest tests/test_sync_repair.py -v --tb=short)",
       "Bash(E:/ananconda/envs/Agent/python.exe d:/Magic_Creater_World/update_ragnarok_history.py)",
-      "Bash(E:/ananconda/envs/Agent/python.exe -c \"from app.main import app; print\\('OK'\\)\")"
+      "Bash(E:/ananconda/envs/Agent/python.exe -c \"from app.main import app; print\\('OK'\\)\")",
+      "Bash(E:/ananconda/envs/Agent/python.exe d:/Magic_Creater_World/inject_matter_skills.py)"
     ]
   }
 }

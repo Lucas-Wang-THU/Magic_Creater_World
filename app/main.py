@@ -144,11 +144,31 @@ class ChatMessage(BaseModel):
     content: str
 
 
+SyncScope = Literal[
+    "all",
+    "geography",
+    "ecology",
+    "power_system",
+    "item_quality_system",
+    "attribute_system",
+    "factions",
+    "cultures",
+    "characters",
+    "history",
+    "economy",
+    "story",
+]
+
+
 class ChatBody(BaseModel):
     messages: list[ChatMessage] = Field(default_factory=list)
     mode: str | None = None
     include_markdown_context: bool = False
     chat_guides: list[str] = Field(default_factory=list)
+    auto_sync: bool = False
+    persist_sync: bool = True
+    sync_scope: SyncScope = "all"
+    proofreader_max_retries: int | None = None
 
     @field_validator("chat_guides", mode="before")
     @classmethod
@@ -248,22 +268,6 @@ class StoryGenerateManuscriptBody(BaseModel):
     include_markdown_context: bool | None = None
     creative_mode: str | None = None
     persist: bool = True
-
-
-SyncScope = Literal[
-    "all",
-    "geography",
-    "ecology",
-    "power_system",
-    "item_quality_system",
-    "attribute_system",
-    "factions",
-    "cultures",
-    "characters",
-    "history",
-    "economy",
-    "story",
-]
 
 
 class SyncPanelsBody(BaseModel):
@@ -676,8 +680,97 @@ def api_snapshot_clear(world_id: str) -> dict[str, object]:
     return {"ok": True, "deleted": n}
 
 
+def _last_user_content(messages: list[ChatMessage]) -> str:
+    for m in reversed(messages):
+        if m.role == "user":
+            return m.content
+    return ""
+
+
+def _sync_result_payload(result: dict[str, Any], *, persisted: bool = False) -> dict[str, Any]:
+    w_out = result.get("world")
+    world_dict = w_out.model_dump(mode="json") if hasattr(w_out, "model_dump") else w_out
+    return {
+        "ok": bool(result.get("ok")),
+        "error": result.get("error"),
+        "world": world_dict,
+        "updated_sections": result.get("updated_sections") or [],
+        "patch": result.get("applied_patch") or {},
+        "applied_patch": result.get("applied_patch") or {},
+        "structure_output_keys": result.get("structure_output_keys") or [],
+        "scope_applied": result.get("scope_applied"),
+        "merge_warnings": result.get("merge_warnings") or [],
+        "normalize_notes": result.get("normalize_notes") or {},
+        "proofreader_rounds": result.get("proofreader_rounds", 0),
+        "proofreader_final_verdict": result.get("proofreader_final_verdict", ""),
+        "proofreader_issues": result.get("proofreader_issues") or [],
+        "format_proofreader_used": result.get("format_proofreader_used", False),
+        "format_stages": result.get("format_stages") or [],
+        "persisted": persisted,
+    }
+
+
+def _persist_world_token_usage(world_id: str, *, bucket: str = "world_chat") -> None:
+    from worldforger.llm import drain_token_usage
+    from worldforger.story.story_store import accumulate_world_token_usage
+
+    usage = drain_token_usage()
+    if usage:
+        accumulate_world_token_usage(world_id, usage, bucket=bucket)
+
+
+async def _sync_reply_into_world(
+    world: World,
+    *,
+    user_message: str,
+    assistant_reply: str,
+    scope: SyncScope = "all",
+    creative_mode: str | None = None,
+    proofreader_max_retries: int | None = None,
+    persist: bool = True,
+) -> dict[str, Any]:
+    if not (assistant_reply or "").strip():
+        return {
+            "ok": True,
+            "world": world,
+            "updated_sections": [],
+            "applied_patch": {},
+            "structure_output_keys": [],
+            "scope_applied": scope,
+            "merge_warnings": ["assistant_reply 为空，跳过同步"],
+            "normalize_notes": {},
+            "proofreader_rounds": 0,
+            "proofreader_final_verdict": "skipped",
+            "proofreader_issues": [],
+            "format_proofreader_used": False,
+            "format_stages": [],
+        }
+    pr_max_retries = (
+        proofreader_max_retries
+        if proofreader_max_retries is not None
+        else get_settings().proofreader_max_retries
+    )
+    result = await sync_panels_from_dialogue(
+        world,
+        user_message=user_message,
+        assistant_reply=assistant_reply,
+        scope=scope,
+        creative_mode=(creative_mode or "").strip() or world.meta.creative_mode,
+        proofreader_max_retries=pr_max_retries,
+    )
+    if result.get("ok") and persist and result.get("updated_sections"):
+        merged = result["world"]
+        merged.bump_version()
+        save_world(merged, export_markdown=True)
+        result["world"] = merged
+        result["persisted"] = True
+    else:
+        result["persisted"] = False
+    return result
+
+
 @app.post("/api/worlds/{world_id}/chat")
-async def api_chat(world_id: str, body: ChatBody) -> dict[str, str]:
+async def api_chat(world_id: str, body: ChatBody) -> dict[str, Any]:
     try:
         w = load_world(world_id)
     except FileNotFoundError:
@@ -705,12 +798,26 @@ async def api_chat(world_id: str, body: ChatBody) -> dict[str, str]:
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
 
-    _append_session_log(world_id, body.messages, reply)
-    return {"reply": reply}
+    _append_session_log(world_id, body.messages, reply, kind="chat")
+    payload: dict[str, Any] = {"reply": reply}
+    if body.auto_sync:
+        sync_result = await _sync_reply_into_world(
+            w,
+            user_message=_last_user_content(body.messages),
+            assistant_reply=reply,
+            scope=body.sync_scope,
+            creative_mode=mode_eff,
+            proofreader_max_retries=body.proofreader_max_retries,
+            persist=body.persist_sync,
+        )
+        payload["sync"] = _sync_result_payload(sync_result, persisted=bool(sync_result.get("persisted")))
+        payload["world"] = payload["sync"].get("world")
+    _persist_world_token_usage(world_id, bucket="world_chat")
+    return payload
 
 
 @app.post("/api/worlds/{world_id}/character-chat")
-async def api_character_chat(world_id: str, body: ChatBody) -> dict[str, str]:
+async def api_character_chat(world_id: str, body: ChatBody) -> dict[str, Any]:
     """与「世界观构建」同级的人物/卡司对话：系统提示侧重 characters 节。"""
     try:
         w = load_world(world_id)
@@ -739,8 +846,23 @@ async def api_character_chat(world_id: str, body: ChatBody) -> dict[str, str]:
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
 
-    _append_session_log(world_id, body.messages, reply)
-    return {"reply": reply}
+    _append_session_log(world_id, body.messages, reply, kind="character-chat")
+    payload: dict[str, Any] = {"reply": reply}
+    if body.auto_sync:
+        sync_scope: SyncScope = body.sync_scope if body.sync_scope != "all" else "characters"
+        sync_result = await _sync_reply_into_world(
+            w,
+            user_message=_last_user_content(body.messages),
+            assistant_reply=reply,
+            scope=sync_scope,
+            creative_mode=mode_eff,
+            proofreader_max_retries=body.proofreader_max_retries,
+            persist=body.persist_sync,
+        )
+        payload["sync"] = _sync_result_payload(sync_result, persisted=bool(sync_result.get("persisted")))
+        payload["world"] = payload["sync"].get("world")
+    _persist_world_token_usage(world_id, bucket="character_chat")
+    return payload
 
 
 @app.post("/api/worlds/{world_id}/story-chat")
@@ -784,7 +906,8 @@ async def api_story_chat(world_id: str, body: StoryChatBody) -> dict[str, Any]:
             raise HTTPException(status_code=503, detail=str(e)) from e
         except Exception as e:
             raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
-        _append_session_log(world_id, body.messages, result["reply"])
+        _append_session_log(world_id, body.messages, result["reply"], kind="story-chat")
+        _persist_world_token_usage(world_id, bucket="story_chat")
         return result
 
     system = story_chat_system_prompt(
@@ -804,7 +927,8 @@ async def api_story_chat(world_id: str, body: StoryChatBody) -> dict[str, Any]:
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"upstream error: {e}") from e
 
-    _append_session_log(world_id, body.messages, reply)
+    _append_session_log(world_id, body.messages, reply, kind="story-chat")
+    _persist_world_token_usage(world_id, bucket="story_chat")
     return {"reply": reply, "world": w.model_dump(mode="json"), "actions": [], "intent": None}
 
 
@@ -835,6 +959,7 @@ async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict
             "proofreader_final_verdict": "skipped",
             "proofreader_issues": [],
             "format_proofreader_used": False, "format_stages": [],
+            "persisted": False,
         }
     result = await sync_panels_from_dialogue(
         w,
@@ -844,6 +969,7 @@ async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict
         creative_mode=mode_eff,
         proofreader_max_retries=pr_max_retries,
     )
+    _persist_world_token_usage(world_id, bucket="structure_sync")
     if not result.get("ok"):
         # sync_panels_from_dialogue returns ok=False on parse/recovery failure;
         # world is the original World model (not a dict) in the error path
@@ -864,6 +990,7 @@ async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict
             "proofreader_issues": result.get("proofreader_issues") or [],
             "format_proofreader_used": result.get("format_proofreader_used", False),
             "format_stages": result.get("format_stages") or [],
+            "persisted": False,
         }
 
     merged = result["world"]
@@ -895,6 +1022,7 @@ async def api_sync_panels_from_chat(world_id: str, body: SyncPanelsBody) -> dict
         "proofreader_issues": result["proofreader_issues"],
         "format_proofreader_used": result.get("format_proofreader_used", False),
         "format_stages": result.get("format_stages", []),
+        "persisted": bool(body.persist and result["updated_sections"]),
     }
 
 
@@ -2104,12 +2232,18 @@ def api_token_usage(world_id: str) -> dict[str, Any]:
 
     saved = read_token_usage(world_id)
     live_session = get_token_usage()
+    saved_last_session = saved.get("last_session", {})
+    if live_session and live_session == saved_last_session:
+        live_session = {}
 
     # Prefer live session; fall back to persisted last_session
-    session = live_session if live_session else saved.get("last_session", {})
+    session = live_session if live_session else saved_last_session
+    session_is_already_persisted = bool(session and not live_session and session == saved_last_session)
 
     s_prompt = sum(v.get("prompt_tokens", 0) for v in session.values())
     s_completion = sum(v.get("completion_tokens", 0) for v in session.values())
+    total_session_prompt = 0 if session_is_already_persisted else s_prompt
+    total_session_completion = 0 if session_is_already_persisted else s_completion
     saved_prompt = saved.get("prompt_tokens", 0) or 0
     saved_completion = saved.get("completion_tokens", 0) or 0
 
@@ -2117,6 +2251,9 @@ def api_token_usage(world_id: str) -> dict[str, Any]:
     by_chapter = saved.get("by_chapter", {})
     if not isinstance(by_chapter, dict):
         by_chapter = {}
+    by_context = saved.get("by_context", {})
+    if not isinstance(by_context, dict):
+        by_context = {}
     persisted_by_label = saved.get("by_label", {})
     if not isinstance(persisted_by_label, dict):
         persisted_by_label = {}
@@ -2134,12 +2271,13 @@ def api_token_usage(world_id: str) -> dict[str, Any]:
             "completion_tokens": saved_completion,
             "total_tokens": saved_prompt + saved_completion,
             "by_chapter": by_chapter,
+            "by_context": by_context,
             "by_label": persisted_by_label,
         },
         "total": {
-            "prompt_tokens": s_prompt + saved_prompt,
-            "completion_tokens": s_completion + saved_completion,
-            "total_tokens": s_prompt + saved_prompt + s_completion + saved_completion,
+            "prompt_tokens": total_session_prompt + saved_prompt,
+            "completion_tokens": total_session_completion + saved_completion,
+            "total_tokens": total_session_prompt + saved_prompt + total_session_completion + saved_completion,
         },
     }
 
@@ -2619,12 +2757,17 @@ def api_add_profession(world_id: str, body: ProfessionUpsertBody) -> dict[str, A
     if not prof_id:
         raise HTTPException(status_code=400, detail="profession.id is required")
 
+    tier_name = body.tier_name.strip()
+    tier = next((t for t in w.power_system.tiers if t.name == tier_name), None)
+    if tier is None:
+        raise HTTPException(status_code=404, detail=f"tier '{tier_name}' not found")
+
     ps = w.power_system.profession_system
     # Find or create the tier block
-    block = next((b for b in ps.by_tier if b.tier_name == body.tier_name), None)
+    block = next((b for b in ps.by_tier if b.tier_name == tier_name), None)
     if block is None:
         from worldforger.schemas import TierProfessionBlock
-        block = TierProfessionBlock(tier_name=body.tier_name)
+        block = TierProfessionBlock(tier_name=tier_name)
         ps.by_tier.append(block)
 
     # Upsert: update existing or append new
@@ -2647,7 +2790,7 @@ def api_add_profession(world_id: str, body: ProfessionUpsertBody) -> dict[str, A
 
     w.bump_version()
     save_world(w, export_markdown=False)
-    return {"ok": True, "action": action, "tier_name": body.tier_name, "profession_id": prof_id, "world": w.model_dump(mode="json")}
+    return {"ok": True, "action": action, "tier_name": tier_name, "profession_id": prof_id, "world": w.model_dump(mode="json")}
 
 
 @app.delete("/api/worlds/{world_id}/power-system/professions/{profession_id}")
@@ -2784,18 +2927,37 @@ async def api_ecology_generate(
 
 
 def _append_session_log(
-    world_id: str, messages: list[ChatMessage], assistant_reply: str
+    world_id: str,
+    messages: list[ChatMessage],
+    assistant_reply: str,
+    *,
+    kind: str = "chat",
 ) -> None:
     d = sessions_dir(world_id)
     d.mkdir(parents=True, exist_ok=True)
-    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
-    log = d / f"{ts}.md"
-    parts = ["# Session snippet\n", f"- time: {ts}\n\n"]
+    now = datetime.now(timezone.utc)
+    ts = now.strftime("%Y%m%d-%H%M%S-%f")
+    turn_id = f"{ts}-{kind}"
+    log = d / f"{turn_id}.md"
+    last_user = _last_user_content(messages)
+    parts = ["# Session turn\n", f"- id: {turn_id}\n", f"- time: {now.isoformat()}\n", f"- kind: {kind}\n\n"]
     for m in messages:
         parts.append(f"## {m.role}\n\n{m.content}\n\n")
     parts.append("## assistant\n\n")
     parts.append(assistant_reply + "\n")
     log.write_text("".join(parts), encoding="utf-8")
+    jsonl = d / "dialogues.jsonl"
+    record = {
+        "id": turn_id,
+        "time": now.isoformat(),
+        "kind": kind,
+        "user": last_user,
+        "assistant": assistant_reply,
+        "messages": [m.model_dump(mode="json") for m in messages],
+        "markdown_file": log.name,
+    }
+    with jsonl.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 if STATIC_DIR.is_dir():

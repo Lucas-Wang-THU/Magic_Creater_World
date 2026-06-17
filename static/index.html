@@ -417,11 +417,6 @@
                   ><input type="checkbox" id="storyChatToggleUnified" /> 统一后处理</label
                 >
               </div>
-              <div class="row story-write-row">
-                <label class="muted lbl-ic tiny"
-                  ><input type="checkbox" id="storyChatToggleUnified" /> 统一后处理</label
-                >
-              </div>
               <!-- 角色 Agent 涌现叙事 -->
               <div class="agent-panel" id="storyChatAgentPanel">
                 <div class="agent-panel-head">
@@ -1262,6 +1257,16 @@
             <span id="storyRagStatus" class="rag-status-dot rag-status-dot--empty" title="RAG 索引状态">○ 无索引</span>
             <p class="muted tiny" id="storyUnitLine">情节单元：—</p>
             </header>
+            <nav class="story-wb-tabs" aria-label="情节子页">
+              <button type="button" data-story-tab="overview" class="active">总览</button>
+              <button type="button" data-story-tab="outline">大纲</button>
+              <button type="button" data-story-tab="chapter">章节</button>
+              <button type="button" data-story-tab="write">写作</button>
+              <button type="button" data-story-tab="foreshadow">伏笔</button>
+              <button type="button" data-story-tab="audit">审校</button>
+              <button type="button" data-story-tab="agent">Agent</button>
+              <button type="button" data-story-tab="stats">统计</button>
+            </nav>
             <div class="story-wb-layout">
               <aside class="story-wb-aside" aria-label="章节导航">
                 <div class="story-wb-aside-head">
@@ -1323,6 +1328,10 @@
                 <div class="story-wb-editor-col">
                   <label class="muted tiny">粗纲 Markdown</label>
                   <textarea id="storyMacroEdit" class="story-editor" rows="14"></textarea>
+                  <div class="story-editor-toolbar">
+                    <span class="story-wc" id="storyMacroWc">0 字</span>
+                    <span class="muted tiny">实时预览在右侧</span>
+                  </div>
                   <div class="row">
                     <button type="button" class="primary btn-ic" id="btnStorySaveMacro">保存粗纲</button>
                     <input type="text" id="storyGenMacroHint" class="story-gen-hint" placeholder="生成要求（可留空）" />
@@ -1342,6 +1351,10 @@
                   <select id="storyBeatChapterSelect" onchange="loadStoryBeat()"></select>
                   <label class="muted tiny">细纲 Markdown</label>
                   <textarea id="storyBeatEdit" class="story-editor" rows="12"></textarea>
+                  <div class="story-editor-toolbar">
+                    <span class="story-wc" id="storyBeatWc">0 字</span>
+                    <span class="muted tiny">实时预览在右侧</span>
+                  </div>
                   <div class="row">
                     <button type="button" class="primary btn-ic" id="btnStorySaveBeat">保存细纲</button>
                     <input type="text" id="storyGenBeatsHint" class="story-gen-hint" placeholder="生成要求（可留空）" />
@@ -1401,6 +1414,10 @@
                   </div>
                   <label class="muted tiny">文稿 Markdown</label>
                   <textarea id="storyManuscriptEdit" class="story-editor" rows="14"></textarea>
+                  <div class="story-editor-toolbar">
+                    <span class="story-wc" id="storyManuscriptWc">0 字</span>
+                    <span class="muted tiny">作者视图下右侧渲染 Markdown</span>
+                  </div>
                   <div class="row">
                     <button type="button" class="primary btn-ic" id="btnStorySaveManuscript">保存文稿</button>
                     <button type="button" class="ghost btn-ic" id="btnChapterVersionHistory"><span class="ms" aria-hidden="true">history</span>版本历史</button>

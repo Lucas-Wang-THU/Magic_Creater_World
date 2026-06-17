@@ -1626,14 +1626,7 @@ function scheduleSyncPowerTiersFromVizToStateAndJson() {
     });
     updatePowerTierSkillTreePreviews(tiers);
     updatePowerProfessionPreviews(tiers, state.world.power_system.profession_system);
-    // Update profession count badge on sub-tab
-    const profBadge = $("powerProfessionCount");
-    if (profBadge) {
-      const totalProf = (state.world.power_system?.profession_system?.by_tier || [])
-        .reduce((s, b) => s + (b?.professions?.length || 0), 0);
-      profBadge.textContent = totalProf;
-      profBadge.style.display = totalProf > 0 ? "" : "none";
-    }
+    refreshPowerProfessionCountBadge(state.world);
     document.querySelectorAll("#vizPowerProfessionModules .power-tier-viz--professions").forEach((el) => {
       const idx = Number.parseInt(el.getAttribute("data-power-tier-index") || "0", 10);
       const tn = tiers[idx]?.name;
@@ -2568,14 +2561,7 @@ function setPowerSubView(which) {
     b.setAttribute("aria-selected", on ? "true" : "false");
   });
   if (which === "professions") requestAnimationFrame(() => refreshProfessionPromotionViz());
-  // Update profession count badge on the sub-tab
-  const badge = $("powerProfessionCount");
-  if (badge) {
-    const ps = state.world?.power_system?.profession_system;
-    const total = (ps?.by_tier || []).reduce((s, b) => s + (b?.professions?.length || 0), 0);
-    badge.textContent = total;
-    badge.style.display = total > 0 ? "" : "none";
-  }
+  refreshPowerProfessionCountBadge(state.world);
 }
 
 function setEcologySubView(which) {
@@ -4339,6 +4325,14 @@ function navigateToEconomyAfterSyncIfNeeded(updatedSections) {
 }
 
 /** 情节构建同步后跳转到对应情节子栏 */
+function navigateToCharactersAfterSyncIfNeeded(updatedSections) {
+  if (!Array.isArray(updatedSections) || !updatedSections.includes("characters")) return;
+  requestAnimationFrame(() => {
+    switchView("charData");
+    $("view-charData")?.querySelector(".card")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+
 function navigateToStoryAfterSyncIfNeeded(updatedSections) {
   if (!Array.isArray(updatedSections) || !updatedSections.includes("story")) return;
   if (state.activeView === "storyChat") {
@@ -4662,6 +4656,20 @@ function updateStoryWbTitle() {
   h.innerHTML = `<span class="ms h2-ic" aria-hidden="true">auto_stories</span>情节 · ${escapeHtml(lab)}`;
 }
 
+function updateStoryEditorWordCount(taId, wcId) {
+  const ta = $(taId);
+  const wc = $(wcId);
+  if (!ta || !wc) return;
+  const n = (ta.value || "").replace(/\s/g, "").length;
+  wc.textContent = `${n.toLocaleString()} 字`;
+}
+
+function refreshStoryEditorWordCounts() {
+  updateStoryEditorWordCount("storyMacroEdit", "storyMacroWc");
+  updateStoryEditorWordCount("storyBeatEdit", "storyBeatWc");
+  updateStoryEditorWordCount("storyManuscriptEdit", "storyManuscriptWc");
+}
+
 function setStoryOutlineSub(name) {
   state.storyOutlineSub = name;
   document.querySelectorAll("#storyOutlineSubtabs button").forEach((b) => {
@@ -4693,6 +4701,10 @@ function setStorySubView(name) {
   state.activeStoryNav = STORY_SUB_TO_NAV[name] || state.activeStoryNav || "storyOverview";
   syncNavActiveButtons();
   updateStoryWbTitle();
+  document.querySelectorAll("[data-story-tab]").forEach((b) => {
+    b.classList.toggle("active", b.dataset.storyTab === name);
+  });
+  refreshStoryEditorWordCounts();
   const panes = {
     overview: "storyPaneOverview",
     outline: "storyPaneOutline",
@@ -4754,6 +4766,7 @@ async function loadStoryMacro() {
   const res = await api(`/api/worlds/${state.world.meta.id}/story/macro-outline`);
   if ($("storyMacroEdit")) $("storyMacroEdit").value = res.content || "";
   updateStoryMarkdownPreview("storyMacroPreview", res.content || "", true);
+  refreshStoryEditorWordCounts();
 }
 
 async function loadStoryBeat() {
@@ -4771,6 +4784,7 @@ async function loadStoryBeat() {
   const res = await api(`/api/worlds/${state.world.meta.id}/story/chapters/${encodeURIComponent(cid)}/beat`);
   if ($("storyBeatEdit")) $("storyBeatEdit").value = res.content || "";
   updateStoryMarkdownPreview("storyBeatPreview", res.content || "", true);
+  refreshStoryEditorWordCounts();
 }
 
 async function loadStoryManuscript() {
@@ -4783,6 +4797,7 @@ async function loadStoryManuscript() {
   const author = $("storyAuthorView")?.checked ?? true;
   updateStoryMarkdownPreview("storyManuscriptPreview", res.content || "", author);
   renderChapterSummaryCard(cid);
+  refreshStoryEditorWordCounts();
 }
 
 
@@ -5959,6 +5974,41 @@ function alignProfessionSystemToTiers(tiers, ps) {
   };
 }
 
+function visibleProfessionCountForTiers(tiers, professionSystem) {
+  const byTier = Array.isArray(professionSystem?.by_tier) ? professionSystem.by_tier : [];
+  const n = Array.isArray(tiers) ? tiers.length : 0;
+  return byTier.slice(0, n).reduce((s, b) => s + (Array.isArray(b?.professions) ? b.professions.length : 0), 0);
+}
+
+function refreshPowerProfessionCountBadge(w) {
+  const badge = $("powerProfessionCount");
+  if (!badge) return;
+  const tiers = w?.power_system?.tiers || [];
+  const total = visibleProfessionCountForTiers(tiers, w?.power_system?.profession_system);
+  badge.textContent = total;
+  badge.style.display = total > 0 ? "" : "none";
+}
+
+function refreshPowerUiFromWorld(w) {
+  if (!w?.power_system) return;
+  if (Array.isArray(w.power_system.tiers)) {
+    w.power_system.profession_system = alignProfessionSystemToTiers(
+      w.power_system.tiers,
+      w.power_system.profession_system || {}
+    );
+  }
+  if ($("powerTiersJson")) $("powerTiersJson").value = JSON.stringify(w.power_system?.tiers ?? [], null, 2);
+  if ($("powerProfessionSummary"))
+    $("powerProfessionSummary").value = w.power_system?.profession_system?.summary ?? "";
+  if ($("powerProfessionDesign"))
+    $("powerProfessionDesign").value = w.power_system?.profession_system?.design_notes ?? "";
+  renderPowerTierDashboardModules(w);
+  updatePowerTierSkillTreePreviews(w.power_system?.tiers || []);
+  updatePowerProfessionPreviews(w.power_system?.tiers || [], w.power_system?.profession_system || {});
+  refreshPowerProfessionCountBadge(w);
+  requestAnimationFrame(() => refreshProfessionPromotionViz());
+}
+
 function worldToForm(w) {
   if (!w) {
     $("geoSummary").value = "";
@@ -6038,24 +6088,7 @@ function worldToForm(w) {
     $("powerRealmDesign").value = w.power_system?.realm_design_notes ?? "";
   if ($("powerSkillTreeDesign"))
     $("powerSkillTreeDesign").value = w.power_system?.skill_tree_design_notes ?? "";
-  if (w.power_system && Array.isArray(w.power_system.tiers)) {
-    w.power_system.profession_system = alignProfessionSystemToTiers(
-      w.power_system.tiers,
-      w.power_system.profession_system || {}
-    );
-  }
-  $("powerTiersJson").value = JSON.stringify(w.power_system?.tiers ?? [], null, 2);
-  if ($("powerProfessionSummary"))
-    $("powerProfessionSummary").value = w.power_system?.profession_system?.summary ?? "";
-  if ($("powerProfessionDesign"))
-    $("powerProfessionDesign").value = w.power_system?.profession_system?.design_notes ?? "";
-  // Update profession count badge
-  const profBadge2 = $("powerProfessionCount");
-  if (profBadge2) {
-    const tot = (w.power_system?.profession_system?.by_tier || []).reduce((s, b) => s + (b?.professions?.length || 0), 0);
-    profBadge2.textContent = tot;
-    profBadge2.style.display = tot > 0 ? "" : "none";
-  }
+  refreshPowerUiFromWorld(w);
 
   $("itemSummary").value = w.item_quality_system?.summary ?? "";
   $("itemGradesJson").value = JSON.stringify(w.item_quality_system?.grades ?? [], null, 2);
@@ -7606,6 +7639,19 @@ async function init() {
   ensureWorldviewEditModeToolbars();
   setupCharRosterInlineEditors();
 
+  // 情节工作台：子页标签栏交互
+  document.querySelectorAll("[data-story-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => setStorySubView(btn.dataset.storyTab));
+  });
+
+  // 情节编辑器：字数统计
+  ["storyMacroEdit", "storyBeatEdit", "storyManuscriptEdit"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("input", () => refreshStoryEditorWordCounts());
+  });
+  refreshStoryEditorWordCounts();
+
   try {
     const cfg = await api("/api/config");
     const chatModel = cfg.default_model;
@@ -7843,7 +7889,11 @@ async function init() {
       if (!state.world || !Array.isArray(tiers)) return;
       state.world.power_system = state.world.power_system || {};
       state.world.power_system.tiers = tiers;
-      renderPowerTierDashboardModules(state.world);
+      state.world.power_system.profession_system = alignProfessionSystemToTiers(
+        tiers,
+        state.world.power_system.profession_system || {}
+      );
+      refreshPowerUiFromWorld(state.world);
       applyAllWorldviewEditModes();
     } catch (_) {}
   });
@@ -8022,6 +8072,9 @@ async function init() {
     $("chatInput").value = "";
     renderMessages();
     setThinking("chat", { panel: "world" });
+    const autoSyncRequested = $("autoSyncPanels")?.checked ?? false;
+    const syncScopeAtSend = syncScopeForRequest();
+    const prMaxAtSend = parseInt($("proofreaderMaxRetries")?.value ?? "3") || 0;
     let res;
     try {
       res = await api(`/api/worlds/${state.world.meta.id}/chat`, {
@@ -8031,6 +8084,10 @@ async function init() {
           mode,
           include_markdown_context: includeMd,
           chat_guides,
+          auto_sync: autoSyncRequested,
+          persist_sync: true,
+          sync_scope: syncScopeAtSend,
+          proofreader_max_retries: prMaxAtSend,
         }),
       });
     } catch (e) {
@@ -8059,6 +8116,38 @@ async function init() {
       }
       return false;
     };
+
+    if (res.sync) {
+      const syncRes = res.sync;
+      if (syncRes.ok) {
+        state.world = syncRes.world;
+        worldToForm(syncRes.world);
+        setDirty(!syncRes.persisted);
+        refreshContextPanel();
+        refreshOutlineHeader();
+        syncUpdatedSections = syncRes.updated_sections;
+        if (syncRes.merge_warnings?.length) {
+          toast("Sync warnings: " + syncRes.merge_warnings.join("; "));
+        }
+        if (syncRes.updated_sections?.length) {
+          toast("Updated: " + syncRes.updated_sections.join(", "));
+        } else if (!syncRes.merge_warnings?.length) {
+          toast("Sync completed: no structured changes.");
+        }
+      } else {
+        toast("Sync parse failed: " + (syncRes.error || ""));
+      }
+      applyAttrFromReply();
+      if (shouldPersist) {
+        try {
+          await persistWorldFromForm();
+        } catch (e) {
+          toast("Persist failed: " + (e?.message || e));
+        }
+      }
+      navigateToEconomyAfterSyncIfNeeded(syncUpdatedSections);
+      return;
+    }
 
     if (!$("autoSyncPanels")?.checked) {
       applyAttrFromReply();
@@ -8202,6 +8291,9 @@ async function init() {
     if ($("charChatInput")) $("charChatInput").value = "";
     renderCharMessages();
     setThinking("chat", { panel: "char" });
+    const autoSyncRequested = $("charAutoSyncPanels")?.checked ?? false;
+    const syncScopeAtSend = syncScopeForRequest();
+    const prMaxAtSend = parseInt($("proofreaderMaxRetries")?.value ?? "3") || 0;
     let res;
     try {
       res = await api(`/api/worlds/${state.world.meta.id}/character-chat`, {
@@ -8211,6 +8303,10 @@ async function init() {
           mode,
           include_markdown_context: includeMd,
           chat_guides,
+          auto_sync: autoSyncRequested,
+          persist_sync: true,
+          sync_scope: syncScopeAtSend,
+          proofreader_max_retries: prMaxAtSend,
         }),
       });
     } catch (e) {
@@ -8226,6 +8322,39 @@ async function init() {
 
     let shouldPersist = false;
     let syncUpdatedSections = null;
+    if (res.sync) {
+      const syncRes = res.sync;
+      if (syncRes.ok) {
+        state.world = syncRes.world;
+        worldToForm(syncRes.world);
+        setDirty(!syncRes.persisted);
+        refreshContextPanel();
+        refreshOutlineHeader();
+        syncUpdatedSections = syncRes.updated_sections;
+        if (Array.isArray(syncRes.updated_sections) && syncRes.updated_sections.length > 0) {
+          shouldPersist = !syncRes.persisted;
+        }
+        if (syncRes.merge_warnings?.length) {
+          toast("Sync warnings: " + syncRes.merge_warnings.join("; "));
+        }
+        if (syncRes.updated_sections?.length) {
+          toast("Updated: " + syncRes.updated_sections.join(", "));
+        } else if (!syncRes.merge_warnings?.length) {
+          toast("Sync completed: no structured changes.");
+        }
+      } else {
+        toast("Sync parse failed: " + (syncRes.error || ""));
+      }
+      if (shouldPersist) {
+        try {
+          await persistWorldFromForm();
+        } catch (e) {
+          toast("Persist failed: " + (e?.message || e));
+        }
+      }
+      navigateToCharactersAfterSyncIfNeeded(syncUpdatedSections);
+      return;
+    }
     if (!$("charAutoSyncPanels")?.checked) return;
 
     setThinking("sync", { panel: "char" });

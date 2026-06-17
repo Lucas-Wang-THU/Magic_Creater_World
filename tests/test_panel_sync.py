@@ -1,5 +1,9 @@
+from unittest.mock import AsyncMock, patch
+
+import pytest
+
 from worldforger.sync.panel_merge import _merge_array_by_name_or_append, merge_section_conservative
-from worldforger.sync.panel_sync import apply_structure_patch, parse_structure_json
+from worldforger.sync.panel_sync import apply_structure_patch, parse_structure_json, sync_panels_from_dialogue
 from worldforger.world_store import create_world
 
 
@@ -7,6 +11,31 @@ def test_parse_structure_json_strips_fence():
     raw = '```json\n{"geography": {"summary": "x"}}\n```'
     d = parse_structure_json(raw)
     assert d["geography"]["summary"] == "x"
+
+
+@pytest.mark.asyncio
+@patch("worldforger.sync.panel_sync.chat_completion", new_callable=AsyncMock)
+async def test_sync_panels_keeps_patch_when_proofreader_connection_fails(mock_chat):
+    APIConnectionError = type("APIConnectionError", (Exception,), {})
+    mock_chat.side_effect = [
+        '{"geography": {"summary": "Recovered geography"}}',
+        APIConnectionError("Connection error."),
+    ]
+    w = create_world("sync proofreader connection")
+
+    result = await sync_panels_from_dialogue(
+        w,
+        user_message="update geography",
+        assistant_reply="Recovered geography",
+        scope="geography",
+        proofreader_max_retries=1,
+    )
+
+    assert result["ok"] is True
+    assert result["world"].geography.summary == "Recovered geography"
+    assert result["updated_sections"] == ["geography"]
+    assert result["proofreader_final_verdict"] == "skipped_connection_error"
+    assert any("APIConnectionError" in w for w in result["merge_warnings"])
 
 
 def test_apply_structure_patch_geography():
@@ -39,6 +68,183 @@ def test_apply_patch_empty_tiers_does_not_wipe():
     assert merged.power_system.summary == "新总览"
     assert len(merged.power_system.tiers) == 1
     assert merged.power_system.tiers[0].name == "第一境"
+
+
+def test_apply_power_system_profession_and_skill_aliases():
+    from worldforger.schemas import PowerTier
+
+    w = create_world("power aliases")
+    w.power_system.tiers.append(PowerTier(name="Tier One", description="base tier"))
+    patch = {
+        "power_system": {
+            "tiers": [
+                {
+                    "tier_name": "Tier One",
+                    "skills": [
+                        {
+                            "title": "Mist Step",
+                            "desc": "Short movement through fog.",
+                            "prerequisites": ["Breath Control"],
+                        }
+                    ],
+                    "subclasses": [
+                        {
+                            "title": "Blade Warden",
+                            "profession": "prof_blade_warden",
+                            "skills": [
+                                {
+                                    "name": "Cut Fog",
+                                    "effect": "Open a narrow path in dense mist.",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ],
+            "profession_system": {
+                "summary": "Professions by realm.",
+                "by_tier": [
+                    {
+                        "tier": "Tier One",
+                        "professions": [
+                            {
+                                "name": "Blade Warden",
+                                "description": "Frontline profession.",
+                            }
+                        ],
+                    }
+                ],
+            },
+        }
+    }
+
+    merged, keys, warns, _notes = apply_structure_patch(w, patch)
+
+    assert "power_system" in keys
+    assert warns == []
+    tier = merged.power_system.tiers[0]
+    assert tier.name == "Tier One"
+    assert tier.skill_tree[0].name == "Mist Step"
+    assert tier.skill_tree[0].id
+    assert tier.skill_tree[0].prereq_ids == ["Breath Control"]
+    assert tier.subclass_paths[0].name == "Blade Warden"
+    assert tier.subclass_paths[0].profession_id == "prof_blade_warden"
+    assert tier.subclass_paths[0].skill_tree[0].name == "Cut Fog"
+    prof_block = merged.power_system.profession_system.by_tier[0]
+    assert prof_block.tier_name == "Tier One"
+    assert prof_block.professions[0].id
+    assert prof_block.professions[0].name == "Blade Warden"
+
+
+def test_apply_power_system_root_skill_tree_attaches_to_single_existing_tier():
+    from worldforger.schemas import PowerTier
+
+    w = create_world("root skill tree")
+    w.power_system.tiers.append(PowerTier(name="Tier One", description="base tier"))
+    patch = {
+        "power_system": {
+            "skill_tree": [
+                {
+                    "name": "Root Skill",
+                    "description": "The model placed this at power_system root.",
+                }
+            ]
+        }
+    }
+
+    merged, keys, warns, _notes = apply_structure_patch(w, patch)
+
+    assert "power_system" in keys
+    assert warns == []
+    assert len(merged.power_system.tiers) == 1
+    assert merged.power_system.tiers[0].name == "Tier One"
+    assert merged.power_system.tiers[0].skill_tree[0].name == "Root Skill"
+    assert merged.power_system.tiers[0].skill_tree[0].id
+
+
+def test_power_system_supplement_ignores_unknown_tiers():
+    from worldforger.schemas import PowerTier
+
+    w = create_world("power known tiers only")
+    w.power_system.tiers.append(PowerTier(name="Tier A", description="known"))
+    patch = {
+        "tiers": [
+            {
+                "name": "Tier A",
+                "skill_tree": [{"id": "sk_a", "name": "Skill A"}],
+            },
+            {
+                "name": "Tier B",
+                "skill_tree": [{"id": "sk_b", "name": "Skill B"}],
+            },
+        ],
+        "profession_system": {
+            "by_tier": [
+                {"tier_name": "Tier A", "professions": [{"id": "prof_a", "name": "Profession A"}]},
+                {"tier_name": "Tier B", "professions": [{"id": "prof_b", "name": "Profession B"}]},
+            ]
+        },
+    }
+
+    merged, keys, warns, notes = apply_structure_patch(w, {"power_system": patch})
+
+    assert "power_system" in keys
+    assert warns == []
+    assert [t.name for t in merged.power_system.tiers] == ["Tier A"]
+    assert [n.id for n in merged.power_system.tiers[0].skill_tree] == ["sk_a"]
+    block = merged.power_system.profession_system.by_tier[0]
+    assert block.tier_name == "Tier A"
+    assert [p.id for p in block.professions] == ["prof_a"]
+    assert all(t.name != "Tier B" for t in merged.power_system.tiers)
+    assert "ignored unknown power_system.tiers" in " ".join(notes.get("power_system", []))
+    assert "ignored profession_system.by_tier" in " ".join(notes.get("power_system", []))
+
+
+def test_power_system_supplement_function_uses_existing_tier_rules():
+    from worldforger.schemas import PowerTier
+    from worldforger.sync.panel_sync import supplement_power_system_existing_tiers
+
+    w = create_world("power supplement function")
+    w.power_system.tiers.append(PowerTier(name="Tier A", description="known"))
+    merged, keys, warns, _notes = supplement_power_system_existing_tiers(
+        w,
+        {
+            "target_tier": "Tier A",
+            "skill_tree": [{"name": "Root Skill A"}],
+            "profession_system": {
+                "by_tier": [
+                    {"tier_name": "Tier Missing", "professions": [{"id": "bad", "name": "Bad"}]}
+                ]
+            },
+        },
+    )
+
+    assert "power_system" in keys
+    assert warns == []
+    assert [t.name for t in merged.power_system.tiers] == ["Tier A"]
+    assert merged.power_system.tiers[0].skill_tree[0].name == "Root Skill A"
+    assert merged.power_system.profession_system.by_tier == []
+
+
+def test_root_skill_tree_targeting_unknown_tier_is_ignored():
+    from worldforger.schemas import PowerTier
+
+    w = create_world("root unknown target")
+    w.power_system.tiers.append(PowerTier(name="Tier A", description="known"))
+    merged, keys, warns, _notes = apply_structure_patch(
+        w,
+        {
+            "power_system": {
+                "target_tier": "Tier B",
+                "skill_tree": [{"id": "sk_b", "name": "Skill B"}],
+            }
+        },
+    )
+
+    assert "power_system" in keys
+    assert warns == []
+    assert [t.name for t in merged.power_system.tiers] == ["Tier A"]
+    assert merged.power_system.tiers[0].skill_tree == []
 
 
 def test_apply_patch_cultures_entities():

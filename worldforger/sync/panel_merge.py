@@ -80,7 +80,21 @@ def _merge_array_by_name_or_append(
             merged.append(patch_item)
             continue
         # Match by name (common) or tier_name (power_system.tiers / profession_system.by_tier)
-        nm = (patch_item.get("name") or patch_item.get("tier_name") or "").strip()
+        raw_nm = (patch_item.get("name") or patch_item.get("tier_name") or "").strip()
+        # Normalize: strip trailing "境" suffix for matching (e.g. "碎尘境" → "碎尘")
+        nm = raw_nm
+        if nm.endswith("境") and len(nm) > 1:
+            nm_no_suffix = nm[:-1]
+            # Check if the no-suffix version exists in seen_names or merged
+            if nm_no_suffix in seen_names:
+                nm = nm_no_suffix
+            else:
+                for base_item in merged:
+                    if isinstance(base_item, dict):
+                        bn = (base_item.get("name") or base_item.get("tier_name") or "").strip()
+                        if bn == nm_no_suffix:
+                            nm = nm_no_suffix
+                            break
         if nm:
             key = nm
             if key in seen_names:

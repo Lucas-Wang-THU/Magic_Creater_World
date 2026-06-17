@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import asyncio
 import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import contextmanager
@@ -112,6 +113,19 @@ def _client() -> AsyncOpenAI | None:
     return AsyncOpenAI(api_key=key, base_url=s.openai_api_base.rstrip("/"))
 
 
+def _is_transient_openai_error(exc: BaseException) -> bool:
+    name = type(exc).__name__
+    status = getattr(exc, "status_code", None)
+    if name == "APIStatusError":
+        return status in {429, 500, 502, 503, 504}
+    return name in {
+        "APIConnectionError",
+        "APITimeoutError",
+        "RateLimitError",
+        "InternalServerError",
+    } or "Connection error" in str(exc)
+
+
 async def chat_completion(
     messages: list[dict[str, Any]],
     *,
@@ -132,15 +146,27 @@ async def chat_completion(
     prompt_chars = sum(
         len(str(msg.get("content", ""))) for msg in messages if msg.get("content")
     )
-    with timing_context() as rec:
-        rec["label"] = label
-        rec["model"] = m
-        resp = await client.chat.completions.create(
-            model=m,
-            messages=messages,
-            temperature=temperature,
-            max_tokens=max_tokens,
-        )
+    last_exc: BaseException | None = None
+    for attempt in range(3):
+        try:
+            with timing_context() as rec:
+                rec["label"] = label
+                rec["model"] = m
+                rec["attempt"] = attempt + 1
+                resp = await client.chat.completions.create(
+                    model=m,
+                    messages=messages,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                )
+            break
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= 2 or not _is_transient_openai_error(exc):
+                raise
+            await asyncio.sleep(0.6 * (attempt + 1))
+    else:
+        raise last_exc or RuntimeError("chat completion failed")
     choice = resp.choices[0].message
     content = choice.content or ""
     finish = getattr(choice, 'finish_reason', '') or ''

@@ -58,6 +58,7 @@ STRUCTURE_SYSTEM_BASE = """你是「设定结构化同步器」，所有内容�
 - factions.entities[].relations[].type 只能是 ally|enemy|neutral|complex
 - 若职业体系(profession_system.by_tier)内容极长(>4境×3职业)，请用 @@PROFESSION:境界名@@ {tier_name+professions} 分段输出，每段独立解析互不干扰
 - **技能树更新规则**：只修改已有境界的 skill_tree 或 subclass_paths，**禁止在 tiers[] 中新增境界**。境界名必须与当前 world.json 中完全一致。如需为某个境界补充技能节点，只输出该境界的 name + skill_tree/subclass_paths，不要改变其他字段
+- **职业体系同步规则**：by_tier[].tier_name 必须与当前 world.json 中 tiers[].name **完全相同**（包括有无"境"字）。如需为某个境界补充职业，只输出该境界的 tier_name + professions[]，不要改变其他境界。新增的 profession.id 必须在本境界内唯一，profession.exclusive_faction_id 必须为已有 factions.entities[].id 或空字符串
 - factions.entities[].key_figures 只能是字符串数组，禁止对象数组
 - 所有 entities 字段必须为数组，单条也须 [{...}]
 - 区域间关系用 relations，target_id 指向对方 id
@@ -570,12 +571,19 @@ def apply_structure_patch(
     from worldforger.sync.patch_validator import validate_patch_constraints
     from worldforger.sync.structure_normalize import normalize_structure_patch_detailed
 
+    data = world.model_dump(mode="json")
     patch, normalize_notes = normalize_structure_patch_detailed(patch)
+    if isinstance(patch.get("power_system"), dict):
+        patch["power_system"], power_notes = constrain_power_system_patch_to_existing_tiers(
+            data.get("power_system") or {},
+            patch["power_system"],
+        )
+        if power_notes:
+            normalize_notes.setdefault("power_system", []).extend(power_notes)
     # Code-level constraint validation — safety net below the prompt layer
     constraint_warnings = validate_patch_constraints(patch)
     for w in constraint_warnings:
         print(f"[MCW-VALIDATE] {w}")
-    data = world.model_dump(mode="json")
     updated: list[str] = []
     warnings: list[str] = list(constraint_warnings)  # start with constraint violations
     allowed = {
@@ -594,6 +602,8 @@ def apply_structure_patch(
     for key, model_cls in allowed.items():
         if key not in patch or not isinstance(patch[key], dict):
             continue
+        if key == "power_system":
+            patch[key] = _attach_root_power_tree_to_tier(data.get("power_system") or {}, patch[key])
         merged_dict = merge_section_conservative(data[key], patch[key])
         try:
             data[key] = model_cls.model_validate(merged_dict).model_dump(mode="json")
@@ -605,9 +615,166 @@ def apply_structure_patch(
     if "power_system" in updated:
         from worldforger.sync.panel_merge import reconcile_power_system_skill_nodes
         data = reconcile_power_system_skill_nodes(data)
+        # Log profession counts after merge
+        ps = data.get("power_system", {}).get("profession_system", {})
+        by_tier = ps.get("by_tier", [])
+        if by_tier:
+            total_profs = sum(len(b.get("professions", [])) for b in by_tier)
+            tier_summary = ", ".join(
+                f"{b.get('tier_name','?')}:{len(b.get('professions',[]))}"
+                for b in by_tier
+            )
+            print(f"[MCW-SYNC] Post-merge professions: {total_profs} total ({tier_summary})")
 
     new_world = World.model_validate(data)
     return new_world, updated, warnings, normalize_notes
+
+
+def constrain_power_system_patch_to_existing_tiers(
+    base_power_system: dict[str, Any],
+    patch_power_system: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
+    """Constrain profession/skill supplements to tiers already present in world.json."""
+    if not isinstance(patch_power_system, dict):
+        return patch_power_system, []
+    base_tiers = base_power_system.get("tiers")
+    if not isinstance(base_tiers, list) or not base_tiers:
+        return patch_power_system, []
+
+    canonical: dict[str, str] = {}
+    for tier in base_tiers:
+        if not isinstance(tier, dict):
+            continue
+        name = str(tier.get("name") or "").strip()
+        if name:
+            canonical[name.casefold()] = name
+    if not canonical:
+        return patch_power_system, []
+
+    def match_tier(raw: Any) -> str:
+        name = str(raw or "").strip()
+        return canonical.get(name.casefold(), "") if name else ""
+
+    notes: list[str] = []
+    out = dict(patch_power_system)
+
+    tiers = out.get("tiers")
+    if isinstance(tiers, list):
+        kept: list[dict[str, Any]] = []
+        dropped: list[str] = []
+        for idx, item in enumerate(tiers):
+            if not isinstance(item, dict):
+                continue
+            raw_name = item.get("name") or item.get("tier_name") or item.get("realm") or item.get("tier")
+            matched = match_tier(raw_name)
+            if not matched:
+                dropped.append(str(raw_name or f"(unnamed #{idx + 1})"))
+                continue
+            row = dict(item)
+            row["name"] = matched
+            row.pop("tier_name", None)
+            row.pop("realm", None)
+            row.pop("tier", None)
+            kept.append(row)
+        if kept:
+            out["tiers"] = kept
+        else:
+            out.pop("tiers", None)
+        if dropped:
+            notes.append("ignored unknown power_system.tiers: " + ", ".join(dropped))
+
+    prof = out.get("profession_system")
+    if isinstance(prof, dict):
+        by_tier = prof.get("by_tier")
+        if isinstance(by_tier, list):
+            kept_blocks: list[dict[str, Any]] = []
+            dropped_blocks: list[str] = []
+            for idx, block in enumerate(by_tier):
+                if not isinstance(block, dict):
+                    continue
+                raw_name = block.get("tier_name") or block.get("tier") or block.get("realm")
+                matched = match_tier(raw_name)
+                if not matched and len(canonical) == 1 and not str(raw_name or "").strip():
+                    matched = next(iter(canonical.values()))
+                if not matched:
+                    dropped_blocks.append(str(raw_name or f"(unnamed #{idx + 1})"))
+                    continue
+                row = dict(block)
+                row["tier_name"] = matched
+                row.pop("tier", None)
+                row.pop("realm", None)
+                kept_blocks.append(row)
+            prof_out = dict(prof)
+            prof_out["by_tier"] = kept_blocks
+            out["profession_system"] = prof_out
+            if dropped_blocks:
+                notes.append("ignored profession_system.by_tier for unknown tiers: " + ", ".join(dropped_blocks))
+
+    return out, notes
+
+
+def supplement_power_system_existing_tiers(
+    world: World,
+    power_system_patch: dict[str, Any],
+) -> tuple[World, list[str], list[str], dict[str, list[str]]]:
+    """Apply a power_system supplement without creating new tiers.
+
+    This is the function-level entry point for tools/agents that already have a
+    JSON patch for professions, general skill_tree, or subclass_paths.
+    """
+    return apply_structure_patch(world, {"power_system": power_system_patch})
+
+
+def _attach_root_power_tree_to_tier(
+    base_power_system: dict[str, Any], patch_power_system: dict[str, Any]
+) -> dict[str, Any]:
+    """Move top-level skill_tree/subclass_paths into an existing tier when unambiguous."""
+    root_skill_tree = patch_power_system.get("skill_tree")
+    root_subclass_paths = patch_power_system.get("subclass_paths")
+    if not root_skill_tree and not root_subclass_paths:
+        return patch_power_system
+    patch_tiers = patch_power_system.get("tiers")
+    if isinstance(patch_tiers, list) and patch_tiers:
+        return patch_power_system
+    base_tiers = base_power_system.get("tiers")
+    if not isinstance(base_tiers, list) or not base_tiers:
+        return patch_power_system
+    target_name = (
+        str(
+            patch_power_system.get("tier_name")
+            or patch_power_system.get("target_tier")
+            or patch_power_system.get("realm")
+            or ""
+        ).strip()
+    )
+    if target_name:
+        matched = next(
+            (
+                t.get("name")
+                for t in base_tiers
+                if isinstance(t, dict) and str(t.get("name") or "").strip().casefold() == target_name.casefold()
+            ),
+            "",
+        )
+        if not matched:
+            return patch_power_system
+        target_name = matched
+    elif len(base_tiers) == 1 and isinstance(base_tiers[0], dict):
+        target_name = str(base_tiers[0].get("name") or "").strip()
+    else:
+        return patch_power_system
+    if not target_name:
+        return patch_power_system
+    out = dict(patch_power_system)
+    tier_patch: dict[str, Any] = {"name": target_name}
+    if root_skill_tree:
+        tier_patch["skill_tree"] = root_skill_tree
+        out.pop("skill_tree", None)
+    if root_subclass_paths:
+        tier_patch["subclass_paths"] = root_subclass_paths
+        out.pop("subclass_paths", None)
+    out["tiers"] = [tier_patch]
+    return out
 
 
 async def _run_proofreader(
@@ -946,6 +1113,7 @@ async def sync_panels_from_dialogue(
     proofreader_final_verdict = "ok"
     proofreader_issues: list[dict[str, Any]] = []
     patch_accum: dict[str, Any] = {}
+    sync_warnings: list[str] = []
 
     try:
         raw = await chat_completion(
@@ -994,6 +1162,13 @@ async def sync_panels_from_dialogue(
                     raw_patch = {}
                     format_proofreader_used = True
                     format_stages.append("empty_fallback")
+                except Exception as recovery_exc:
+                    msg = f"format recovery skipped after {type(recovery_exc).__name__}: {recovery_exc}"
+                    print(f"[MCW-SYNC] {msg}")
+                    sync_warnings.append(msg)
+                    raw_patch = {}
+                    format_proofreader_used = True
+                    format_stages.append("empty_fallback")
         print(f"[MCW-SYNC] Parsed patch keys: {list(raw_patch.keys())}")
         print(f"[MCW-SYNC] Patch sizes: {{{', '.join(f'{k}: {_json_size(raw_patch[k])}' for k in raw_patch)}}}")
         if not isinstance(raw_patch, dict):
@@ -1017,11 +1192,18 @@ async def sync_panels_from_dialogue(
                 break
 
             proofreader_rounds += 1
-            pr_result = await _run_proofreader(
-                architect_reply=proofreader_reference_reply,
-                patch=patch_accum,
-                world_json=world_json,
-            )
+            try:
+                pr_result = await _run_proofreader(
+                    architect_reply=proofreader_reference_reply,
+                    patch=patch_accum,
+                    world_json=world_json,
+                )
+            except Exception as pr_exc:
+                msg = f"proofreader skipped after {type(pr_exc).__name__}: {pr_exc}"
+                print(f"[MCW-SYNC] {msg}")
+                sync_warnings.append(msg)
+                proofreader_final_verdict = "skipped_connection_error"
+                break
             proofreader_issues.append(pr_result)
             if pr_result.get("verdict") == "retry":
                 proofreader_final_verdict = "retry"
@@ -1047,7 +1229,7 @@ async def sync_panels_from_dialogue(
             "applied_patch": patch_accum,
             "structure_output_keys": structure_output_keys,
             "scope_applied": sc,
-            "merge_warnings": merge_warnings,
+            "merge_warnings": merge_warnings + sync_warnings,
             "normalize_notes": normalize_notes,
             "proofreader_rounds": proofreader_rounds,
             "proofreader_final_verdict": proofreader_final_verdict,
@@ -1065,7 +1247,7 @@ async def sync_panels_from_dialogue(
             "applied_patch": {},
             "structure_output_keys": structure_output_keys,
             "scope_applied": sc,
-            "merge_warnings": [],
+            "merge_warnings": sync_warnings,
             "normalize_notes": {},
             "proofreader_rounds": proofreader_rounds,
             "proofreader_final_verdict": "error",

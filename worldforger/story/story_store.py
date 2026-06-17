@@ -131,15 +131,100 @@ def write_token_usage(world_id: str, data: dict) -> None:
     write_json_file(token_usage_path(world_id), data)
 
 
+def _normalize_label_usage(label_usage: dict) -> dict:
+    out: dict[str, dict[str, int]] = {}
+    for label, counts in (label_usage or {}).items():
+        if not isinstance(counts, dict):
+            continue
+        row = out.setdefault(str(label), {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
+        for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            try:
+                row[k] += int(counts.get(k, 0) or 0)
+            except (TypeError, ValueError):
+                pass
+    return out
+
+
+def accumulate_world_token_usage(world_id: str, label_usage: dict, *, bucket: str = "world_chat") -> None:
+    """Merge non-chapter LLM token usage into ``token_usage.json``.
+
+    World-building chat, structure sync, and other non-manuscript calls do not
+    have a chapter id, so they are persisted under ``by_context`` while also
+    contributing to world-level ``by_label`` and totals.
+    """
+    label_usage = _normalize_label_usage(label_usage)
+    if not label_usage:
+        return
+    saved = read_token_usage(world_id)
+    by_chapter = saved.get("by_chapter", {})
+    if not isinstance(by_chapter, dict):
+        by_chapter = {}
+    by_context = saved.get("by_context", {})
+    if not isinstance(by_context, dict):
+        by_context = {}
+    by_label = saved.get("by_label", {})
+    if not isinstance(by_label, dict):
+        by_label = {}
+
+    ctx_entry = by_context.get(bucket, {})
+    if not isinstance(ctx_entry, dict):
+        ctx_entry = {}
+    ctx_labels = ctx_entry.get("labels", {})
+    if not isinstance(ctx_labels, dict):
+        ctx_labels = {}
+
+    for label, counts in label_usage.items():
+        existing = ctx_labels.get(label, {})
+        if not isinstance(existing, dict):
+            existing = {}
+        bl = by_label.get(label, {})
+        if not isinstance(bl, dict):
+            bl = {}
+        for k in ("prompt_tokens", "completion_tokens", "total_tokens"):
+            existing[k] = int(existing.get(k, 0) or 0) + counts.get(k, 0)
+            bl[k] = int(bl.get(k, 0) or 0) + counts.get(k, 0)
+        ctx_labels[label] = existing
+        by_label[label] = bl
+
+    ctx_entry["labels"] = ctx_labels
+    ctx_entry["prompt_tokens"] = sum(v.get("prompt_tokens", 0) for v in ctx_labels.values())
+    ctx_entry["completion_tokens"] = sum(v.get("completion_tokens", 0) for v in ctx_labels.values())
+    ctx_entry["total_tokens"] = ctx_entry["prompt_tokens"] + ctx_entry["completion_tokens"]
+    by_context[bucket] = ctx_entry
+
+    total_pt = sum(c.get("prompt_tokens", 0) for c in by_chapter.values()) + sum(
+        c.get("prompt_tokens", 0) for c in by_context.values()
+    )
+    total_ct = sum(c.get("completion_tokens", 0) for c in by_chapter.values()) + sum(
+        c.get("completion_tokens", 0) for c in by_context.values()
+    )
+
+    write_token_usage(world_id, {
+        "prompt_tokens": total_pt,
+        "completion_tokens": total_ct,
+        "total_tokens": total_pt + total_ct,
+        "by_chapter": by_chapter,
+        "by_context": by_context,
+        "by_label": by_label,
+        "last_session": label_usage,
+    })
+
+
 def accumulate_token_usage(world_id: str, chapter_id: str, label_usage: dict) -> None:
     """Merge per-chapter token usage into the world-level token_usage.json.
 
     *label_usage* should be a dict of ``{label: {prompt_tokens, completion_tokens, total_tokens}}``.
     """
+    label_usage = _normalize_label_usage(label_usage)
+    if not label_usage:
+        return
     saved = read_token_usage(world_id)
     by_chapter = saved.get("by_chapter", {})
     if not isinstance(by_chapter, dict):
         by_chapter = {}
+    by_context = saved.get("by_context", {})
+    if not isinstance(by_context, dict):
+        by_context = {}
     by_label = saved.get("by_label", {})
     if not isinstance(by_label, dict):
         by_label = {}
@@ -176,14 +261,19 @@ def accumulate_token_usage(world_id: str, chapter_id: str, label_usage: dict) ->
     by_chapter[chapter_id] = ch_entry
 
     # Recompute world totals
-    total_pt = sum(c.get("prompt_tokens", 0) for c in by_chapter.values())
-    total_ct = sum(c.get("completion_tokens", 0) for c in by_chapter.values())
+    total_pt = sum(c.get("prompt_tokens", 0) for c in by_chapter.values()) + sum(
+        c.get("prompt_tokens", 0) for c in by_context.values()
+    )
+    total_ct = sum(c.get("completion_tokens", 0) for c in by_chapter.values()) + sum(
+        c.get("completion_tokens", 0) for c in by_context.values()
+    )
 
     write_token_usage(world_id, {
         "prompt_tokens": total_pt,
         "completion_tokens": total_ct,
         "total_tokens": total_pt + total_ct,
         "by_chapter": by_chapter,
+        "by_context": by_context,
         "by_label": by_label,
         "last_session": label_usage,
     })

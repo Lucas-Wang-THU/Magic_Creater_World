@@ -352,6 +352,13 @@ def _attribute_stat_id_fallback(name: str, idx: int) -> str:
     return (slug + "_" + h) if slug else f"st_{h}"
 
 
+def _stable_id_fallback(prefix: str, name: str, idx: int) -> str:
+    base = (name or "").strip()[:32] or f"{prefix}_{idx}"
+    h = hashlib.sha256(f"{prefix}\0{base}\0{idx}".encode("utf-8")).hexdigest()[:10]
+    slug = re.sub(r"[^\w\u4e00-\u9fff]+", "_", base, flags=re.UNICODE).strip("_").lower()[:24]
+    return f"{prefix}_{slug}_{h}" if slug else f"{prefix}_{h}"
+
+
 def _normalize_attribute_stat_item(raw: Any, idx: int) -> dict[str, Any] | None:
     """将单条维度归一成 AttributeStat 可校验的字典。"""
     if isinstance(raw, str) and raw.strip():
@@ -628,6 +635,132 @@ def _coerce_professions_list(val: Any, notes: dict[str, list[str]] | None) -> li
     return out
 
 
+def _normalize_skill_node_item(raw: Any, idx: int) -> dict[str, Any] | None:
+    if isinstance(raw, str) and raw.strip():
+        name = raw.strip()
+        return {"id": _stable_id_fallback("sk", name, idx), "name": name}
+    if raw is None or not isinstance(raw, dict):
+        return None
+    d = dict(raw)
+    name = _as_str(
+        d.get("name") or d.get("title") or d.get("label") or d.get("skill") or d.get("技能")
+    ).strip()
+    sid = _as_str(d.get("id") or d.get("skill_id") or d.get("code")).strip()
+    if not name:
+        name = sid or f"未命名技能{idx + 1}"
+    if not sid:
+        sid = _stable_id_fallback("sk", name, idx)
+    prereq_raw = (
+        d.get("prereq_ids")
+        or d.get("prerequisites")
+        or d.get("requires")
+        or d.get("前置")
+        or d.get("前置技能")
+    )
+    return {
+        "id": sid[:200],
+        "name": name[:400],
+        "summary": _join_if_list(d.get("summary") or d.get("简介") or d.get("brief")),
+        "description": _join_if_list(d.get("description") or d.get("desc") or d.get("说明")),
+        "prereq_ids": _normalize_str_list_field(prereq_raw),
+        "branch": _as_str(d.get("branch") or d.get("分支")).strip()[:200],
+        "effect": _join_if_list(d.get("effect") or d.get("effects") or d.get("效果")),
+        "cost": _join_if_list(d.get("cost") or d.get("costs") or d.get("代价")),
+        "activation_rules": _join_if_list(
+            d.get("activation_rules") or d.get("activation") or d.get("触发条件") or d.get("发动条件")
+        ),
+    }
+
+
+def _normalize_skill_tree_list(val: Any) -> list[dict[str, Any]]:
+    if val is None:
+        return []
+    if isinstance(val, dict):
+        one = _normalize_skill_node_item(val, 0)
+        return [one] if one else []
+    if not isinstance(val, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for i, item in enumerate(val):
+        node = _normalize_skill_node_item(item, i)
+        if node:
+            out.append(node)
+    return out
+
+
+def _normalize_subclass_path_item(raw: Any, idx: int) -> dict[str, Any] | None:
+    if isinstance(raw, str) and raw.strip():
+        name = raw.strip()
+        return {"id": _stable_id_fallback("path", name, idx), "name": name, "skill_tree": []}
+    if raw is None or not isinstance(raw, dict):
+        return None
+    d = dict(raw)
+    name = _as_str(
+        d.get("name") or d.get("title") or d.get("label") or d.get("path") or d.get("流派") or d.get("职业")
+    ).strip()
+    path_id = _as_str(d.get("id") or d.get("path_id") or d.get("subclass_id") or d.get("code")).strip()
+    prof_id = _as_str(d.get("profession_id") or d.get("profession") or d.get("profession_ref") or "").strip()
+    if not name:
+        name = path_id or prof_id or f"未命名流派{idx + 1}"
+    if not path_id:
+        path_id = _stable_id_fallback("path", name, idx)
+    skill_raw = d.get("skill_tree") or d.get("skills") or d.get("nodes") or d.get("技能树") or d.get("技能")
+    return {
+        "id": path_id[:200],
+        "name": name[:400],
+        "tagline": _as_str(d.get("tagline") or d.get("tag") or "").strip()[:600],
+        "flavor": _join_if_list(d.get("flavor") or d.get("description") or d.get("desc") or d.get("说明")),
+        "skill_tree": _normalize_skill_tree_list(skill_raw),
+        "profession_id": prof_id[:200],
+    }
+
+
+def _normalize_subclass_paths_list(val: Any) -> list[dict[str, Any]]:
+    if val is None:
+        return []
+    if isinstance(val, dict):
+        one = _normalize_subclass_path_item(val, 0)
+        return [one] if one else []
+    if not isinstance(val, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for i, item in enumerate(val):
+        path = _normalize_subclass_path_item(item, i)
+        if path:
+            out.append(path)
+    return out
+
+
+def _normalize_power_tier_item(raw: Any, idx: int) -> dict[str, Any] | None:
+    if isinstance(raw, str) and raw.strip():
+        return {"name": raw.strip()}
+    if raw is None or not isinstance(raw, dict):
+        return None
+    d = dict(raw)
+    name = _as_str(d.get("name") or d.get("tier_name") or d.get("tier") or d.get("realm") or d.get("境界")).strip()
+    if not name:
+        name = f"未命名境界{idx + 1}"
+    out: dict[str, Any] = {
+        "name": name[:400],
+        "description": _join_if_list(d.get("description") or d.get("desc") or d.get("summary") or d.get("说明")),
+        "typical_capabilities": _normalize_str_list_field(
+            d.get("typical_capabilities") or d.get("capabilities") or d.get("abilities") or d.get("能力")
+        ),
+        "limitations": _normalize_str_list_field(d.get("limitations") or d.get("limits") or d.get("代价") or d.get("限制")),
+        "examples": _normalize_str_list_field(d.get("examples") or d.get("例子")),
+        "activation_rules": _join_if_list(
+            d.get("activation_rules") or d.get("activation") or d.get("触发条件") or d.get("发动条件")
+        ),
+        "skill_tree": _normalize_skill_tree_list(
+            d.get("skill_tree") or d.get("skills") or d.get("nodes") or d.get("技能树") or d.get("技能")
+        ),
+        "subclass_paths": _normalize_subclass_paths_list(
+            d.get("subclass_paths") or d.get("subclasses") or d.get("paths") or d.get("流派") or d.get("职业路径")
+        ),
+    }
+    return out
+
+
 def _normalize_profession_tier_block(
     raw: Any, fallback_tier_name: str, notes: dict[str, list[str]] | None
 ) -> dict[str, Any] | None:
@@ -758,7 +891,39 @@ def _normalize_power_system_dict(
     section: dict[str, Any], notes: dict[str, list[str]] | None = None
 ) -> dict[str, Any]:
     out = dict(section)
+    raw_tiers = out.get("tiers") or out.get("realms") or out.get("levels") or out.get("境界")
+    if isinstance(raw_tiers, dict):
+        tier_rows: list[dict[str, Any]] = []
+        for k, v in raw_tiers.items():
+            if isinstance(v, dict):
+                row = dict(v)
+                row.setdefault("name", _as_str(k).strip())
+                tier_rows.append(row)
+            else:
+                tier_rows.append({"name": _as_str(k).strip(), "description": _join_if_list(v)})
+        raw_tiers = tier_rows
+        if notes is not None:
+            _note(notes, "power_system", "power_system.tiers 已由对象映射为数组")
+    if raw_tiers is not None:
+        norm_tiers: list[dict[str, Any]] = []
+        if isinstance(raw_tiers, list):
+            for i, item in enumerate(raw_tiers):
+                tier = _normalize_power_tier_item(item, i)
+                if tier:
+                    norm_tiers.append(tier)
+        elif isinstance(raw_tiers, str) and raw_tiers.strip():
+            norm_tiers.append({"name": raw_tiers.strip()})
+        out["tiers"] = norm_tiers
     tier_names = _tier_names_from_power_tiers(out.get("tiers"))
+    if "skill_tree" in out and "tiers" in out and len(out["tiers"]) == 1:
+        out["tiers"][0]["skill_tree"] = _normalize_skill_tree_list(out.get("skill_tree"))
+        out.pop("skill_tree", None)
+        if notes is not None:
+            _note(notes, "power_system", "顶层 skill_tree 已并入唯一境界")
+    elif "skill_tree" in out:
+        out["skill_tree"] = _normalize_skill_tree_list(out.get("skill_tree"))
+    if "subclass_paths" in out:
+        out["subclass_paths"] = _normalize_subclass_paths_list(out.get("subclass_paths"))
     if "profession_system" in out and out["profession_system"] is not None:
         out["profession_system"] = _normalize_profession_system_dict(
             out["profession_system"], tier_names, notes=notes
