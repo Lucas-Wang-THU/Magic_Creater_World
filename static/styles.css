@@ -8114,3 +8114,550 @@ main {
     grid-template-columns: 1fr;
   }
 }
+
+/* 19. 主题切换：白天 / 黑夜 */
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b1120;
+  --bg-deep: #111827;
+  --surface: #111827;
+  --surface-2: #172033;
+  --surface-elevated: #1f2937;
+  --text: #e5e7eb;
+  --muted: #9ca3af;
+  --border: #2f3b52;
+  --primary: #8ab4f8;
+  --primary-soft: #172a46;
+  --primary-hover: #a9c7ff;
+  --accent: #2dd4bf;
+  --accent-soft: #103a35;
+  --danger: #f87171;
+  --warning: #fbbf24;
+  --success: #4ade80;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 26px rgba(0, 0, 0, 0.34);
+  --shadow-lg: 0 18px 56px rgba(0, 0, 0, 0.42);
+  --icon-muted: #94a3b8;
+}
+
+html[data-theme="dark"] body {
+  background:
+    radial-gradient(1100px 560px at 8% -8%, rgba(45, 212, 191, 0.16) 0%, transparent 48%),
+    radial-gradient(900px 520px at 100% 0%, rgba(138, 180, 248, 0.14) 0%, transparent 42%),
+    var(--bg);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .app-header {
+  background: rgba(17, 24, 39, 0.92);
+}
+
+html[data-theme="dark"] .brand,
+html[data-theme="dark"] .empty-title,
+html[data-theme="dark"] .context-panel h3,
+html[data-theme="dark"] .msg-body--md h1,
+html[data-theme="dark"] .msg-body--md h2,
+html[data-theme="dark"] .msg-body--md h3,
+html[data-theme="dark"] .msg-body--md h4,
+html[data-theme="dark"] .agent-toolbar-title {
+  color: var(--text);
+}
+
+html[data-theme="dark"] .workflow-strip {
+  background: linear-gradient(90deg, #0f172a, #111827);
+}
+
+html[data-theme="dark"] .wf-step,
+html[data-theme="dark"] .edit-mode-toggle {
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .api-badge,
+html[data-theme="dark"] .card-tag,
+html[data-theme="dark"] .faction-chat-viz-badge,
+html[data-theme="dark"] .power-tier-sk-badge {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: #29476f;
+}
+
+html[data-theme="dark"] .nav button:hover,
+html[data-theme="dark"] button.ghost:hover,
+html[data-theme="dark"] .chips button:hover,
+html[data-theme="dark"] .story-wb-tabs button:hover {
+  background: var(--surface-elevated);
+}
+
+html[data-theme="dark"] .nav button.active {
+  background: linear-gradient(90deg, var(--primary-soft), rgba(17, 24, 39, 0));
+  color: var(--primary);
+}
+
+html[data-theme="dark"] .context-panel {
+  background: rgba(17, 24, 39, 0.78);
+}
+
+html[data-theme="dark"] .card,
+html[data-theme="dark"] .empty-card {
+  box-shadow: var(--shadow), 0 0 0 1px rgba(255, 255, 255, 0.035) inset;
+}
+
+html[data-theme="dark"] input[type="text"],
+html[data-theme="dark"] input[type="number"],
+html[data-theme="dark"] input[type="search"],
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea,
+html[data-theme="dark"] button.ghost,
+html[data-theme="dark"] .chips button {
+  background: #111827;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] input::placeholder,
+html[data-theme="dark"] textarea::placeholder {
+  color: #6b7280;
+}
+
+html[data-theme="dark"] input[type="text"]:focus,
+html[data-theme="dark"] input[type="number"]:focus,
+html[data-theme="dark"] input[type="search"]:focus,
+html[data-theme="dark"] select:focus,
+html[data-theme="dark"] textarea:focus {
+  background: #0f172a;
+}
+
+html[data-theme="dark"] .messages,
+html[data-theme="dark"] .faction-chat-viz--empty,
+html[data-theme="dark"] .json-editor-compact,
+html[data-theme="dark"] .story-wb-tabs,
+html[data-theme="dark"] .story-write-row,
+html[data-theme="dark"] .story-chat-write-strip,
+html[data-theme="dark"] .ctx-block {
+  background: var(--surface-2);
+}
+
+html[data-theme="dark"] .msg.user {
+  background: #1d3557;
+  border-color: #315c91;
+}
+
+html[data-theme="dark"] .msg.assistant,
+html[data-theme="dark"] .story-preview,
+html[data-theme="dark"] .story-wb-tabs button.active,
+html[data-theme="dark"] .story-ch-nav-btn.active,
+html[data-theme="dark"] .story-fs-timeline {
+  background: var(--surface);
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .msg-body--md blockquote {
+  background: rgba(30, 41, 59, 0.72);
+  color: #cbd5e1;
+  border-left-color: #64748b;
+}
+
+html[data-theme="dark"] .msg-body--md code {
+  background: rgba(148, 163, 184, 0.15);
+}
+
+html[data-theme="dark"] .msg-body--md th,
+html[data-theme="dark"] .msg-body--md td,
+html[data-theme="dark"] .msg-body--md hr {
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .msg-body--md th {
+  background: #1e293b;
+}
+
+html[data-theme="dark"] .msg-body--md a {
+  color: #7dd3fc;
+}
+
+html[data-theme="dark"] .story-editor,
+html[data-theme="dark"] .json-editor-compact:focus,
+html[data-theme="dark"] .story-editor:focus {
+  background: #0f172a;
+  color: var(--text);
+}
+
+html[data-theme="dark"] .worldview-panel--readonly textarea:read-only,
+html[data-theme="dark"] .worldview-panel--readonly input:read-only,
+html[data-theme="dark"] .worldview-panel--readonly input:read-only:not([type="checkbox"]):not([type="radio"]) {
+  background: linear-gradient(180deg, #121c2f 0%, #0f172a 100%);
+  color: #d1d5db;
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .status-pill {
+  background: var(--surface-2);
+}
+
+html[data-theme="dark"] .status-pill.dirty {
+  background: #3a2613;
+  color: #fbbf24;
+  border-color: #925f22;
+}
+
+.theme-toggle {
+  min-width: 92px;
+  justify-content: center;
+}
+
+html[data-theme="dark"] .theme-toggle {
+  background: var(--primary-soft);
+  color: var(--primary);
+}
+
+html[data-theme="dark"] .search-hit-li,
+html[data-theme="dark"] .files-subdir,
+html[data-theme="dark"] .region-card,
+html[data-theme="dark"] .faction-card,
+html[data-theme="dark"] .power-tier-viz-card,
+html[data-theme="dark"] .power-tier-viz,
+html[data-theme="dark"] .power-tier-edit-block,
+html[data-theme="dark"] .power-tier-skill-band,
+html[data-theme="dark"] .skill-tree-preview-surface,
+html[data-theme="dark"] .subclass-card,
+html[data-theme="dark"] .item-grade-viz-card,
+html[data-theme="dark"] .item-grade-edit-block,
+html[data-theme="dark"] .attr-intro-card,
+html[data-theme="dark"] .hist-tl-card,
+html[data-theme="dark"] .ecology-biome-card,
+html[data-theme="dark"] .ecology-species-card,
+html[data-theme="dark"] .knowledge-char-group,
+html[data-theme="dark"] .knowledge-card,
+html[data-theme="dark"] .char-roster-card,
+html[data-theme="dark"] .speech-card,
+html[data-theme="dark"] .aftermath-card,
+html[data-theme="dark"] .decision-card,
+html[data-theme="dark"] .phys-card,
+html[data-theme="dark"] .agent-panel,
+html[data-theme="dark"] .agent-card,
+html[data-theme="dark"] .timing-panel {
+  background: linear-gradient(165deg, #111827 0%, #172033 100%);
+  border-color: var(--border);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+html[data-theme="dark"] .files-subdir-head,
+html[data-theme="dark"] .power-tier-viz-head,
+html[data-theme="dark"] .item-grade-viz-head,
+html[data-theme="dark"] .knowledge-char-group-head,
+html[data-theme="dark"] .agent-toolbar,
+html[data-theme="dark"] .agent-card-head,
+html[data-theme="dark"] .story-pane-section-title,
+html[data-theme="dark"] .char-viz-boundary-head,
+html[data-theme="dark"] .story-summary-card-header,
+html[data-theme="dark"] .story-runtime-states-header {
+  background: linear-gradient(135deg, #172033 0%, #1f2937 100%);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .region-card::before {
+  background: linear-gradient(
+    135deg,
+    hsla(var(--rv-hue, 210), 62%, 46%, 0.16) 0%,
+    transparent 48%,
+    transparent 100%
+  );
+}
+
+html[data-theme="dark"] .region-viz,
+html[data-theme="dark"] .faction-viz-wrap,
+html[data-theme="dark"] .culture-viz-wrap,
+html[data-theme="dark"] .faction-viz-host,
+html[data-theme="dark"] .char-relation-mermaid-host,
+html[data-theme="dark"] .viz-module,
+html[data-theme="dark"] .module-mini,
+html[data-theme="dark"] .bar-row,
+html[data-theme="dark"] .story-wb-aside,
+html[data-theme="dark"] .story-wb-context,
+html[data-theme="dark"] .story-fs-timeline,
+html[data-theme="dark"] .story-write-prompt-wrap,
+html[data-theme="dark"] .story-summary-card,
+html[data-theme="dark"] .story-runtime-item,
+html[data-theme="dark"] .story-audit-card,
+html[data-theme="dark"] .story-polish-col,
+html[data-theme="dark"] .as-card {
+  background: #172033;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .geo-narrative-card,
+html[data-theme="dark"] .geo-global-stack-card,
+html[data-theme="dark"] .ecology-overview-banner,
+html[data-theme="dark"] .geo-overview-banner,
+html[data-theme="dark"] .profession-promo,
+html[data-theme="dark"] .char-viz-boundary,
+html[data-theme="dark"] .story-wb-tabs,
+html[data-theme="dark"] .story-ch-nav-btn,
+html[data-theme="dark"] .ctx-token-row,
+html[data-theme="dark"] .knowledge-empty {
+  background: #172033;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .char-detail-panel,
+html[data-theme="dark"] .char-detail-head {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .char-detail-overlay {
+  background: rgba(2, 6, 23, 0.68);
+}
+
+html[data-theme="dark"] .cd-input,
+html[data-theme="dark"] .cd-select,
+html[data-theme="dark"] .cd-inv-main input,
+html[data-theme="dark"] .cd-inv-meta input,
+html[data-theme="dark"] .cd-inv-meta select,
+html[data-theme="dark"] .speech-edit-grid select,
+html[data-theme="dark"] .speech-edit-row input,
+html[data-theme="dark"] .speech-card-inline select,
+html[data-theme="dark"] .speech-card-inline input,
+html[data-theme="dark"] .agent-panel-controls select,
+html[data-theme="dark"] .story-write-prompt-wrap textarea {
+  background: #0f172a;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .cd-inv-row,
+html[data-theme="dark"] .cd-attr-row {
+  background: #172033;
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .cd-inv-row.cd-inv-lost,
+html[data-theme="dark"] .aftermath-card--severe {
+  background: #3b1f24;
+  border-color: #7f1d1d;
+}
+
+html[data-theme="dark"] .char-detail-close,
+html[data-theme="dark"] .char-roster-detail-btn,
+html[data-theme="dark"] .cd-add-btn,
+html[data-theme="dark"] .power-tier-del-btn {
+  background: #172033;
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .char-detail-close:hover,
+html[data-theme="dark"] .region-name-row .remove-region:hover,
+html[data-theme="dark"] .power-tier-del-btn:hover,
+html[data-theme="dark"] .cd-inv-del:hover {
+  background: #3b1f24;
+  border-color: #7f1d1d;
+  color: #fca5a5;
+}
+
+html[data-theme="dark"] .region-fields .region-relations-json,
+html[data-theme="dark"] .power-tier-json-ta,
+html[data-theme="dark"] .item-grade-json-ta,
+html[data-theme="dark"] .hist-field-input,
+html[data-theme="dark"] .hist-field-ta,
+html[data-theme="dark"] .mono-small {
+  background: #0f172a;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .worldview-panel--readonly .power-tier-viz--trees .power-tier-json-ta,
+html[data-theme="dark"] .worldview-panel--readonly .power-tier-viz--professions .power-tier-json-ta,
+html[data-theme="dark"] .worldview-panel--readonly .edit-mode-toolbar {
+  background: linear-gradient(165deg, #111827 0%, #172033 100%);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .story-wb-tabs button.active,
+html[data-theme="dark"] .panel-subtabs button.active,
+html[data-theme="dark"] .story-ch-nav-btn.active {
+  background: #0f172a;
+  color: var(--primary);
+  border-color: var(--accent);
+}
+
+html[data-theme="dark"] .speech-card-head strong,
+html[data-theme="dark"] .aftermath-card-head strong,
+html[data-theme="dark"] .phys-card-head strong,
+html[data-theme="dark"] .cd-section-title,
+html[data-theme="dark"] .cd-attr-name,
+html[data-theme="dark"] .agent-toolbar-title,
+html[data-theme="dark"] .agent-card-head,
+html[data-theme="dark"] .story-pane-section-title,
+html[data-theme="dark"] .timeline-event-text,
+html[data-theme="dark"] .phys-general,
+html[data-theme="dark"] .cd-val,
+html[data-theme="dark"] .faction-viz-legend strong {
+  color: var(--text);
+}
+
+html[data-theme="dark"] .speech-chip,
+html[data-theme="dark"] .speech-chip--filler,
+html[data-theme="dark"] .speech-chip--avoid,
+html[data-theme="dark"] .speech-chip--aftermath,
+html[data-theme="dark"] .char-roster-tier-tag,
+html[data-theme="dark"] .char-roster-prof-tag,
+html[data-theme="dark"] .timeline-event-ch,
+html[data-theme="dark"] .cd-attr-abbr,
+html[data-theme="dark"] .decision-verdict,
+html[data-theme="dark"] .aftermath-badge,
+html[data-theme="dark"] .rag-status-dot--ready,
+html[data-theme="dark"] .rag-status-dot--indexing,
+html[data-theme="dark"] .rag-status-dot--error,
+html[data-theme="dark"] .pill-locked,
+html[data-theme="dark"] .pill-completed,
+html[data-theme="dark"] .pill-drafting,
+html[data-theme="dark"] .pill-revising,
+html[data-theme="dark"] .pill-done,
+html[data-theme="dark"] .pill-outline {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: #29476f;
+}
+
+html[data-theme="dark"] .timeline-track::before,
+html[data-theme="dark"] .stats-progress,
+html[data-theme="dark"] .aftermath-intensity,
+html[data-theme="dark"] .cd-attr-slider,
+html[data-theme="dark"] .timing-bar-wrap,
+html[data-theme="dark"] .switch-track {
+  background: #334155;
+}
+
+html[data-theme="dark"] .timeline-event-dot,
+html[data-theme="dark"] .cd-attr-slider::-webkit-slider-thumb,
+html[data-theme="dark"] .switch-track::after {
+  border-color: #0f172a;
+}
+
+html[data-theme="dark"] .mermaid svg,
+html[data-theme="dark"] .mermaid-zoom-viewport,
+html[data-theme="dark"] .vis-network {
+  background: transparent !important;
+}
+
+html[data-theme="dark"] .profession-promo-zoom,
+html[data-theme="dark"] .ecology-toolbar,
+html[data-theme="dark"] .ecology-details,
+html[data-theme="dark"] .ecology-details summary,
+html[data-theme="dark"] .ecology-details--accent summary,
+html[data-theme="dark"] .ecology-gen-md,
+html[data-theme="dark"] .ecology-dashboard,
+html[data-theme="dark"] .ecology-viz-section,
+html[data-theme="dark"] .geo-dashboard,
+html[data-theme="dark"] .geo-md-preview,
+html[data-theme="dark"] .geo-global-stack,
+html[data-theme="dark"] .tier-viz-block,
+html[data-theme="dark"] .tier-viz-block__body,
+html[data-theme="dark"] .attribute-radar-panel,
+html[data-theme="dark"] .attr-radar-card,
+html[data-theme="dark"] .item-grade-card,
+html[data-theme="dark"] .hist-timeline,
+html[data-theme="dark"] .story-stats-card,
+html[data-theme="dark"] .story-agent-card,
+html[data-theme="dark"] .story-polish-issue,
+html[data-theme="dark"] .story-polish-empty,
+html[data-theme="dark"] .snapshot-modal,
+html[data-theme="dark"] .snapshot-modal-head,
+html[data-theme="dark"] .snapshot-toolbar,
+html[data-theme="dark"] .reference-lint-toolbar,
+html[data-theme="dark"] .ctx-token-grid,
+html[data-theme="dark"] .raw-fold,
+html[data-theme="dark"] details.raw-fold,
+html[data-theme="dark"] details.adv-fold {
+  background: #172033;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .geo-overview-banner,
+html[data-theme="dark"] .geo-global-stack,
+html[data-theme="dark"] .geo-narrative-card,
+html[data-theme="dark"] .ecology-toolbar,
+html[data-theme="dark"] .ecology-overview-banner,
+html[data-theme="dark"] .ecology-details--accent summary,
+html[data-theme="dark"] .profession-promo-zoom,
+html[data-theme="dark"] .agent-panel.active {
+  background: linear-gradient(135deg, #111827 0%, #172033 100%);
+}
+
+html[data-theme="dark"] .tier-viz-block--caps .tier-viz-block__body,
+html[data-theme="dark"] .tier-viz-block--lims .tier-viz-block__body,
+html[data-theme="dark"] .tier-viz-block--examples .tier-viz-block__body,
+html[data-theme="dark"] .tier-viz-block--rules .tier-viz-block__body,
+html[data-theme="dark"] .tier-viz-block--skills .tier-viz-block__body,
+html[data-theme="dark"] .tier-viz-block--empty .tier-viz-block__body {
+  background: linear-gradient(180deg, #111827 0%, #172033 100%);
+}
+
+html[data-theme="dark"] .story-fs-card,
+html[data-theme="dark"] .story-audit-issue,
+html[data-theme="dark"] .story-summary-state-item,
+html[data-theme="dark"] .knowledge-card-detail,
+html[data-theme="dark"] .phys-section,
+html[data-theme="dark"] .timeline-event-body,
+html[data-theme="dark"] .decision-card:hover,
+html[data-theme="dark"] .agent-quality-bars,
+html[data-theme="dark"] .ad-decision,
+html[data-theme="dark"] .aq-bar-col,
+html[data-theme="dark"] .as-card-head {
+  background: transparent;
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .knowledge-card-cat,
+html[data-theme="dark"] .knowledge-card-certainty,
+html[data-theme="dark"] .phys-fatigue,
+html[data-theme="dark"] .story-fs-badge-filter--open,
+html[data-theme="dark"] .story-fs-badge-filter--resolved,
+html[data-theme="dark"] .story-fs-badge-filter--abandoned,
+html[data-theme="dark"] .stats-fs-open,
+html[data-theme="dark"] .stats-fs-resolved,
+html[data-theme="dark"] .stats-fs-abandoned {
+  filter: saturate(0.95) brightness(0.92);
+}
+
+html[data-theme="dark"] .story-ch-status-row,
+html[data-theme="dark"] .story-ch-status-row:hover,
+html[data-theme="dark"] .story-batch-bar,
+html[data-theme="dark"] .story-writing-defaults,
+html[data-theme="dark"] .story-context-budget,
+html[data-theme="dark"] .story-runtime-states,
+html[data-theme="dark"] .char-knowledge-subtabs,
+html[data-theme="dark"] .knowledge-toolbar,
+html[data-theme="dark"] .power-batch-guide,
+html[data-theme="dark"] .power-batch-progress,
+html[data-theme="dark"] .agent-dashboard {
+  background: #111827;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+html[data-theme="dark"] [style*="background:#fff"],
+html[data-theme="dark"] [style*="background: #fff"],
+html[data-theme="dark"] [style*="background:#fafbfc"],
+html[data-theme="dark"] [style*="background: #fafbfc"],
+html[data-theme="dark"] [style*="background:#f8fafc"],
+html[data-theme="dark"] [style*="background: #f8fafc"] {
+  background: #172033 !important;
+}
+
+html[data-theme="dark"] [style*="color:#1e293b"],
+html[data-theme="dark"] [style*="color: #1e293b"],
+html[data-theme="dark"] [style*="color:#334155"],
+html[data-theme="dark"] [style*="color: #334155"],
+html[data-theme="dark"] [style*="color:#475569"],
+html[data-theme="dark"] [style*="color: #475569"] {
+  color: var(--text) !important;
+}

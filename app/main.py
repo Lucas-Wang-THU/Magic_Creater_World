@@ -792,7 +792,7 @@ async def api_chat(world_id: str, body: ChatBody) -> dict[str, Any]:
     for m in body.messages:
         msgs.append({"role": m.role, "content": m.content})
     try:
-        reply = await chat_completion(msgs)
+        reply = await chat_completion(msgs, max_tokens=16384)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
@@ -840,7 +840,7 @@ async def api_character_chat(world_id: str, body: ChatBody) -> dict[str, Any]:
     for m in body.messages:
         msgs.append({"role": m.role, "content": m.content})
     try:
-        reply = await chat_completion(msgs)
+        reply = await chat_completion(msgs, max_tokens=16384)
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:

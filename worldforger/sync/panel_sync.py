@@ -630,6 +630,153 @@ def apply_structure_patch(
     return new_world, updated, warnings, normalize_notes
 
 
+def _match_power_tier_name(raw_heading: str, base_power_system: dict[str, Any]) -> str:
+    """Match a Markdown heading like '碎尘境（因果）' to an existing tier name."""
+    heading = re.sub(r"[`*_#\s]", "", raw_heading or "")
+    heading = re.sub(r"[（(].*?[）)]", "", heading).strip()
+    if heading.endswith("境") and len(heading) > 1:
+        heading_no_suffix = heading[:-1]
+    else:
+        heading_no_suffix = heading
+    tiers = base_power_system.get("tiers")
+    if not isinstance(tiers, list):
+        return ""
+    for tier in tiers:
+        if not isinstance(tier, dict):
+            continue
+        name = str(tier.get("name") or "").strip()
+        if not name:
+            continue
+        if heading == name or heading_no_suffix == name or name in heading:
+            return name
+    return ""
+
+
+def _extract_profession_ref_from_heading(raw_heading: str) -> tuple[str, str]:
+    """Return (display_name, profession_id) from headings such as '因果追溯者（`prof_x`）'."""
+    heading = re.sub(r"^[#\s]+", "", raw_heading or "").strip()
+    prof_id = ""
+    m = re.search(r"`([^`]+)`", heading)
+    if m:
+        prof_id = m.group(1).strip()
+    else:
+        m = re.search(r"\((prof_[^)]+)\)|（(prof_[^）]+)）", heading)
+        if m:
+            prof_id = (m.group(1) or m.group(2) or "").strip()
+    name = re.sub(r"[（(].*?[）)]", "", heading).strip(" #`*")
+    return name, prof_id
+
+
+def _profession_name_for_id(base_power_system: dict[str, Any], tier_name: str, prof_id: str) -> str:
+    prof = base_power_system.get("profession_system")
+    if not isinstance(prof, dict) or not prof_id:
+        return ""
+    by_tier = prof.get("by_tier")
+    if not isinstance(by_tier, list):
+        return ""
+    for block in by_tier:
+        if not isinstance(block, dict):
+            continue
+        if str(block.get("tier_name") or "").strip() != tier_name:
+            continue
+        for item in block.get("professions") or []:
+            if isinstance(item, dict) and item.get("id") == prof_id:
+                return str(item.get("name") or "").strip()
+    return ""
+
+
+def _power_markdown_design_notes(reply: str) -> str:
+    notes: list[str] = []
+    for line in reply.splitlines():
+        s = line.strip()
+        if not s.startswith("- "):
+            continue
+        if any(key in s for key in ("节点 id", "prereq_ids", "通用技能树", "职业 id", "子类路径")):
+            notes.append(re.sub(r"\*\*", "", s[2:]).strip())
+    return "\n".join(notes)
+
+
+def extract_power_system_markdown_supplement(
+    base_power_system: dict[str, Any],
+    assistant_reply: str,
+) -> dict[str, Any]:
+    """Extract power-system skill trees from Markdown JSON code blocks.
+
+    This is a deterministic supplement for the structure synchronizer. Long
+    natural-language replies often contain several independent ```json arrays
+    under tier/subclass headings; asking another LLM to re-extract all of them
+    can lose later blocks. This parser preserves complete blocks that are
+    already valid JSON and leaves malformed/truncated blocks to the normal LLM
+    recovery path.
+    """
+    if not isinstance(base_power_system, dict) or not assistant_reply:
+        return {}
+
+    tier_rows: dict[str, dict[str, Any]] = {}
+    current_tier = ""
+    current_subclass_name = ""
+    current_profession_id = ""
+    pending_general = False
+
+    lines = assistant_reply.splitlines(keepends=True)
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        stripped = line.strip()
+        if stripped.startswith("### "):
+            matched = _match_power_tier_name(stripped[4:], base_power_system)
+            if matched:
+                current_tier = matched
+                current_subclass_name = ""
+                current_profession_id = ""
+                pending_general = False
+        elif stripped.startswith("#### "):
+            current_subclass_name, current_profession_id = _extract_profession_ref_from_heading(stripped[5:])
+            pending_general = False
+        elif "通用技能树" in stripped:
+            current_subclass_name = ""
+            current_profession_id = ""
+            pending_general = True
+        elif stripped.startswith("```json") or stripped == "```":
+            block_lines: list[str] = []
+            i += 1
+            while i < len(lines) and not lines[i].strip().startswith("```"):
+                block_lines.append(lines[i])
+                i += 1
+            raw_block = "".join(block_lines).strip()
+            try:
+                parsed = json.loads(raw_block)
+            except Exception:
+                parsed = None
+            if current_tier and isinstance(parsed, list):
+                skill_nodes = [x for x in parsed if isinstance(x, dict) and (x.get("id") or x.get("name"))]
+                if skill_nodes:
+                    row = tier_rows.setdefault(current_tier, {"name": current_tier})
+                    if current_subclass_name and not pending_general:
+                        path_name = _profession_name_for_id(
+                            base_power_system, current_tier, current_profession_id
+                        ) or current_subclass_name
+                        path = {
+                            "id": current_profession_id or f"path_{len(row.get('subclass_paths', [])) + 1}",
+                            "name": path_name,
+                            "profession_id": current_profession_id,
+                            "skill_tree": skill_nodes,
+                        }
+                        row.setdefault("subclass_paths", []).append(path)
+                    else:
+                        row.setdefault("skill_tree", []).extend(skill_nodes)
+                    pending_general = False
+        i += 1
+
+    patch: dict[str, Any] = {}
+    if tier_rows:
+        patch["tiers"] = list(tier_rows.values())
+    notes = _power_markdown_design_notes(assistant_reply)
+    if notes:
+        patch["skill_tree_design_notes"] = notes
+    return {"power_system": patch} if patch else {}
+
+
 def constrain_power_system_patch_to_existing_tiers(
     base_power_system: dict[str, Any],
     patch_power_system: dict[str, Any],
@@ -1178,6 +1325,18 @@ async def sync_panels_from_dialogue(
             patch_accum = {k: v for k, v in raw_patch.items() if k == sc}
         else:
             patch_accum = dict(raw_patch)
+        if sc in ("all", "power_system"):
+            local_power_patch = extract_power_system_markdown_supplement(
+                world.model_dump(mode="json").get("power_system") or {},
+                assistant_reply,
+            )
+            if local_power_patch:
+                if sc != "all":
+                    local_power_patch = {
+                        k: v for k, v in local_power_patch.items() if k == sc
+                    }
+                patch_accum = merge_section_conservative(patch_accum, local_power_patch)
+                sync_warnings.append("local power_system markdown supplement applied")
 
         # --- 校对者统一审查 + 补全循环 ---
         # 统一校对者：一次 LLM 调用同时完成审查和补全 JSON 输出，

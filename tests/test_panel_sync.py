@@ -3,7 +3,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from worldforger.sync.panel_merge import _merge_array_by_name_or_append, merge_section_conservative
-from worldforger.sync.panel_sync import apply_structure_patch, parse_structure_json, sync_panels_from_dialogue
+from worldforger.sync.panel_sync import (
+    apply_structure_patch,
+    extract_power_system_markdown_supplement,
+    parse_structure_json,
+    sync_panels_from_dialogue,
+)
 from worldforger.world_store import create_world
 
 
@@ -134,6 +139,92 @@ def test_apply_power_system_profession_and_skill_aliases():
     assert prof_block.tier_name == "Tier One"
     assert prof_block.professions[0].id
     assert prof_block.professions[0].name == "Blade Warden"
+
+
+def test_extract_power_markdown_skill_blocks_by_tier_and_subclass():
+    from worldforger.schemas import PowerTier, ProfessionEntry, TierProfessionBlock
+
+    w = create_world("power markdown skill blocks")
+    w.power_system.tiers.append(PowerTier(name="碎尘", description="known"))
+    w.power_system.tiers.append(PowerTier(name="共鸣", description="known"))
+    w.power_system.profession_system.by_tier.append(
+        TierProfessionBlock(
+            tier_name="共鸣",
+            professions=[ProfessionEntry(id="prof_causal_tracker", name="因果追溯者")],
+        )
+    )
+    reply = """
+- **节点 id 前缀**：通用树节点以 `causal_` 开头。
+- **prereq_ids** 仅能引用同树已有 id。
+
+### 碎尘境（因果）
+**通用技能树**
+```json
+[
+  {"id": "causal_sense", "name": "因果感知", "summary": "感知因果", "prereq_ids": []}
+]
+```
+
+### 共鸣境（因果）
+**通用技能树**
+```json
+[
+  {"id": "causal_trace", "name": "因果追溯", "summary": "追溯因果", "prereq_ids": []}
+]
+```
+
+#### 因果追溯者（`prof_causal_tracker`）
+```json
+[
+  {"id": "ct_deep_trace", "name": "深度追溯", "summary": "深追", "prereq_ids": []}
+]
+```
+"""
+
+    patch = extract_power_system_markdown_supplement(
+        w.power_system.model_dump(mode="json"),
+        reply,
+    )
+
+    tiers = patch["power_system"]["tiers"]
+    assert [t["name"] for t in tiers] == ["碎尘", "共鸣"]
+    assert tiers[0]["skill_tree"][0]["id"] == "causal_sense"
+    assert tiers[1]["skill_tree"][0]["id"] == "causal_trace"
+    assert tiers[1]["subclass_paths"][0]["profession_id"] == "prof_causal_tracker"
+    assert tiers[1]["subclass_paths"][0]["skill_tree"][0]["id"] == "ct_deep_trace"
+    assert "节点 id 前缀" in patch["power_system"]["skill_tree_design_notes"]
+
+
+@pytest.mark.asyncio
+@patch("worldforger.sync.panel_sync.chat_completion", new_callable=AsyncMock)
+async def test_sync_panels_uses_local_power_markdown_supplement_when_llm_patch_is_empty(mock_chat):
+    from worldforger.schemas import PowerTier
+
+    mock_chat.return_value = "{}"
+    w = create_world("sync local power markdown")
+    w.power_system.tiers.append(PowerTier(name="碎尘", description="known"))
+    reply = """
+### 碎尘境（因果）
+**通用技能树**
+```json
+[
+  {"id": "causal_sense", "name": "因果感知", "summary": "感知因果", "prereq_ids": []}
+]
+```
+"""
+
+    result = await sync_panels_from_dialogue(
+        w,
+        user_message="补充技能树",
+        assistant_reply=reply,
+        scope="power_system",
+        proofreader_max_retries=0,
+    )
+
+    assert result["ok"] is True
+    assert result["updated_sections"] == ["power_system"]
+    assert result["world"].power_system.tiers[0].skill_tree[0].id == "causal_sense"
+    assert "local power_system markdown supplement applied" in result["merge_warnings"]
 
 
 def test_apply_power_system_root_skill_tree_attaches_to_single_existing_tier():

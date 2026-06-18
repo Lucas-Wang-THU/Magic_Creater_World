@@ -64,6 +64,39 @@ const STORY_SUB_TO_NAV = {
   agent: "storyAgent",
 };
 
+const THEME_STORAGE_KEY = "mcw_theme";
+
+function currentTheme() {
+  return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+}
+
+function applyTheme(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  document.documentElement.dataset.theme = next;
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, next);
+  } catch (_) {}
+  const btn = $("btnThemeToggle");
+  const icon = $("themeToggleIcon");
+  const text = $("themeToggleText");
+  if (btn) {
+    const dark = next === "dark";
+    btn.setAttribute("aria-label", dark ? "切换到白天模式" : "切换到黑夜模式");
+    btn.title = dark ? "切换到白天模式" : "切换到黑夜模式";
+  }
+  if (icon) icon.textContent = next === "dark" ? "light_mode" : "dark_mode";
+  if (text) text.textContent = next === "dark" ? "白天" : "黑夜";
+}
+
+function initThemeToggle() {
+  applyTheme(currentTheme());
+  $("btnThemeToggle")?.addEventListener("click", () => {
+    const next = currentTheme() === "dark" ? "light" : "dark";
+    applyTheme(next);
+    toast(next === "dark" ? "已切换到黑夜模式" : "已切换到白天模式");
+  });
+}
+
 function isStoryPanelView(name) {
   return name === "story" || name === "storyStats" || name in STORY_NAV_VIEWS;
 }
@@ -7619,6 +7652,7 @@ async function refreshCultureRelationsFromPanel() {
 }
 
 async function init() {
+  initThemeToggle();
   if (window.mermaid) {
     mermaid.initialize({
       startOnLoad: false,
