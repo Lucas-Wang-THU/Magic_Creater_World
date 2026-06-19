@@ -273,6 +273,22 @@ async function openCharDetail(charId) {
       </div>
     `).join("");
 
+    const skills = res.skills || [];
+    const skillRows = skills.map((sk, i) => `
+      <div class="cd-skill-row ${sk.exclusive?'cd-skill-exclusive':''}">
+        <div class="cd-skill-main">
+          <input class="cd-skill-name" value="${escapeAttr(sk.name||'')}" placeholder="技能名" data-skill-idx="${i}" data-skill-field="name">
+          <input class="cd-skill-desc" value="${escapeAttr(sk.description||'')}" placeholder="描述/效果" data-skill-idx="${i}" data-skill-field="description">
+          <input class="cd-skill-source" value="${escapeAttr(sk.source||'')}" placeholder="来源 id（可选）" data-skill-idx="${i}" data-skill-field="source">
+          <input class="cd-skill-level" value="${escapeAttr(sk.level||'')}" placeholder="等级/熟练度（可选）" data-skill-idx="${i}" data-skill-field="level">
+        </div>
+        <div class="cd-skill-meta">
+          <label class="muted tiny" style="display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" data-skill-idx="${i}" data-skill-field="exclusive" ${sk.exclusive?'checked':''}> 专属</label>
+          <button class="btn-sm cd-skill-del" onclick="this.closest('.cd-skill-row').remove()" title="移除此技能">×</button>
+        </div>
+      </div>
+    `).join("");
+
     body.innerHTML = `
       <div class="cd-grid">
         <div class="cd-field">
@@ -345,6 +361,18 @@ async function openCharDetail(charId) {
           <span class="cd-legend-dot cd-legend-damaged"></span> 已损坏
         </div>
       </div>
+      <div class="cd-section">
+        <div class="cd-section-head">
+          <span class="cd-section-title"><span class="ms cd-field-ic" aria-hidden="true">psychology</span> 技能面板 <span class="cd-badge">${skills.length}</span></span>
+          <button class="btn-sm btn-ic cd-add-btn" onclick="window.addCharSkill()" title="添加新技能">
+            <span class="ms" aria-hidden="true" style="font-size:16px">add</span> 添加技能
+          </button>
+        </div>
+        <div class="cd-skill-list" id="cdSkillList">${skillRows||'<p class="muted tiny" style="padding:12px;text-align:center">暂无技能，点击「添加技能」开始记录</p>'}</div>
+        <div class="cd-skill-legend">
+          <span class="cd-legend-dot cd-legend-exclusive"></span> 专属技能
+        </div>
+      </div>
       <div class="cd-actions">
         <button class="primary btn-ic cd-save-btn" onclick="window.saveCharDetail('${charId}')" title="将修改保存到 world.json">
           <span class="ms" aria-hidden="true" style="font-size:18px">save</span> 保存角色详情
@@ -407,6 +435,29 @@ function addInvItem() {
 }
 window.addInvItem = addInvItem;
 
+function addCharSkill() {
+  const list = $("cdSkillList");
+  if (!list) return;
+  const idx = list.querySelectorAll(".cd-skill-row").length;
+  const row = document.createElement("div");
+  row.className = "cd-skill-row";
+  row.innerHTML = `
+    <div class="cd-skill-main">
+      <input class="cd-skill-name" placeholder="技能名" data-skill-idx="${idx}" data-skill-field="name">
+      <input class="cd-skill-desc" placeholder="描述/效果" data-skill-idx="${idx}" data-skill-field="description">
+      <input class="cd-skill-source" placeholder="来源 id（可选）" data-skill-idx="${idx}" data-skill-field="source">
+      <input class="cd-skill-level" placeholder="等级/熟练度（可选）" data-skill-idx="${idx}" data-skill-field="level">
+    </div>
+    <div class="cd-skill-meta">
+      <label class="muted tiny" style="display:flex;align-items:center;gap:4px;white-space:nowrap"><input type="checkbox" data-skill-idx="${idx}" data-skill-field="exclusive"> 专属</label>
+      <button class="btn-sm cd-skill-del" onclick="this.closest('.cd-skill-row').remove()">×</button>
+    </div>`;
+  list.appendChild(row);
+  const empty = list.querySelector("p.muted");
+  if (empty) empty.remove();
+}
+window.addCharSkill = addCharSkill;
+
 function deleteInvItem(btn, idx) {
   btn.closest(".cd-inv-row")?.remove();
 }
@@ -432,12 +483,30 @@ async function saveCharDetail(charId) {
     }
   });
 
+  // Collect skills
+  const skillRows = document.querySelectorAll("#cdSkillList .cd-skill-row");
+  const skills = [];
+  skillRows.forEach(row => {
+    const sk = {};
+    row.querySelectorAll("[data-skill-field]").forEach(el => {
+      if (el.type === "checkbox") {
+        sk[el.dataset.skillField] = el.checked;
+      } else {
+        sk[el.dataset.skillField] = el.value;
+      }
+    });
+    if (sk.name) {
+      skills.push(sk);
+    }
+  });
+
   const body = {
     power_tier: $("cdPowerTier")?.value || "",
     profession_id: $("cdProfession")?.value || "",
     age: $("cdAge")?.value || "",
     gender: $("cdGender")?.value || "",
     inventory: inventory,
+    skills: skills,
     // Collect attribute values from sliders
     attributes: (() => {
       const attrs = {};
@@ -464,13 +533,16 @@ async function saveCharDetail(charId) {
 }
 window.saveCharDetail = saveCharDetail;
 
-// Hook: click character card to open detail
+// Hook: click character card to open detail (excluding edit cards and interactive elements)
 document.addEventListener("click", function(e) {
   const card = e.target.closest(".char-roster-card");
-  if (card) {
-    const codeEl = card.querySelector(".char-roster-code");
-    if (codeEl) openCharDetail(codeEl.textContent.trim());
-  }
+  if (!card) return;
+  // Edit mode cards open detail only via the explicit info button
+  if (card.hasAttribute("data-char-edit-card")) return;
+  // Ignore clicks on interactive elements / badges
+  if (e.target.closest("button, input, select, textarea, label, .char-roster-role-chip, .char-roster-meta-chip, .char-roster-attr-chip")) return;
+  const codeEl = card.querySelector(".char-roster-code");
+  if (codeEl) openCharDetail(codeEl.textContent.trim());
 });
 
 // ── Power System Batch Progress Tracker ─────────────────────────
@@ -660,6 +732,39 @@ function charCastRoleSelectHtml(currentRaw) {
   }).join("");
 }
 
+function _formatCharMetaChips(ent) {
+  const parts = [];
+  const age = ent?.age;
+  if (age !== undefined && age !== null && age !== "") {
+    parts.push(
+      `<span class="char-roster-meta-chip char-roster-age-chip"><span class="char-roster-k">age</span><span class="char-roster-meta-v">${escapeHtml(String(age))}</span></span>`
+    );
+  }
+  const gender = String(ent?.gender ?? "").trim();
+  if (gender) {
+    parts.push(
+      `<span class="char-roster-meta-chip char-roster-gender-chip"><span class="char-roster-k">gender</span><span class="char-roster-meta-v">${escapeHtml(gender)}</span></span>`
+    );
+  }
+  const attrs = ent?.attributes;
+  if (attrs && typeof attrs === "object" && Object.keys(attrs).length > 0) {
+    const stats = state.world?.attribute_system?.stats || [];
+    const attrParts = Object.entries(attrs)
+      .filter(([, v]) => v !== undefined && v !== null && v !== "")
+      .map(([k, v]) => {
+        const stat = stats.find((s) => s.id === k);
+        const label = stat ? stat.abbreviation || stat.name || k : k;
+        return `<span class="char-roster-attr-chip" title="${escapeAttr(stat?.name || k)}">${escapeHtml(label)} ${escapeHtml(String(v))}</span>`;
+      });
+    if (attrParts.length) {
+      parts.push(
+        `<span class="char-roster-meta-chip char-roster-attrs-chip"><span class="char-roster-k">attr</span>${attrParts.join("")}</span>`
+      );
+    }
+  }
+  return parts.join("");
+}
+
 function renderCharCastCardEditHtml(ent, variant = "protagonists") {
   const idRaw = String(ent?.id ?? "").trim();
   if (!idRaw) return "";
@@ -712,10 +817,13 @@ function renderCharCastCardEditHtml(ent, variant = "protagonists") {
               String(ent?.name ?? "").trim()
             )}" autocomplete="off" spellcheck="true" /></label>
           <div class="char-roster-idline">
-            <span class="char-roster-k">id</span><code class="char-roster-code">${id}</code>
-            <button class="char-roster-detail-btn" onclick="event.stopPropagation();window.openCharDetail('${escapeAttr(idRaw)}')" title="查看角色详情（力量境界/职业/物品）">
-              <span class="ms" aria-hidden="true" style="font-size:16px">info</span>
-            </button>
+            <span class="char-roster-idgroup">
+              <span class="char-roster-k">id</span><code class="char-roster-code">${id}</code>
+              <button class="char-roster-detail-btn" onclick="event.stopPropagation();window.openCharDetail('${escapeAttr(idRaw)}')" title="查看角色详情（力量境界/职业/物品）">
+                <span class="ms" aria-hidden="true" style="font-size:16px">info</span>
+              </button>
+            </span>
+            ${_formatCharMetaChips(ent)}
           </div>
         </div>
         <div class="char-roster-edit-head-actions">
@@ -934,7 +1042,8 @@ function appendCharacterEntity(defaultRole) {
 function renderCharCastCardHtml(ent, opts = {}) {
   const idRaw = String(ent?.id ?? "").trim();
   const id = escapeHtml(idRaw || "（无 id）");
-  const name = escapeHtml(String(ent?.name ?? "").trim() || idRaw || "未命名");
+  const nameRaw = String(ent?.name ?? "").trim() || idRaw || "未命名";
+  const name = escapeHtml(nameRaw);
   const roleRaw = String(ent?.cast_role ?? "").trim();
   const roleLab = escapeHtml(CAST_ROLE_LABELS[roleRaw] || roleRaw || "未标注");
   const hue = CAST_ROLE_HUES[roleRaw] ?? 210;
@@ -992,12 +1101,15 @@ function renderCharCastCardHtml(ent, opts = {}) {
       <header class="char-roster-card-head">
         <div class="char-roster-avatar" aria-hidden="true"><span class="ms char-roster-avatar-ic">${avIc}</span></div>
         <div class="char-roster-head-main">
-          <h3 class="char-roster-name">${name}</h3>
+          <h3 class="char-roster-name" title="${escapeAttr(nameRaw)}">${name}</h3>
           <div class="char-roster-idline">
-            <span class="char-roster-k">id</span><code class="char-roster-code">${id}</code>
-            <button class="char-roster-detail-btn" onclick="event.stopPropagation();window.openCharDetail('${escapeAttr(idRaw)}')" title="查看角色详情（力量境界/职业/物品）">
-              <span class="ms" aria-hidden="true" style="font-size:16px">info</span>
-            </button>
+            <span class="char-roster-idgroup">
+              <span class="char-roster-k">id</span><code class="char-roster-code">${id}</code>
+              <button class="char-roster-detail-btn" onclick="event.stopPropagation();window.openCharDetail('${escapeAttr(idRaw)}')" title="查看角色详情（力量境界/职业/物品）">
+                <span class="ms" aria-hidden="true" style="font-size:16px">info</span>
+              </button>
+            </span>
+            ${_formatCharMetaChips(ent)}
           </div>
         </div>
         <span class="char-roster-role-chip" title="cast_role">${roleLab}</span>
@@ -1021,6 +1133,22 @@ function renderCharCastCardHtml(ent, opts = {}) {
           ? `<section class="char-roster-block char-roster-block--skills"><div class="char-roster-block-hd">特长 notable_skills</div><ul class="char-roster-skill-list">${skillsLi}</ul></section>`
           : ""
       }
+      ${(() => {
+        const charSkills = Array.isArray(ent?.skills) ? ent.skills : [];
+        const skillTags = charSkills
+          .filter((sk) => sk && typeof sk === "object" && String(sk.name || "").trim())
+          .slice(0, 12)
+          .map((sk) => {
+            const name = escapeHtml(String(sk.name).trim());
+            const level = sk.level ? `<span class="char-skill-level">${escapeHtml(String(sk.level))}</span>` : "";
+            const exclusive = sk.exclusive ? `<span class="char-skill-exclusive-tag" title="专属技能">专</span>` : "";
+            return `<li class="char-skill-item" title="${escapeAttr(String(sk.description || ""))}">${name}${level}${exclusive}</li>`;
+          })
+          .join("");
+        return skillTags
+          ? `<section class="char-roster-block char-roster-block--skills"><div class="char-roster-block-hd">技能面板 skills</div><ul class="char-roster-skill-list char-roster-skill-list--structured">${skillTags}</ul></section>`
+          : "";
+      })()}
       ${metaBlock}
     </div>
   </article>`;

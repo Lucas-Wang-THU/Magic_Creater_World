@@ -2589,6 +2589,8 @@ class CharacterDetailBody(BaseModel):
     gender: str | None = None
     inventory: list[dict[str, Any]] | None = None
     attributes: dict[str, int] | None = None  # {stat_id: value}
+    skills: list[dict[str, Any]] | None = None
+    notable_skills: list[str] | None = None
 
 
 @app.patch("/api/worlds/{world_id}/characters/{character_id}")
@@ -2643,6 +2645,36 @@ def api_update_character_detail(
             existing[str(stat_id)] = max(0, min(100, int(val)))
         char["attributes"] = existing
         updated_fields.append("attributes")
+
+    if body.skills is not None:
+        cleaned: list[dict[str, Any]] = []
+        for sk in body.skills:
+            if not isinstance(sk, dict):
+                continue
+            name = str(sk.get("name", "")).strip()
+            if not name:
+                continue
+            row: dict[str, Any] = {
+                "name": name,
+                "description": str(sk.get("description", "")).strip(),
+                "exclusive": bool(sk.get("exclusive", False)),
+            }
+            source = str(sk.get("source", "")).strip()
+            if source:
+                row["source"] = source
+            level = str(sk.get("level", "")).strip()
+            if level:
+                row["level"] = level
+            cleaned.append(row)
+        char["skills"] = cleaned
+        updated_fields.append("skills")
+
+    if body.notable_skills is not None:
+        char["notable_skills"] = [
+            str(s).strip() for s in body.notable_skills
+            if isinstance(s, str) and str(s).strip()
+        ]
+        updated_fields.append("notable_skills")
 
     w.bump_version()
     save_world(w, export_markdown=False)
@@ -2719,6 +2751,7 @@ def api_get_character_detail(world_id: str, character_id: str) -> dict[str, Any]
         "items_active_count": len(items_active),
         "items_lost_count": len(items_lost),
         "notable_skills": char.get("notable_skills", []),
+        "skills": char.get("skills", []),
         "speech_profile": char.get("speech_profile", {}),
         "runtime_state": char.get("runtime_state", {}),
     }

@@ -5152,10 +5152,11 @@ textarea.json-editor-tiny {
 .char-roster-card-head {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
-  padding-bottom: 2px;
+  flex-wrap: wrap;
+  gap: 10px 11px;
+  padding-bottom: 6px;
   border-bottom: 1px solid rgba(148, 163, 184, 0.35);
-  margin-bottom: 2px;
+  margin-bottom: 4px;
 }
 
 .char-roster-avatar {
@@ -5182,25 +5183,47 @@ textarea.json-editor-tiny {
 }
 
 .char-roster-head-main {
-  flex: 1;
+  flex: 1 1 0;
   min-width: 0;
+  max-width: 100%;
 }
 
 .char-roster-name {
   font-weight: 800;
-  font-size: 16px;
-  margin: 0 0 4px;
+  font-size: 17px;
+  margin: 0 0 5px;
   line-height: 1.25;
   color: var(--text);
   letter-spacing: -0.02em;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  min-width: 0;
 }
 
 .char-roster-idline {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
+  gap: 5px 6px;
   font-size: 11px;
+}
+
+.char-roster-idgroup {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.char-roster-idgroup .char-roster-code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 160px;
 }
 
 .char-roster-k {
@@ -5230,6 +5253,31 @@ textarea.json-editor-tiny {
 .char-roster-tier-tag { background: #eef2ff; color: #4338ca; border: 1px solid #c7d2fe; }
 .char-roster-prof-tag { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
 
+.char-roster-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.68rem;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: #f1f5f9;
+  border: 1px solid #e2e8f0;
+  color: #475569;
+}
+.char-roster-meta-chip .char-roster-k { color: #94a3b8; }
+.char-roster-meta-v { font-weight: 600; color: #334155; }
+.char-roster-attr-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-weight: 600;
+}
+.char-roster-attr-chip + .char-roster-attr-chip { margin-left: 3px; }
+
 .char-roster-detail-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 24px; height: 24px; border: 1px solid #d1d5db; border-radius: 6px;
@@ -5240,6 +5288,8 @@ textarea.json-editor-tiny {
 
 .char-roster-role-chip {
   flex-shrink: 0;
+  margin-left: auto;
+  align-self: flex-start;
   font-size: 11px;
   font-weight: 700;
   padding: 4px 10px;
@@ -5309,6 +5359,49 @@ textarea.json-editor-tiny {
   margin-bottom: 0;
 }
 
+.char-roster-skill-list--structured {
+  list-style: none;
+  padding-left: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.char-skill-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: hsla(var(--char-card-hue), 55%, 94%, 0.95);
+  border: 1px solid hsla(var(--char-card-hue), 45%, 55%, 0.3);
+  color: hsl(var(--char-card-hue), 32%, 26%);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.char-skill-level {
+  font-size: 10px;
+  font-weight: 700;
+  color: #64748b;
+  background: rgba(255, 255, 255, 0.7);
+  padding: 0 4px;
+  border-radius: 4px;
+}
+
+.char-skill-exclusive-tag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  background: #f97316;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+}
+
 .char-roster-meta-row {
   display: flex;
   flex-wrap: wrap;
@@ -5336,12 +5429,24 @@ textarea.json-editor-tiny {
   align-items: flex-start;
 }
 
+.char-roster-card--edit .char-roster-head-main {
+  flex: 1 1 calc(100% - 57px);
+  min-width: 0;
+}
+
+.char-roster-card-head--edit .char-roster-field-ctrl[data-char-field="name"] {
+  font-size: 15px;
+  font-weight: 700;
+  padding: 7px 10px;
+}
+
 .char-roster-edit-head-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-end;
   gap: 8px 10px;
-  margin-left: auto;
+  width: 100%;
+  margin-left: 0;
   justify-content: flex-end;
 }
 
@@ -7456,6 +7561,16 @@ textarea.json-editor-tiny {
 .cd-legend-used { background: #f59e0b; }
 .cd-legend-lost { background: #ef4444; }
 .cd-legend-damaged { background: #8b5cf6; }
+.cd-legend-exclusive { background: #f97316; }
+.cd-skill-list { display: flex; flex-direction: column; gap: 6px; }
+.cd-skill-row { display: flex; flex-direction: column; gap: 4px; padding: 8px 10px; background: #f8fafc; border-radius: 8px; border: 1px solid #e8ecf1; }
+.cd-skill-row.cd-skill-exclusive { background: #fff7ed; border-color: #fdba74; }
+.cd-skill-main { display: flex; gap: 6px; flex-wrap: wrap; }
+.cd-skill-main input { flex: 1; min-width: 90px; font-size: 0.76rem; padding: 4px 8px; border: 1px solid #e2e8f0; border-radius: 6px; background: #fff; }
+.cd-skill-meta { display: flex; gap: 8px; align-items: center; }
+.cd-skill-meta input[type="checkbox"] { margin: 0; }
+.cd-skill-del { color: #ef4444; padding: 2px 6px; font-size: 0.75rem; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer; transition: all 0.15s; }
+.cd-skill-legend { display: flex; gap: 12px; align-items: center; font-size: 0.68rem; color: #94a3b8; margin-top: 8px; flex-wrap: wrap; }
 .cd-inv-del { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer; color: #94a3b8; transition: all 0.15s; }
 .cd-inv-del:hover { background: #fef2f2; border-color: #fecaca; color: #ef4444; }
 
@@ -8428,6 +8543,7 @@ html[data-theme="dark"] .cd-select,
 html[data-theme="dark"] .cd-inv-main input,
 html[data-theme="dark"] .cd-inv-meta input,
 html[data-theme="dark"] .cd-inv-meta select,
+html[data-theme="dark"] .cd-skill-main input,
 html[data-theme="dark"] .speech-edit-grid select,
 html[data-theme="dark"] .speech-edit-row input,
 html[data-theme="dark"] .speech-card-inline select,
@@ -8440,9 +8556,15 @@ html[data-theme="dark"] .story-write-prompt-wrap textarea {
 }
 
 html[data-theme="dark"] .cd-inv-row,
+html[data-theme="dark"] .cd-skill-row,
 html[data-theme="dark"] .cd-attr-row {
   background: #172033;
   border-color: var(--border);
+}
+
+html[data-theme="dark"] .cd-skill-row.cd-skill-exclusive {
+  background: #2a1b11;
+  border-color: #9a3412;
 }
 
 html[data-theme="dark"] .cd-inv-row.cd-inv-lost,
@@ -8920,6 +9042,17 @@ html[data-theme="dark"] .char-roster-prof-tag {
   color: #5eead4;
 }
 
+html[data-theme="dark"] .char-skill-item {
+  background: rgba(138, 180, 248, 0.12);
+  border-color: rgba(138, 180, 248, 0.3);
+  color: #93c5fd;
+}
+
+html[data-theme="dark"] .char-skill-level {
+  background: rgba(15, 23, 42, 0.8);
+  color: #cbd5e1;
+}
+
 html[data-theme="dark"] .char-roster-detail-btn {
   background: #172033;
   border-color: var(--border);
@@ -8939,6 +9072,22 @@ html[data-theme="dark"] .char-roster-code {
 
 html[data-theme="dark"] .char-roster-avatar-ic {
   color: var(--primary) !important;
+}
+
+html[data-theme="dark"] .char-roster-meta-chip {
+  background: #172033;
+  border-color: var(--border);
+  color: var(--text);
+}
+html[data-theme="dark"] .char-roster-meta-chip .char-roster-k {
+  color: var(--muted);
+}
+html[data-theme="dark"] .char-roster-meta-v {
+  color: var(--text);
+}
+html[data-theme="dark"] .char-roster-attr-chip {
+  background: rgba(96, 165, 250, 0.12);
+  color: #93c5fd;
 }
 
 /* Misc light panels / badges */

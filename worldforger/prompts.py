@@ -167,7 +167,17 @@ CHARACTER_CHAT_SCHEMA_HINT = """【与 world.json 的 characters 对齐】
 - **characters.summary**：卡司总览、谁在驱动主线/副线冲突。
 - **characters.design_notes**：与派系要人、历史事件、地理籍贯等 **id** 的对齐与防漂移约定。
 - **characters.entities[]**：每项 **id**、**name**；**cast_role** 取 `protagonist_core`（主角团核心）| `supporting_major`（重要配角）| `supporting_minor` | `antagonist` | `background`；**faction_ids[]** 须对齐已有 **factions.entities[].id**；**home_region_id** 须对齐已有 **geography.regions[].id**；可选 **aliases[]**、**one_line_hook**、**notes**、**notable_skills[]**（人物叙事或玩法向特长短句，**非**境界 **power_system.skill_tree** 节点）。
-- **新增人物字段**：**age**（年龄）、**gender**（性别：男/女/其他）、**profession_id**（对齐 **power_system.profession_system.by_tier[].professions[].id**）、**power_tier**（对齐 **power_system.tiers[].name**）、**attributes**（{stat_id: 0-100} 对齐 **attribute_system.stats[].id**）、**inventory[]**（每项含 name、description、usage、quantity、source_chapter、status）。生成新角色时必须同步给出这些字段。
+- **新增/修改人物时必须包含以下字段，禁止省略**：
+  - **age**（年龄，整数）
+  - **gender**（性别：男/女/其他）
+  - **power_tier**（对齐 **power_system.tiers[].name**，必须与已有境界名完全一致）
+  - **profession_id**（对齐 **power_system.profession_system.by_tier[].professions[].id**，必须与已有职业 id 完全一致）
+  - **attributes**（对象，键为 **attribute_system.stats[].id**，值为 0-100 的整数）
+  - **inventory[]**（物品数组，每项含 name、description、usage、quantity、source_chapter、status）
+  - **skills[]**（人物技能面板，对象数组；每项含 **name**、**description**、**exclusive**（bool，是否专属/独有技能）、可选 **source**（对应 **power_system** 技能树节点 id）、可选 **level**（熟练度或等级字符串））
+- **生成示例**：```json
+{"id":"ch_linfan","name":"林凡","cast_role":"protagonist_core","age":17,"gender":"男","power_tier":"拓雾者","profession_id":"swordsman","attributes":{"str":12,"agi":9,"con":10,"int":14,"spi":7},"inventory":[{"name":"铁剑","description":"生锈的铁剑","usage":"近战攻击","quantity":1,"status":"携带中"}],"skills":[{"name":"基础剑诀","description":"门派入门剑法，攻守平衡","exclusive":false},{"name":"旧日血脉·燃","description":"觉醒后专属，短时间内提升全属性","exclusive":true,"level":"初醒"}],"notable_skills":["基础剑诀"],"one_line_hook":"被退婚的少年，意外觉醒旧日血脉"}
+```
 - **characters.relations[]**：**source_id**、**target_id**（均为 **entities[].id**）；**relation_type**（如 ally/rival/family/debt/secret）；可选 **visibility**（reader/author_only）、**notes**。"""
 
 SYSTEM_CHARACTER_ARCHITECT = """你是「人物与卡司」策划助手，帮助用户基于**已有**世界设定（派系、文化、地理、历史、属性体系等）扩展或修订**人物卡司**。

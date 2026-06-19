@@ -660,3 +660,41 @@ def test_refresh_faction_relations_parse_error_returns_ok_false(mock_llm):
     body = r.json()
     assert body["ok"] is False
     assert "error" in body
+
+
+def test_character_detail_patch_skills_and_notable_skills():
+    from worldforger.world_store import load_world
+
+    wid = client.post("/api/worlds", json={"name": "skill patch"}).json()["world"]["meta"]["id"]
+    w = client.get(f"/api/worlds/{wid}").json()["world"]
+    w["characters"]["entities"].append(
+        {"id": "ch_test", "name": "测试", "age": 20, "gender": "男"}
+    )
+    client.put(f"/api/worlds/{wid}", json=w)
+
+    r = client.patch(
+        f"/api/worlds/{wid}/characters/ch_test",
+        json={
+            "skills": [
+                {"name": "剑术", "description": "基础剑法", "exclusive": False, "level": "入门"},
+                {"name": "专属领域", "exclusive": True},
+            ],
+            "notable_skills": ["剑术", "专注"],
+        },
+    )
+    assert r.status_code == 200
+    assert r.json()["ok"] is True
+    assert "skills" in r.json()["updated_fields"]
+    assert "notable_skills" in r.json()["updated_fields"]
+
+    saved = load_world(wid)
+    char = next(e for e in saved.characters.entities if e.get("id") == "ch_test")
+    assert len(char["skills"]) == 2
+    assert char["skills"][0]["name"] == "剑术"
+    assert char["skills"][0]["level"] == "入门"
+    assert char["skills"][1]["exclusive"] is True
+    assert char["notable_skills"] == ["剑术", "专注"]
+
+    detail = client.get(f"/api/worlds/{wid}/characters/ch_test/detail").json()
+    assert detail["skills"][0]["name"] == "剑术"
+    assert detail["notable_skills"] == ["剑术", "专注"]

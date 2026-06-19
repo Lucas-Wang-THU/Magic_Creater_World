@@ -1001,9 +1001,88 @@ def _normalize_characters_dict(section: dict[str, Any], notes: dict[str, list[st
             nt = _join_if_list(d.get("notes") or d.get("背景"))
             if nt.strip():
                 row["notes"] = nt.strip()
-            sk = _normalize_str_list_field(d.get("notable_skills") or d.get("skills") or d.get("人物技能"))
-            if sk:
-                row["notable_skills"] = sk
+            # notable_skills: 叙事/玩法向特长短句（字符串数组）
+            nsk = _normalize_str_list_field(d.get("notable_skills") or d.get("人物技能"))
+            if nsk:
+                row["notable_skills"] = nsk
+            # skills: 结构化技能面板（对象数组）
+            raw_skills = d.get("skills") or d.get("技能")
+            if isinstance(raw_skills, list):
+                cleaned_skills: list[dict[str, Any]] = []
+                for sk in raw_skills:
+                    if isinstance(sk, str):
+                        s = sk.strip()
+                        if s:
+                            cleaned_skills.append({"name": s, "description": "", "exclusive": False})
+                    elif isinstance(sk, dict):
+                        sk_name = _as_str(sk.get("name") or sk.get("名称")).strip()
+                        if not sk_name:
+                            continue
+                        sk_row: dict[str, Any] = {"name": sk_name, "description": "", "exclusive": False}
+                        desc = _as_str(sk.get("description") or sk.get("描述")).strip()
+                        if desc:
+                            sk_row["description"] = desc
+                        exclusive = sk.get("exclusive") if sk.get("exclusive") is not None else sk.get("专属")
+                        if isinstance(exclusive, bool):
+                            sk_row["exclusive"] = exclusive
+                        else:
+                            sk_row["exclusive"] = str(exclusive).strip().lower() in ("true", "yes", "是", "1")
+                        source = _as_str(sk.get("source") or sk.get("来源") or sk.get("skill_id")).strip()
+                        if source:
+                            sk_row["source"] = source
+                        level = _as_str(sk.get("level") or sk.get("等级") or sk.get("proficiency")).strip()
+                        if level:
+                            sk_row["level"] = level
+                        cleaned_skills.append(sk_row)
+                if cleaned_skills:
+                    row["skills"] = cleaned_skills
+            # 保留人物生成常用字段：年龄/性别/境界/职业/属性/物品
+            age = d.get("age") if d.get("age") is not None else d.get("年龄")
+            if isinstance(age, (int, float)) and age >= 0:
+                row["age"] = int(age)
+            gender = _as_str(d.get("gender") or d.get("性别")).strip()
+            if gender:
+                row["gender"] = gender
+            prof_id = _as_str(d.get("profession_id")).strip()
+            if prof_id:
+                row["profession_id"] = prof_id
+            power_tier = _as_str(d.get("power_tier") or d.get("tier") or d.get("境界")).strip()
+            if power_tier:
+                row["power_tier"] = power_tier
+            attrs = d.get("attributes") or d.get("属性")
+            if isinstance(attrs, dict):
+                cleaned_attrs: dict[str, int] = {}
+                for k, v in attrs.items():
+                    if isinstance(v, (int, float)):
+                        cleaned_attrs[str(k)] = _clamp_reference_percent(v, default=0)
+                if cleaned_attrs:
+                    row["attributes"] = cleaned_attrs
+            inv = d.get("inventory") or d.get("物品")
+            if isinstance(inv, list):
+                cleaned_inv: list[dict[str, Any]] = []
+                for it in inv:
+                    if not isinstance(it, dict):
+                        continue
+                    inv_name = _as_str(it.get("name") or it.get("名称")).strip() or "未命名物品"
+                    inv_item: dict[str, Any] = {"name": inv_name}
+                    desc = _as_str(it.get("description") or it.get("描述")).strip()
+                    if desc:
+                        inv_item["description"] = desc
+                    usage = _as_str(it.get("usage") or it.get("用法")).strip()
+                    if usage:
+                        inv_item["usage"] = usage
+                    qty = it.get("quantity") if it.get("quantity") is not None else it.get("数量")
+                    if isinstance(qty, (int, float)) and qty >= 0:
+                        inv_item["quantity"] = int(qty)
+                    src = _as_str(it.get("source_chapter") or it.get("来源章节")).strip()
+                    if src:
+                        inv_item["source_chapter"] = src
+                    status = _as_str(it.get("status") or it.get("状态")).strip()
+                    if status:
+                        inv_item["status"] = status
+                    cleaned_inv.append(inv_item)
+                if cleaned_inv:
+                    row["inventory"] = cleaned_inv
             out["entities"].append(row)
 
     raw_rels = section.get("relations") or section.get("character_relations") or []

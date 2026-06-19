@@ -318,3 +318,115 @@ def test_apply_patch_accepts_normalized_factions_key_figures():
     assert not warns
     assert "factions" in keys
     assert merged.factions.entities[0].key_figures[0].startswith("王五")
+
+
+def test_normalize_characters_preserves_age_gender_attributes_inventory():
+    patch = {
+        "characters": {
+            "entities": [
+                {
+                    "id": "ch_linfan",
+                    "name": "林凡",
+                    "age": 17,
+                    "gender": "男",
+                    "power_tier": "拓雾者",
+                    "profession_id": "swordsman",
+                    "attributes": {"str": 12, "agi": 9, "con": 10, "int": 14, "spi": 7},
+                    "inventory": [
+                        {"name": "铁剑", "description": "生锈的铁剑", "quantity": 1, "status": "持有"}
+                    ],
+                }
+            ]
+        }
+    }
+    out = normalize_structure_patch(patch)
+    ent = out["characters"]["entities"][0]
+    assert ent["age"] == 17
+    assert ent["gender"] == "男"
+    assert ent["power_tier"] == "拓雾者"
+    assert ent["profession_id"] == "swordsman"
+    assert ent["attributes"] == {"str": 12, "agi": 9, "con": 10, "int": 14, "spi": 7}
+    assert ent["inventory"][0]["name"] == "铁剑"
+    assert ent["inventory"][0]["quantity"] == 1
+
+
+def test_normalize_characters_clamps_attribute_values():
+    patch = {
+        "characters": {
+            "entities": [
+                {
+                    "id": "ch_test",
+                    "name": "测试",
+                    "attributes": {"str": 120, "agi": -5, "con": 55.6},
+                }
+            ]
+        }
+    }
+    out = normalize_structure_patch(patch)
+    ent = out["characters"]["entities"][0]
+    assert ent["attributes"]["str"] == 100
+    assert ent["attributes"]["agi"] == 0
+    assert ent["attributes"]["con"] == 56
+
+
+def test_normalize_characters_preserves_structured_skills():
+    patch = {
+        "characters": {
+            "entities": [
+                {
+                    "id": "ch_linfan",
+                    "name": "林凡",
+                    "age": 17,
+                    "gender": "男",
+                    "power_tier": "拓雾者",
+                    "profession_id": "swordsman",
+                    "attributes": {"str": 12, "agi": 9},
+                    "inventory": [{"name": "铁剑", "quantity": 1}],
+                    "skills": [
+                        {"name": "基础剑诀", "description": "入门剑法", "exclusive": False, "level": "小成"},
+                        {"name": "旧日血脉", "exclusive": True, "source": "skill_old_blood"},
+                    ],
+                }
+            ]
+        }
+    }
+    out = normalize_structure_patch(patch)
+    ent = out["characters"]["entities"][0]
+    assert ent["age"] == 17
+    assert ent["gender"] == "男"
+    assert ent["power_tier"] == "拓雾者"
+    assert ent["profession_id"] == "swordsman"
+    assert ent["attributes"] == {"str": 12, "agi": 9}
+    assert ent["inventory"][0]["name"] == "铁剑"
+    assert len(ent["skills"]) == 2
+    assert ent["skills"][0]["name"] == "基础剑诀"
+    assert ent["skills"][0]["description"] == "入门剑法"
+    assert ent["skills"][0]["exclusive"] is False
+    assert ent["skills"][0]["level"] == "小成"
+    assert ent["skills"][1]["exclusive"] is True
+    assert ent["skills"][1]["source"] == "skill_old_blood"
+
+
+def test_normalize_characters_skills_alias_and_string_fallback():
+    from worldforger.sync.structure_normalize import _normalize_characters_dict
+
+    result = _normalize_characters_dict(
+        {
+            "entities": [
+                {
+                    "id": "ch_sk",
+                    "name": "技能测试",
+                    "技能": [
+                        "剑术",
+                        {"名称": "潜行", "描述": "隐匿身形", "专属": True, "等级": "精通"},
+                    ],
+                }
+            ]
+        }
+    )
+    e = result["entities"][0]
+    assert e["skills"][0] == {"name": "剑术", "description": "", "exclusive": False}
+    assert e["skills"][1]["name"] == "潜行"
+    assert e["skills"][1]["description"] == "隐匿身形"
+    assert e["skills"][1]["exclusive"] is True
+    assert e["skills"][1]["level"] == "精通"
