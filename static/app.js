@@ -7653,6 +7653,8 @@ async function refreshCultureRelationsFromPanel() {
 
 async function init() {
   initThemeToggle();
+  initCommandPalette();
+  initOnboarding();
   if (window.mermaid) {
     mermaid.initialize({
       startOnLoad: false,
@@ -9622,6 +9624,173 @@ async function refreshTokenUsagePanel() {
   } catch (_) {
     if (body) body.innerHTML = `<p class="muted tiny">加载失败</p>`;
   }
+}
+
+/* ============================================================
+   Premium UI: Command Palette & Onboarding
+   ============================================================ */
+
+const COMMANDS = [
+  { id: "view-chat", label: "工作台 · 世界观构建", icon: "chat" },
+  { id: "view-charChat", label: "工作台 · 人物生成", icon: "person" },
+  { id: "view-storyChat", label: "工作台 · 情节构建", icon: "menu_book" },
+  { id: "view-storyOverview", label: "情节 · 项目总览", icon: "dashboard" },
+  { id: "view-geo", label: "世界观 · 地理", icon: "map" },
+  { id: "view-ecology", label: "世界观 · 生态", icon: "forest" },
+  { id: "view-powers", label: "世界观 · 境界", icon: "bolt" },
+  { id: "view-attributes", label: "世界观 · 属性", icon: "radar" },
+  { id: "view-items", label: "世界观 · 物品", icon: "backpack" },
+  { id: "view-cultures", label: "世界观 · 文化", icon: "temple_buddhist" },
+  { id: "view-factions", label: "世界观 · 派系", icon: "shield" },
+  { id: "view-history", label: "世界观 · 历史", icon: "history" },
+  { id: "view-economy", label: "世界观 · 经济", icon: "payments" },
+  { id: "view-charProtagonists", label: "角色 · 主角团", icon: "star" },
+  { id: "view-charSupporting", label: "角色 · 配角", icon: "group" },
+  { id: "view-charRelations", label: "角色 · 关系网络", icon: "hub" },
+  { id: "view-storyChapter", label: "情节 · 章节文稿", icon: "edit_note" },
+  { id: "view-storyStats", label: "情节 · 写作统计", icon: "bar_chart" },
+  { id: "action-save", label: "保存当前世界", icon: "save" },
+  { id: "action-export", label: "导出 world.md", icon: "download" },
+  { id: "action-theme", label: "切换 白天/黑夜 模式", icon: "dark_mode" },
+];
+
+function initCommandPalette() {
+  const overlay = $("commandPalette");
+  const input = $("commandPaletteInput");
+  const list = $("commandPaletteList");
+  if (!overlay || !input || !list) return;
+
+  let activeIndex = -1;
+
+  function openPalette() {
+    overlay.classList.remove("hidden");
+    overlay.setAttribute("aria-hidden", "false");
+    input.value = "";
+    renderCommands("");
+    input.focus();
+  }
+
+  function closePalette() {
+    overlay.classList.add("hidden");
+    overlay.setAttribute("aria-hidden", "true");
+    activeIndex = -1;
+  }
+
+  function renderCommands(query) {
+    const q = (query || "").trim().toLowerCase();
+    const filtered = COMMANDS.filter((c) => c.label.toLowerCase().includes(q));
+    activeIndex = filtered.length ? 0 : -1;
+    if (!filtered.length) {
+      list.innerHTML = `<div class="command-palette-empty">未找到匹配命令</div>`;
+      return;
+    }
+    list.innerHTML = filtered
+      .map(
+        (c, idx) =>
+          `<div class="command-palette-item ${idx === activeIndex ? "active" : ""}" data-cmd="${escapeAttr(
+            c.id
+          )}" data-idx="${idx}">
+            <span class="ms" aria-hidden="true">${escapeHtml(c.icon)}</span>
+            <span>${escapeHtml(c.label)}</span>
+          </div>`
+      )
+      .join("");
+  }
+
+  function execute(id) {
+    closePalette();
+    if (id === "action-save") {
+      return persistWorldFromForm().catch((e) => toast("保存失败：" + e.message));
+    }
+    if (id === "action-export") {
+      if (!state.world) return toast("无世界");
+      return api(`/api/worlds/${state.world.meta.id}/export-md`, { method: "POST" })
+        .then(() => toast("已导出 world.md"))
+        .catch((e) => toast("导出失败：" + (e?.message || e)));
+    }
+    if (id === "action-theme") {
+      const next = currentTheme() === "dark" ? "light" : "dark";
+      applyTheme(next);
+      return toast(next === "dark" ? "已切换到黑夜模式" : "已切换到白天模式");
+    }
+    const viewBtn = document.querySelector(`button[data-view="${id.replace("view-", "")}"]`);
+    if (viewBtn) viewBtn.click();
+  }
+
+  document.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      overlay.classList.contains("hidden") ? openPalette() : closePalette();
+    } else if (e.key === "Escape" && !overlay.classList.contains("hidden")) {
+      closePalette();
+    }
+  });
+
+  input.addEventListener("input", () => renderCommands(input.value));
+
+  input.addEventListener("keydown", (e) => {
+    const items = list.querySelectorAll(".command-palette-item");
+    if (!items.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      activeIndex = (activeIndex + 1) % items.length;
+      updateActive(items);
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      activeIndex = (activeIndex - 1 + items.length) % items.length;
+      updateActive(items);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      const active = items[activeIndex];
+      if (active) execute(active.dataset.cmd);
+    }
+  });
+
+  function updateActive(items) {
+    items.forEach((el, idx) => el.classList.toggle("active", idx === activeIndex));
+    const active = items[activeIndex];
+    if (active) active.scrollIntoView({ block: "nearest" });
+  }
+
+  list.addEventListener("click", (e) => {
+    const item = e.target.closest(".command-palette-item");
+    if (item) execute(item.dataset.cmd);
+  });
+
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) closePalette();
+  });
+}
+
+function initOnboarding() {
+  const overlay = $("onboardingOverlay");
+  if (!overlay) return;
+  const shownKey = "mcw_onboarding_shown";
+  try {
+    if (localStorage.getItem(shownKey)) return;
+  } catch (_) {}
+
+  // Only show if world list is empty / user is new
+  const worldSelect = $("worldSelect");
+  const hasWorlds = worldSelect && worldSelect.options.length > 0;
+  if (hasWorlds) return;
+
+  overlay.classList.remove("hidden");
+  overlay.setAttribute("aria-hidden", "false");
+
+  const close = () => {
+    overlay.classList.add("hidden");
+    overlay.setAttribute("aria-hidden", "true");
+    try {
+      localStorage.setItem(shownKey, "1");
+    } catch (_) {}
+  };
+
+  $("btnOnboardingBlank")?.addEventListener("click", close);
+  $("btnOnboardingGenerate")?.addEventListener("click", () => {
+    close();
+    $("btnNewWorld")?.click();
+  });
 }
 
 init().catch((e) => toast("初始化失败：" + e.message));

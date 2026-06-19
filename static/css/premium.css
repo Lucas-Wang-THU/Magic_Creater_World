@@ -1,0 +1,1276 @@
+/* ============================================================
+   Magic Creater World — Premium UI Layer
+   ============================================================ */
+
+/* ── 1. Design Tokens (overrides styles.css :root) ── */
+:root {
+  /* Space */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Radius */
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+  --radius-full: 999px;
+
+  /* Typography */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-lg: 16px;
+  --text-xl: 20px;
+  --text-2xl: 24px;
+
+  /* Color primitives */
+  --bg: #f3f5f9;
+  --bg-deep: #e8ecf3;
+  --bg-glow-1: #dbeafe;
+  --bg-glow-2: #e0f2fe;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --surface-elevated: #f1f5f9;
+  --surface-rgb: 255, 255, 255;
+
+  --card-bg: var(--surface);
+  --card-bg-soft: #f8fafc;
+  --card-bg-elevated: #ffffff;
+
+  --text: #0f172a;
+  --text-secondary: #334155;
+  --text-tertiary: #64748b;
+  --muted: #5f6b7a;
+
+  --border: #d9e0ea;
+  --border-subtle: #e8ecf3;
+
+  --primary: #2b6cb0;
+  --primary-soft: #ebf4ff;
+  --primary-hover: #1e4e8c;
+
+  --accent: #0d9488;
+  --accent-soft: #e6f7f5;
+  --accent-hover: #0f766e;
+
+  --danger: #dc2626;
+  --danger-soft: #fee2e2;
+  --warning: #f59e0b;
+  --warning-soft: #fef3c7;
+  --success: #16a34a;
+  --success-soft: #dcfce7;
+  --info: #3b82f6;
+  --info-soft: #dbeafe;
+
+  --code-bg: #f1f5f9;
+
+  /* Shadows */
+  --shadow-1: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --shadow-2: 0 4px 12px rgba(15, 23, 42, 0.06);
+  --shadow-3: 0 12px 32px rgba(15, 23, 42, 0.08);
+  --ring: 0 0 0 3px rgba(43, 108, 176, 0.18);
+}
+
+html[data-theme="dark"] {
+  --bg: #0b1120;
+  --bg-deep: #111827;
+  --bg-glow-1: rgba(59, 130, 246, 0.18);
+  --bg-glow-2: rgba(6, 182, 212, 0.14);
+  --surface: #111827;
+  --surface-2: #172033;
+  --surface-elevated: #1f2937;
+  --surface-rgb: 17, 24, 39;
+
+  --card-bg: #111827;
+  --card-bg-soft: #172033;
+  --card-bg-elevated: #1f2937;
+
+  --text: #e5e7eb;
+  --text-secondary: #cbd5e1;
+  --text-tertiary: #94a3b8;
+  --muted: #9ca3af;
+
+  --border: #2f3b52;
+  --border-subtle: #1f2937;
+
+  --primary: #60a5fa;
+  --primary-soft: rgba(37, 99, 235, 0.18);
+  --primary-hover: #93c5fd;
+
+  --accent: #2dd4bf;
+  --accent-soft: rgba(45, 212, 191, 0.12);
+  --accent-hover: #5eead4;
+
+  --danger: #f87171;
+  --danger-soft: rgba(248, 113, 113, 0.12);
+  --warning: #fbbf24;
+  --warning-soft: rgba(251, 191, 36, 0.12);
+  --success: #4ade80;
+  --success-soft: rgba(74, 222, 128, 0.12);
+  --info: #60a5fa;
+  --info-soft: rgba(96, 165, 250, 0.12);
+
+  --code-bg: #0f172a;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-2: 0 4px 12px rgba(0, 0, 0, 0.30);
+  --shadow-3: 0 12px 32px rgba(0, 0, 0, 0.40);
+  --ring: 0 0 0 3px rgba(96, 165, 250, 0.25);
+}
+
+/* ── 2. Global surface & typography ── */
+body {
+  background:
+    radial-gradient(1200px 600px at 10% -10%, var(--bg-glow-1) 0%, transparent 45%),
+    radial-gradient(900px 500px at 100% 0%, var(--bg-glow-2) 0%, transparent 40%),
+    var(--bg);
+  background-attachment: fixed;
+  color: var(--text);
+  font-size: var(--text-base);
+}
+
+*:focus-visible {
+  outline: none;
+  box-shadow: var(--ring);
+}
+
+/* ── 3. Header ── */
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding: 10px 22px;
+  background: rgba(var(--surface-rgb), 0.82);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow-1);
+}
+
+html[data-theme="dark"] .app-header {
+  background: rgba(17, 24, 39, 0.78);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+.brand {
+  font-size: var(--text-lg);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.brand-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, var(--primary), var(--accent));
+  color: #fff;
+  box-shadow: var(--shadow-2);
+}
+
+.api-badge {
+  padding: 4px 10px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: var(--success-soft);
+  color: var(--success);
+  border: 1px solid transparent;
+}
+
+.api-badge.is-missing {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+/* ── 4. Navigation ── */
+.nav {
+  padding: var(--space-3) var(--space-2);
+  gap: var(--space-1);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+}
+
+.nav button {
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+
+.nav button:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.nav button.active {
+  background: var(--primary-soft);
+  color: var(--primary);
+  font-weight: 700;
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+html[data-theme="dark"] .nav button.active {
+  background: rgba(96, 165, 250, 0.12);
+  box-shadow: inset 3px 0 0 var(--primary);
+}
+
+.nav-label {
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--muted);
+  margin: var(--space-4) var(--space-2) var(--space-1);
+  text-transform: uppercase;
+}
+
+/* ── 5. Cards ── */
+.card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-1);
+  padding: var(--space-4) var(--space-5);
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+.card:hover {
+  border-color: var(--border-subtle);
+}
+
+.card-elevated {
+  box-shadow: var(--shadow-2), 0 0 0 1px rgba(255, 255, 255, 0.4) inset;
+}
+
+html[data-theme="dark"] .card-elevated {
+  box-shadow: var(--shadow-2), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+.card h2 {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.card-head {
+  margin-bottom: var(--space-3);
+}
+
+/* ── 6. Inputs ── */
+input[type="text"],
+input[type="number"],
+input[type="search"],
+select,
+textarea {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+input[type="text"]:focus,
+input[type="number"]:focus,
+input[type="search"]:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--primary);
+  box-shadow: var(--ring);
+  background: var(--surface);
+}
+
+html[data-theme="dark"] input[type="text"],
+html[data-theme="dark"] input[type="number"],
+html[data-theme="dark"] input[type="search"],
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea {
+  background: #0f172a;
+}
+
+html[data-theme="dark"] input[type="text"]:focus,
+html[data-theme="dark"] input[type="number"]:focus,
+html[data-theme="dark"] input[type="search"]:focus,
+html[data-theme="dark"] select:focus,
+html[data-theme="dark"] textarea:focus {
+  background: #0f172a;
+}
+
+/* ── 7. Buttons ── */
+button {
+  transition: transform 0.1s ease, box-shadow 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+button.primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+}
+
+button.primary:hover {
+  background: var(--primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-2);
+}
+
+button.ghost {
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+
+button.ghost:hover {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--primary);
+}
+
+/* ── 8. Badges ── */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.badge--info { background: var(--info-soft); color: var(--info); }
+.badge--success { background: var(--success-soft); color: var(--success); }
+.badge--warning { background: var(--warning-soft); color: var(--warning); }
+.badge--danger { background: var(--danger-soft); color: var(--danger); }
+
+html[data-theme="dark"] .badge--info { background: rgba(96, 165, 250, 0.12); color: #93c5fd; }
+html[data-theme="dark"] .badge--success { background: rgba(74, 222, 128, 0.12); color: #86efac; }
+html[data-theme="dark"] .badge--warning { background: rgba(251, 191, 36, 0.12); color: #fcd34d; }
+html[data-theme="dark"] .badge--danger { background: rgba(248, 113, 113, 0.12); color: #fca5a5; }
+
+/* ── 9. Empty states ── */
+.empty-card {
+  background: var(--card-bg);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--space-8) var(--space-6);
+  text-align: center;
+  box-shadow: none;
+}
+
+.empty-title {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: var(--space-2);
+}
+
+.empty-card .muted {
+  color: var(--muted);
+  max-width: 420px;
+  margin: 0 auto var(--space-4);
+}
+
+/* ── 10. Chat messages ── */
+.messages {
+  background: var(--surface-2);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+}
+
+.msg {
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-1);
+}
+
+.msg.user {
+  background: var(--primary-soft);
+  color: var(--primary-hover);
+}
+
+html[data-theme="dark"] .msg.user {
+  background: rgba(37, 99, 235, 0.18);
+  color: #93c5fd;
+}
+
+.msg.assistant {
+  background: var(--card-bg);
+  color: var(--text);
+}
+
+/* ── 11. JSON editors ── */
+.json-editor-compact {
+  background: var(--code-bg);
+  border-left: 3px solid var(--primary);
+  border-radius: var(--radius-sm);
+  color: var(--text);
+}
+
+.json-editor-compact:focus {
+  background: var(--surface);
+}
+
+html[data-theme="dark"] .json-editor-compact {
+  background: var(--code-bg);
+}
+
+html[data-theme="dark"] .json-editor-compact:focus {
+  background: #0f172a;
+}
+
+/* ── 12. Workflow strip ── */
+.workflow-strip {
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: var(--space-2) var(--space-4);
+}
+
+.wf-step {
+  font-size: var(--text-sm);
+  color: var(--text-tertiary);
+}
+
+.wf-n {
+  background: var(--surface-2);
+  color: var(--muted);
+  border: 1px solid var(--border);
+}
+
+/* ── 13. Animations ── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.panel {
+  animation: fadeIn 0.18s ease;
+}
+
+.card {
+  animation: fadeInUp 0.22s ease both;
+}
+
+/* Staggered grid entrance via JS class .is-visible */
+.card.is-visible {
+  animation: fadeInUp 0.22s ease both;
+}
+
+/* ── 14. Onboarding overlay ── */
+.onboarding-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(15, 23, 42, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: fadeIn 0.2s ease;
+}
+
+.onboarding-overlay.hidden {
+  display: none;
+}
+
+.onboarding-card {
+  width: min(560px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-3);
+  padding: var(--space-6);
+  text-align: center;
+}
+
+.onboarding-card h2 {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  margin-bottom: var(--space-2);
+  color: var(--text);
+}
+
+.onboarding-card p {
+  color: var(--muted);
+  margin-bottom: var(--space-5);
+}
+
+.onboarding-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.onboarding-actions button {
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  font-weight: 600;
+}
+
+.onboarding-actions .primary {
+  background: var(--primary);
+  color: #fff;
+  border: 1px solid var(--primary);
+}
+
+.onboarding-actions .secondary {
+  background: var(--surface-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+/* Coach marks */
+.coach-mark {
+  position: absolute;
+  z-index: 1001;
+  max-width: 260px;
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-3);
+  font-size: var(--text-sm);
+  color: var(--text);
+  animation: fadeInUp 0.2s ease;
+}
+
+.coach-mark::after {
+  content: "";
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transform: rotate(45deg);
+}
+
+/* ── 15. Command palette ── */
+.command-palette-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1002;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 15vh;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  animation: fadeIn 0.15s ease;
+}
+
+.command-palette-overlay.hidden {
+  display: none;
+}
+
+.command-palette {
+  width: min(560px, 92vw);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+}
+
+.command-palette-input {
+  width: 100%;
+  padding: var(--space-4);
+  font-size: var(--text-lg);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+}
+
+.command-palette-input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.command-palette-list {
+  max-height: 50vh;
+  overflow-y: auto;
+  padding: var(--space-2);
+}
+
+.command-palette-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--text-secondary);
+  transition: background 0.1s ease;
+}
+
+.command-palette-item:hover,
+.command-palette-item.active {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.command-palette-item .ms {
+  color: var(--muted);
+}
+
+.command-palette-empty {
+  padding: var(--space-5);
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* ── 16. Misc dark fixes ── */
+html[data-theme="dark"] body {
+  color: var(--text);
+}
+
+html[data-theme="dark"] .muted {
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .card {
+  background: var(--card-bg);
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .workflow-strip {
+  background: rgba(17, 24, 39, 0.6);
+}
+
+/* ── 17. Utility ── */
+.glass {
+  background: rgba(var(--surface-rgb), 0.72);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid var(--border);
+}
+
+html[data-theme="dark"] .glass {
+  background: rgba(17, 24, 39, 0.72);
+}
+
+/* ── 18. Extra dark-mode hardening for dashboard & entity cards ── */
+
+html[data-theme="dark"] .context-panel {
+  background: rgba(17, 24, 39, 0.72);
+  border-left-color: var(--border);
+}
+
+html[data-theme="dark"] .context-panel h3 {
+  color: var(--text);
+}
+
+html[data-theme="dark"] .context-panel .card,
+html[data-theme="dark"] .context-panel .empty-card {
+  background: var(--card-bg);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .stats-hero-card,
+html[data-theme="dark"] .stats-card,
+html[data-theme="dark"] .story-stats-card {
+  background: var(--card-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .stats-card-title,
+html[data-theme="dark"] .stats-hero-num,
+html[data-theme="dark"] .stats-hero-label {
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .faction-card,
+html[data-theme="dark"] .culture-card,
+html[data-theme="dark"] .region-card {
+  background: linear-gradient(165deg, #111827 0%, #172033 100%) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .faction-card *,
+html[data-theme="dark"] .culture-card *,
+html[data-theme="dark"] .region-card * {
+  color: inherit;
+}
+
+html[data-theme="dark"] .faction-intro-viz,
+html[data-theme="dark"] .faction-viz-wrap,
+html[data-theme="dark"] .culture-viz-wrap,
+html[data-theme="dark"] .faction-viz-host,
+html[data-theme="dark"] .faction-viz-badge {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .faction-brief-k,
+html[data-theme="dark"] .faction-brief-body,
+html[data-theme="dark"] .faction-intro-viz-head,
+html[data-theme="dark"] .faction-viz-caption,
+html[data-theme="dark"] .faction-viz-legend {
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .faction-brief-k,
+html[data-theme="dark"] .faction-viz-caption,
+html[data-theme="dark"] .faction-viz-legend strong {
+  color: var(--muted) !important;
+}
+
+html[data-theme="dark"] .faction-fields label,
+html[data-theme="dark"] .faction-fields .muted {
+  color: var(--muted) !important;
+}
+
+html[data-theme="dark"] .faction-fields input,
+html[data-theme="dark"] .faction-fields textarea {
+  background: #0f172a !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .agent-dashboard,
+html[data-theme="dark"] .agent-card,
+html[data-theme="dark"] .agent-panel {
+  background: var(--card-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .agent-card-head,
+html[data-theme="dark"] .agent-toolbar {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-summary-card,
+html[data-theme="dark"] .story-audit-card,
+html[data-theme="dark"] .story-runtime-states {
+  background: var(--card-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-summary-card-header,
+html[data-theme="dark"] .story-runtime-states-header {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+}
+
+/* Broad catch-all for any remaining light inline backgrounds in dark mode */
+html[data-theme="dark"] [style*="background:#fff"],
+html[data-theme="dark"] [style*="background: #fff"],
+html[data-theme="dark"] [style*="background:#fafbfd"],
+html[data-theme="dark"] [style*="background: #fafbfd"],
+html[data-theme="dark"] [style*="background:#f8fafc"],
+html[data-theme="dark"] [style*="background: #f8fafc"],
+html[data-theme="dark"] [style*="background:#f1f5f9"],
+html[data-theme="dark"] [style*="background: #f1f5f9"],
+html[data-theme="dark"] [style*="background-color:#fff"],
+html[data-theme="dark"] [style*="background-color: #fff"] {
+  background: #172033 !important;
+}
+
+/* ── 19. More dark-mode fixes for stat strip, inpanel viz, faction chat cards ── */
+
+html[data-theme="dark"] .stat-strip .pill {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .inpanel-viz {
+  background: linear-gradient(180deg, #111827 0%, #172033 100%) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .viz-module-head,
+html[data-theme="dark"] .viz-module--power .viz-module-head,
+html[data-theme="dark"] .viz-module--item .viz-module-head {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .viz-module-idx {
+  background: #0f172a !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .faction-chat-viz-card {
+  background: linear-gradient(145deg, #111827 0%, #172033 100%) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .faction-chat-viz--empty {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+  color: var(--muted) !important;
+}
+
+html[data-theme="dark"] .faction-chat-viz-card__name {
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .faction-chat-viz-card__name .ms {
+  color: var(--primary) !important;
+}
+
+html[data-theme="dark"] .faction-chat-viz-badge {
+  background: rgba(96, 165, 250, 0.15) !important;
+  color: #93c5fd !important;
+}
+
+html[data-theme="dark"] .faction-chat-viz-figures {
+  color: var(--muted) !important;
+}
+
+html[data-theme="dark"] .bar-track {
+  background: #2f3b52 !important;
+}
+
+html[data-theme="dark"] .bar-row--rich {
+  border-bottom-color: var(--border) !important;
+}
+
+html[data-theme="dark"] .bar-name {
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .ctx-token-row--total {
+  border-top-color: var(--border) !important;
+}
+
+html[data-theme="dark"] .ctx-token-bar {
+  background: #2f3b52 !important;
+}
+
+html[data-theme="dark"] .ctx-token-section-title {
+  color: var(--muted) !important;
+}
+
+html[data-theme="dark"] .module-mini {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .mini-row span:first-child {
+  color: var(--muted) !important;
+}
+
+/* ── 20. Dark-mode fixes for geo viz, attribute radar/chips, story workbench children ── */
+
+/* Geo section viz */
+html[data-theme="dark"] .geo-section--viz .geo-network-wrap {
+  background: linear-gradient(165deg, #111827 0%, #172033 100%) !important;
+  border-color: var(--border) !important;
+  box-shadow: none !important;
+}
+
+html[data-theme="dark"] .mermaid-host,
+html[data-theme="dark"] .geo-network-host.mermaid-host,
+html[data-theme="dark"] .viz-history-host.mermaid-host {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme="dark"] .faction-global-host,
+html[data-theme="dark"] #vizFactionHost.faction-global-host,
+html[data-theme="dark"] #vizCulturesHost.faction-global-host {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+}
+
+/* Attribute radar */
+html[data-theme="dark"] .attr-radar-host {
+  background: linear-gradient(165deg, #111827 0%, #172033 100%) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme="dark"] .attr-radar-svg .radar-ring {
+  stroke: #334155 !important;
+}
+
+html[data-theme="dark"] .attr-radar-svg .radar-axis-visible {
+  stroke: #475569 !important;
+}
+
+html[data-theme="dark"] .attr-radar-svg .radar-stat-ic {
+  fill: #94a3b8 !important;
+}
+
+html[data-theme="dark"] .attr-radar-svg .radar-label {
+  fill: var(--text) !important;
+}
+
+html[data-theme="dark"] .attr-radar-svg .radar-poly--tier {
+  fill: hsla(210, 70%, 60%, 0.16) !important;
+  stroke: hsl(210, 50%, 50%) !important;
+}
+
+html[data-theme="dark"] .attr-radar-svg .radar-poly--ref {
+  fill: rgba(96, 165, 250, 0.18) !important;
+  stroke: #60a5fa !important;
+}
+
+html[data-theme="dark"] .attr-radar-svg stop[offset="0%"] {
+  stop-color: #60a5fa !important;
+}
+
+html[data-theme="dark"] .attr-radar-svg stop[offset="100%"] {
+  stop-color: #2dd4bf !important;
+}
+
+/* Attribute stat chips */
+html[data-theme="dark"] .attr-stat-chips .attr-chip {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .attr-stat-chips .attr-chip-pct {
+  color: #93c5fd !important;
+}
+
+html[data-theme="dark"] .attr-stat-intros {
+  color: var(--muted) !important;
+}
+
+/* Story workbench children broad cover */
+html[data-theme="dark"] .story-wb-main .story-editor,
+html[data-theme="dark"] .story-wb-main .story-gen-hint,
+html[data-theme="dark"] .story-wb-main .json-editor-compact,
+html[data-theme="dark"] .story-wb-main select,
+html[data-theme="dark"] .story-wb-main textarea,
+html[data-theme="dark"] .story-wb-main input[type="text"] {
+  background: #0f172a !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .story-preview,
+html[data-theme="dark"] .story-wb-main .msg-body--md {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .panel-subtab {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+  color: var(--muted) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .panel-subtab:hover {
+  background: var(--surface-2) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .panel-subtab.is-active {
+  background: var(--primary-soft) !important;
+  border-color: var(--primary) !important;
+  color: var(--primary) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .story-ch-nav-btn:hover {
+  background: var(--surface-2) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .story-ch-nav-btn--generating {
+  background: rgba(45, 212, 191, 0.12) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .story-ch-status-title {
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .story-ch-status-order {
+  color: var(--muted) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .story-ch-status-row {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .story-ch-status-row:hover {
+  background: var(--surface-2) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .story-wc,
+html[data-theme="dark"] .story-wb-main .story-editor-toolbar .muted {
+  color: var(--muted) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .story-fs-timeline {
+  background: var(--surface) !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .story-summary-card,
+html[data-theme="dark"] .story-wb-main .story-audit-card,
+html[data-theme="dark"] .story-wb-main .story-runtime-states {
+  background: var(--card-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-wb-main .story-summary-card-header,
+html[data-theme="dark"] .story-wb-main .story-runtime-states-header {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+}
+
+/* ── 21. Dark-mode fixes for story audit cards & header ── */
+
+html[data-theme="dark"] .story-audit-card {
+  background: var(--card-bg) !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-audit-card-head {
+  background: linear-gradient(135deg, #172033 0%, #1f2937 100%) !important;
+  border-bottom-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-audit-card-icon {
+  color: var(--primary) !important;
+}
+
+html[data-theme="dark"] .story-audit-header {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-audit-verdict {
+  color: var(--text);
+}
+
+html[data-theme="dark"] .story-audit-head-select {
+  background: #0f172a !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-audit-issue {
+  background: rgba(23, 32, 51, 0.72) !important;
+  border-color: var(--border) !important;
+  border-left-color: var(--border) !important;
+}
+
+html[data-theme="dark"] .story-audit-issue:hover {
+  box-shadow: var(--shadow-2) !important;
+}
+
+html[data-theme="dark"] .story-audit-issue-head {
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-audit-excerpt {
+  background: #0f172a !important;
+  color: var(--muted) !important;
+}
+
+html[data-theme="dark"] .story-audit-suggestion {
+  color: #93c5fd !important;
+}
+
+
+/* ── 22. Story audit & polish sub-components dark-mode hardening ── */
+
+html[data-theme="dark"] .story-audit-consistency,
+html[data-theme="dark"] .story-audit-issues {
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-audit-card .muted,
+html[data-theme="dark"] .story-audit-card .tiny,
+html[data-theme="dark"] .story-audit-header .muted,
+html[data-theme="dark"] .story-audit-header .tiny {
+  color: var(--muted) !important;
+}
+
+/* Polish diff columns & bodies */
+html[data-theme="dark"] .story-polish-diff-card .story-polish-diff {
+  background: transparent !important;
+}
+
+html[data-theme="dark"] .story-polish-col,
+html[data-theme="dark"] .story-polish-single-col .story-polish-col-body {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme="dark"] .story-polish-col-head {
+  background: #0f172a !important;
+  border-bottom-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-polish-col-head .ms {
+  color: var(--primary) !important;
+}
+
+html[data-theme="dark"] .story-polish-col-body {
+  background: #0f172a !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-polish-col-body del {
+  background: rgba(248, 113, 113, 0.18) !important;
+  color: #fca5a5 !important;
+}
+
+html[data-theme="dark"] .story-polish-col-body ins {
+  background: rgba(74, 222, 128, 0.16) !important;
+  color: #86efac !important;
+}
+
+/* Polish loop indicator */
+html[data-theme="dark"] .story-polish-loop-indicator {
+  background: #172033 !important;
+  border-bottom-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .story-polish-loop-dot {
+  background: #475569 !important;
+}
+
+html[data-theme="dark"] .story-polish-loop-dot.active {
+  background: var(--accent) !important;
+  box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.22) !important;
+}
+
+html[data-theme="dark"] .story-polish-loop-dot.done {
+  background: #22c55e !important;
+}
+
+html[data-theme="dark"] .story-polish-loop-reason {
+  color: var(--text) !important;
+}
+
+/* Polish notes */
+html[data-theme="dark"] .story-polish-notes-card .story-polish-notes-body {
+  background: transparent !important;
+}
+
+html[data-theme="dark"] .story-polish-note-item {
+  color: var(--text) !important;
+  border-left-color: var(--border) !important;
+}
+
+html[data-theme="dark"] .story-polish-note-item:hover {
+  background: #1f2937 !important;
+  border-left-color: var(--primary) !important;
+}
+
+/* Polish issue badges */
+html[data-theme="dark"] .story-polish-issue-track {
+  background: transparent !important;
+}
+
+html[data-theme="dark"] .story-polish-issue-badge {
+  background: rgba(96, 165, 250, 0.12) !important;
+  border-color: rgba(96, 165, 250, 0.35) !important;
+  color: #93c5fd !important;
+}
+
+html[data-theme="dark"] .story-polish-issue-badge.fixed {
+  background: rgba(74, 222, 128, 0.14) !important;
+  border-color: rgba(74, 222, 128, 0.45) !important;
+  color: #86efac !important;
+}
+
+html[data-theme="dark"] .story-polish-issue-badge.persistent {
+  background: rgba(251, 191, 36, 0.14) !important;
+  border-color: rgba(251, 191, 36, 0.45) !important;
+  color: #fcd34d !important;
+}
+
+html[data-theme="dark"] .story-polish-issue-badge.regression {
+  background: rgba(248, 113, 113, 0.14) !important;
+  border-color: rgba(248, 113, 113, 0.45) !important;
+  color: #fca5a5 !important;
+}
+
+/* Polish empty state */
+html[data-theme="dark"] .story-polish-empty {
+  color: var(--muted) !important;
+}
+
+html[data-theme="dark"] .story-polish-empty .ms {
+  color: var(--muted) !important;
+  opacity: 0.5 !important;
+}
+
+/* Sentiment chart & logs */
+html[data-theme="dark"] .story-sentiment-chart {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+}
+
+html[data-theme="dark"] .sc-legend {
+  border-bottom-color: var(--border) !important;
+}
+
+html[data-theme="dark"] .sc-legend-item,
+html[data-theme="dark"] .sc-bar-label,
+html[data-theme="dark"] .sc-bar-tone,
+html[data-theme="dark"] .sc-bar-intensity {
+  color: var(--muted) !important;
+}
+
+html[data-theme="dark"] .sentiment-log-item {
+  background: #172033 !important;
+  border-color: var(--border) !important;
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .sentiment-log-item:hover {
+  border-color: var(--border) !important;
+}
+
+html[data-theme="dark"] .sentiment-log-item strong {
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .sentiment-tag {
+  color: var(--text) !important;
+}
+
+html[data-theme="dark"] .sentiment-seg {
+  background: rgba(96, 165, 250, 0.12) !important;
+  color: #93c5fd !important;
+  border-color: rgba(96, 165, 250, 0.3) !important;
+}

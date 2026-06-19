@@ -2,6 +2,9 @@
   --bg: #eef2f7;
   --bg-deep: #e2e8f0;
   --surface: #ffffff;
+  --card-bg: var(--surface);
+  --card-bg-soft: #f8fafc;
+  --card-bg-elevated: #ffffff;
   --text: #1c1c1e;
   --muted: #64748b;
   --border: #e2e8f0;
@@ -7604,6 +7607,9 @@ textarea.json-editor-tiny {
   --surface: #ffffff;
   --surface-2: #f8fafc;
   --surface-elevated: #f1f5f9;
+  --card-bg: var(--surface);
+  --card-bg-soft: #f8fafc;
+  --card-bg-elevated: #ffffff;
   --text: #0f172a;
   --muted: #5f6b7a;
   --border: #d9e0ea;
@@ -8123,6 +8129,9 @@ html[data-theme="dark"] {
   --surface: #111827;
   --surface-2: #172033;
   --surface-elevated: #1f2937;
+  --card-bg: #111827;
+  --card-bg-soft: #172033;
+  --card-bg-elevated: #1f2937;
   --text: #e5e7eb;
   --muted: #9ca3af;
   --border: #2f3b52;
@@ -8660,4 +8669,333 @@ html[data-theme="dark"] [style*="color: #334155"],
 html[data-theme="dark"] [style*="color:#475569"],
 html[data-theme="dark"] [style*="color: #475569"] {
   color: var(--text) !important;
+}
+
+/* ===== 暗色模式补充优化：未覆盖到的组件 ===== */
+
+html[data-theme="dark"] button.primary,
+html[data-theme="dark"] .btn-cta {
+  background: linear-gradient(180deg, #2563eb 0%, #1d4ed8 100%);
+  color: #fff;
+  box-shadow: 0 4px 14px rgba(37, 99, 235, 0.28);
+}
+
+html[data-theme="dark"] button.primary:hover,
+html[data-theme="dark"] .btn-cta:hover {
+  background: linear-gradient(180deg, #3b82f6 0%, #2563eb 100%);
+  box-shadow: 0 6px 18px rgba(37, 99, 235, 0.38);
+}
+
+html[data-theme="dark"] .thinking-strip {
+  background: linear-gradient(90deg, #172a46 0%, #111827 100%);
+  border-color: #29476f;
+  color: var(--primary);
+}
+
+html[data-theme="dark"] .thinking-shimmer {
+  background: linear-gradient(90deg, transparent, rgba(138, 180, 248, 0.18), transparent);
+}
+
+html[data-theme="dark"] .kbd-hint .kbd {
+  background: #172033;
+  border-color: var(--border);
+  color: var(--text);
+  box-shadow: 0 1px 0 var(--border);
+}
+
+html[data-theme="dark"] .edit-mode-toolbar {
+  background: linear-gradient(180deg, #172033 0%, #111827 100%);
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .power-batch-hint {
+  background: #2a2310;
+  border-color: #7c6a2b;
+  color: #fcd34d;
+}
+
+html[data-theme="dark"] .power-batch-step input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+html[data-theme="dark"] .worldview-panel--readonly .card {
+  background: var(--surface);
+}
+
+html[data-theme="dark"] .worldview-panel--readonly .viz-subtitle,
+html[data-theme="dark"] .worldview-panel--readonly .subsection-sub,
+html[data-theme="dark"] .worldview-panel--readonly .muted {
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .snapshot-diff-pre {
+  background: #0f172a;
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .snapshot-diff-pre .diff-line--add {
+  background: rgba(34, 197, 94, 0.16);
+  color: #86efac;
+}
+
+html[data-theme="dark"] .snapshot-diff-pre .diff-line--rem {
+  background: rgba(239, 68, 68, 0.16);
+  color: #fca5a5;
+}
+
+html[data-theme="dark"] .search-hit-li {
+  background: #172033;
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .search-hit-li:hover {
+  background: #1f2937;
+}
+
+html[data-theme="dark"] .char-roster-avatar {
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .char-roster-card-rim {
+  opacity: 0.35;
+}
+
+html[data-theme="dark"] .sentiment-chart-wrap {
+  background: transparent;
+}
+
+html[data-theme="dark"] .sc-bar-val {
+  color: var(--text);
+}
+
+html[data-theme="dark"] .story-audit-issue {
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .story-audit-excerpt {
+  background: #0f172a;
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .story-audit-suggestion {
+  color: #93c5fd;
+}
+
+html[data-theme="dark"] .knowledge-tabs {
+  background: #111827;
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .knowledge-tab {
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .knowledge-tab.active {
+  background: #0f172a;
+  color: var(--primary);
+  border-color: var(--accent);
+}
+
+html[data-theme="dark"] .knowledge-card,
+html[data-theme="dark"] .knowledge-char-group {
+  background: #172033;
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .timeline-event-body,
+html[data-theme="dark"] .timeline-event-card {
+  background: #172033;
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .reference-lint-out li,
+html[data-theme="dark"] .reference-lint-fix-out li {
+  color: var(--text);
+}
+
+/* ── Dark mode: additional card / dashboard / roster / faction fixes ── */
+
+html[data-theme="dark"] .stats-hero-card,
+html[data-theme="dark"] .stats-card {
+  background: var(--card-bg);
+  border-color: var(--border);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .stats-hero-num {
+  color: var(--accent);
+}
+
+html[data-theme="dark"] .stats-hero-label,
+html[data-theme="dark"] .stats-card-title {
+  color: var(--text);
+}
+
+html[data-theme="dark"] .card-elevated {
+  box-shadow: var(--shadow), 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+/* Faction / culture cards */
+html[data-theme="dark"] .faction-intro-viz,
+html[data-theme="dark"] .faction-viz-wrap,
+html[data-theme="dark"] .culture-viz-wrap {
+  background: linear-gradient(165deg, #111827 0%, #172033 100%);
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .faction-viz-host {
+  background: #0f172a;
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .faction-viz-badge {
+  background: #172033;
+  border-color: var(--border);
+  color: var(--text);
+}
+
+html[data-theme="dark"] .faction-intro-viz-head,
+html[data-theme="dark"] .faction-brief-k,
+html[data-theme="dark"] .faction-brief-body,
+html[data-theme="dark"] .faction-viz-legend strong {
+  color: var(--text);
+}
+
+html[data-theme="dark"] .faction-brief-k,
+html[data-theme="dark"] .faction-viz-legend strong {
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .faction-viz-caption {
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .faction-intro-ic {
+  color: var(--primary);
+}
+
+/* Character roster cards */
+html[data-theme="dark"] .char-roster-card-head {
+  border-bottom-color: var(--border);
+}
+
+html[data-theme="dark"] .char-roster-block {
+  background: rgba(23, 32, 51, 0.82);
+  border-color: var(--border);
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .char-roster-block--skills {
+  background: linear-gradient(180deg, rgba(138, 180, 248, 0.08), rgba(23, 32, 51, 0.9));
+  border-color: rgba(138, 180, 248, 0.25);
+}
+
+html[data-theme="dark"] .char-roster-block--meta {
+  background: #0f172a;
+  border-color: var(--border);
+}
+
+html[data-theme="dark"] .char-roster-block-hd,
+html[data-theme="dark"] .char-roster-k {
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .char-roster-role-chip {
+  background: rgba(138, 180, 248, 0.12);
+  border-color: rgba(138, 180, 248, 0.3);
+  color: var(--primary);
+}
+
+html[data-theme="dark"] .char-roster-tier-tag {
+  background: rgba(138, 180, 248, 0.12);
+  border-color: rgba(138, 180, 248, 0.35);
+  color: #93c5fd;
+}
+
+html[data-theme="dark"] .char-roster-prof-tag {
+  background: rgba(45, 212, 191, 0.12);
+  border-color: rgba(45, 212, 191, 0.35);
+  color: #5eead4;
+}
+
+html[data-theme="dark"] .char-roster-detail-btn {
+  background: #172033;
+  border-color: var(--border);
+  color: var(--primary);
+}
+
+html[data-theme="dark"] .char-roster-detail-btn:hover {
+  background: #1f2937;
+  border-color: var(--primary);
+}
+
+html[data-theme="dark"] .char-roster-code {
+  background: #0f172a;
+  border-color: var(--border);
+  color: #cbd5e1;
+}
+
+html[data-theme="dark"] .char-roster-avatar-ic {
+  color: var(--primary) !important;
+}
+
+/* Misc light panels / badges */
+html[data-theme="dark"] .thinking-strip {
+  background: linear-gradient(90deg, #172033, #111827);
+  border-color: var(--border);
+  color: var(--primary);
+}
+
+html[data-theme="dark"] .power-tier-sk-badge {
+  background: rgba(138, 180, 248, 0.12);
+  border-color: rgba(138, 180, 248, 0.35);
+  color: #93c5fd;
+}
+
+html[data-theme="dark"] .power-tier-sk-badge--empty {
+  background: #172033;
+  border-color: var(--border);
+  color: var(--muted);
+}
+
+html[data-theme="dark"] .agent-panel-desc,
+html[data-theme="dark"] .agent-panel-controls label {
+  color: var(--muted);
+}
+
+/* Broader catch-all for dynamically injected light inline backgrounds */
+html[data-theme="dark"] [style*="background:#fafbfd"],
+html[data-theme="dark"] [style*="background: #fafbfd"],
+html[data-theme="dark"] [style*="background:#f1f5f9"],
+html[data-theme="dark"] [style*="background: #f1f5f9"],
+html[data-theme="dark"] [style*="background:#eef2ff"],
+html[data-theme="dark"] [style*="background: #eef2ff"],
+html[data-theme="dark"] [style*="background:#f5f0f8"],
+html[data-theme="dark"] [style*="background: #f5f0f8"] {
+  background: #172033 !important;
+}
+
+html[data-theme="dark"] [style*="background:linear-gradient"][style*="#fff"],
+html[data-theme="dark"] [style*="background: linear-gradient"][style*="#fff"],
+html[data-theme="dark"] [style*="background:linear-gradient"][style*="#f8fafc"],
+html[data-theme="dark"] [style*="background: linear-gradient"][style*="#f8fafc"],
+html[data-theme="dark"] [style*="background:linear-gradient"][style*="#fafbfd"],
+html[data-theme="dark"] [style*="background: linear-gradient"][style*="#fafbfd"] {
+  background: linear-gradient(165deg, #111827 0%, #172033 100%) !important;
+}
+
+/* Catch-all for inline background-color light values */
+html[data-theme="dark"] [style*="background-color:#fff"],
+html[data-theme="dark"] [style*="background-color: #fff"],
+html[data-theme="dark"] [style*="background-color:#ffffff"],
+html[data-theme="dark"] [style*="background-color: #ffffff"],
+html[data-theme="dark"] [style*="background-color:#f8fafc"],
+html[data-theme="dark"] [style*="background-color: #f8fafc"],
+html[data-theme="dark"] [style*="background-color:#fafbfd"],
+html[data-theme="dark"] [style*="background-color: #fafbfd"],
+html[data-theme="dark"] [style*="background-color:#f1f5f9"],
+html[data-theme="dark"] [style*="background-color: #f1f5f9"] {
+  background-color: #172033 !important;
 }

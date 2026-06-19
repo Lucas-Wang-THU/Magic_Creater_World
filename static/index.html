@@ -11,6 +11,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="/static/styles.css" />
+    <link rel="stylesheet" href="/static/css/premium.css" />
     <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.0/dist/mermaid.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/vis-network@9.1.6/dist/vis-network.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/vis-network@9.1.6/dist/vis-network.min.css" rel="stylesheet" />
@@ -19,8 +20,8 @@
       (() => {
         try {
           const saved = localStorage.getItem("mcw_theme");
-          const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)")?.matches;
-          const theme = saved === "dark" || saved === "light" ? saved : prefersDark ? "dark" : "light";
+          const prefersDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const theme = saved || (prefersDark ? "dark" : "light");
           document.documentElement.dataset.theme = theme;
         } catch (_) {
           document.documentElement.dataset.theme = "light";
@@ -1779,6 +1780,33 @@
       crossorigin="anonymous"
     ></script>
     <script type="module" src="/static/app.js"></script>
+  <!-- Onboarding Overlay -->
+  <div id="onboardingOverlay" class="onboarding-overlay hidden" aria-hidden="true">
+    <div class="onboarding-card" role="dialog" aria-modal="true" aria-labelledby="onboardingTitle">
+      <h2 id="onboardingTitle">欢迎来到 Magic Creater World</h2>
+      <p>把对话里的灵感，落成可保存、可导出的完整世界。你可以从零开始，也可以让 AI 先生成一个示例。</p>
+      <div class="onboarding-actions">
+        <button type="button" class="primary" id="btnOnboardingGenerate">
+          <span class="ms" aria-hidden="true" style="font-size:18px;vertical-align:-3px">auto_awesome</span>
+          AI 生成示例世界
+        </button>
+        <button type="button" class="secondary" id="btnOnboardingBlank">
+          <span class="ms" aria-hidden="true" style="font-size:18px;vertical-align:-3px">edit_note</span>
+          手动创建空白世界
+        </button>
+      </div>
+      <p class="muted tiny" style="margin-top:16px;margin-bottom:0">提示：随时按 <kbd>Ctrl+K</kbd> 打开命令面板</p>
+    </div>
+  </div>
+
+  <!-- Command Palette -->
+  <div id="commandPalette" class="command-palette-overlay hidden" aria-hidden="true">
+    <div class="command-palette" role="dialog" aria-modal="true" aria-label="命令面板">
+      <input type="text" class="command-palette-input" id="commandPaletteInput" placeholder="输入命令或视图名称…" autocomplete="off" />
+      <div class="command-palette-list" id="commandPaletteList"></div>
+    </div>
+  </div>
+
   <!-- Character Detail Overlay -->
   <div id="charDetailOverlay" class="char-detail-overlay hidden" onclick="if(event.target===this)window.closeCharDetail()">
     <div class="char-detail-panel" id="charDetailPanel" onclick="event.stopPropagation()">
