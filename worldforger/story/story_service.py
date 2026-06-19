@@ -2610,7 +2610,10 @@ async def _run_polish_loop(world: World, chapter_id: str, manuscript_text: str) 
                     )
                 regression_text = "\n".join(regression_lines)
 
-            system = polisher_system()
+            system = polisher_system(
+                webnovel=world.story.writing_defaults.enable_webnovel_style,
+                panel=world.story.writing_defaults.enable_panel_template,
+            )
             user = build_polisher_user_payload(
                 world,
                 chapter_id,

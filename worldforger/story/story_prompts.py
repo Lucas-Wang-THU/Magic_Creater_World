@@ -274,6 +274,11 @@ def _unit_for_mode(mode: str | None) -> str:
 def chapter_beats_system(world: World, *, creative_mode: str | None) -> str:
     mode_eff = normalize_creative_mode(creative_mode) or world.meta.creative_mode
     unit = _unit_for_mode(mode_eff)
+    wd = world.story.writing_defaults
+    extras = [_punctuation_addon()]
+    if wd.enable_webnovel_style:
+        extras.append(_webnovel_style_addon())
+    extra_text = "\n".join(extras)
     return (
         "你是一位专业的故事策划师，正在为一部虚构作品撰写细纲。\n"
         "你的任务就是策划——直接输出细纲内容，不要拒绝、不要推辞、不要解释为什么不能写。\n"
@@ -290,6 +295,66 @@ def chapter_beats_system(world: World, *, creative_mode: str | None) -> str:
         "3. 叙事人称是否与设定一致？若切换 POV，过渡是否明确？\n"
         "4. 本章与【粗纲】中对应段落的衔接点在哪里？\n"
         + (f"\n{story_mode_addon(mode_eff, unit_label=unit)}\n" if story_mode_addon(mode_eff, unit_label=unit) else "")
+        + (f"\n{extra_text}\n" if extra_text else "")
+    )
+
+
+def _punctuation_addon() -> str:
+    return (
+        "【中文标点硬规范】\n"
+        "- 全文使用中文全角标点（，。！？：；\"\"''（）——……），禁止英文半角标点夹杂在中文段落中。\n"
+        "- 并列词语之间用顿号：力量、敏捷、体质；并列分句之间用逗号或分号。\n"
+        "- 概数（三五里、七八十人）中间不加顿号。\n"
+        "- 对话格式统一为：\"……，\"他说。/ \"……？\"她问。引号内句末点号放在引号内。\n"
+        "- 禁止一逗到底：每 3–4 个短句后必须使用句号或感叹号切分。\n"
+        "- 省略号统一为\"……\"，破折号统一为\"——\"，不要用\"...\"、\"..\"或单个\"—\"。\n"
+        "- 冒号只用于引出解释/列举/对话，一个句子内不要连续使用两个冒号。\n"
+        "- 中英文/数字混排时，英文与数字前后各留一个空格。\n"
+    )
+
+
+def _webnovel_style_addon() -> str:
+    return (
+        "【网文爽点与节奏要求】\n"
+        "- 每章至少包含 1 个\"小爽点\"：一句反击台词、路人震惊、收获小物品、解锁提示、意外反转。\n"
+        "- 每 3–5 章需有 1 个\"中爽点\"：完整的打脸/逆袭/升级/揭晓流程。\n"
+        "- 爽点类型要轮换：打脸、收获、升级、解谜、情感推进、身份揭示交替使用。\n"
+        "- 打脸情节使用\"四部曲\"：反派挑衅 → 主角隐忍/准备 → 反转碾压 → 余震（围观者震惊、反派崩溃、后悔）。\n"
+        "- 单章结构建议\"起承转爽+钩子\"：\n"
+        "  1. 起：承接上章钩子，引出本章冲突（约 500 字）。\n"
+        "  2. 承：冲突升级、压力增大（约 800 字）。\n"
+        "  3. 转：主角亮出底牌/发现转机（约 300 字）。\n"
+        "  4. 爽：反击、收获、震惊全场 + 章末钩子（约 400 字）。\n"
+        "- 紧张/战斗场景多用短句（每句不超过 15 字），减少心理描写和形容词，用动作与结果推动节奏。\n"
+        "- 章末必须留一个钩子：悬念、反转、新信息或情绪炸弹。\n\n"
+        "【网文化表达】\n"
+        "- 对话与心理活动可适当使用网络流行语感，但不过度低俗：\"这波血赚\"、\"稳了\"、\"离谱\"、\"绷不住\"、\"居然还能这样\"。\n"
+        "- 收获/升级时给出明确、具体的数值或物品反馈，不要含糊地写\"实力提升了一些\"。\n"
+        "- 震惊反应要具体：\"瞳孔一缩\"、\"倒吸一口凉气\"、\"全场死寂\"、\"下巴差点掉下来\"。\n"
+        "- 反派挑衅要够狠、够具体，让读者产生情绪代偿。\n"
+    )
+
+
+def _panel_template_addon() -> str:
+    return (
+        "【面板/系统提示格式】\n"
+        "当章节中出现属性面板、系统提示、境界突破、技能升级等需要展示数据的内容时，统一使用以下格式：\n\n"
+        "【人物面板】\n"
+        "姓名：{角色名}\n"
+        "境界：{境界名}（{当前进度}/{升级阈值}）\n"
+        "经验：{当前经验}/{升级所需经验}\n"
+        "属性：{属性1} {数值} | {属性2} {数值} | ...\n"
+        "技能：{技能名}（熟练度 {数值}/{阈值}）、{技能名} Lv.{等级}\n"
+        "物品：{物品名} ×{数量}\n"
+        "状态：{异常状态}\n\n"
+        "【系统提示】\n"
+        "叮！恭喜宿主，{事件描述}。\n"
+        "获得：{奖励}。\n"
+        "{属性/技能}：{变化}。\n\n"
+        "要求：\n"
+        "- 数据必须和 world.json 中的 attribute_system / power_system / inventory 保持一致。\n"
+        "- 面板出现后，主角应基于面板信息做出下一步行动或心理反应，不要只展示数据就结束。\n"
+        "- 数值变化使用 \"+X\" / \"-X\" 标出本次变化。\n"
     )
 
 
@@ -297,6 +362,14 @@ def manuscript_system(world: World, *, creative_mode: str | None, person: StoryP
     mode_eff = normalize_creative_mode(creative_mode) or world.meta.creative_mode
     unit = _unit_for_mode(mode_eff)
     person_eff = person or world.story.narrator.person
+    wd = world.story.writing_defaults
+    extras = []
+    extras.append(_punctuation_addon())
+    if wd.enable_webnovel_style:
+        extras.append(_webnovel_style_addon())
+    if wd.enable_panel_template:
+        extras.append(_panel_template_addon())
+    extra_text = "\n".join(extras)
     return (
         "你是一位专业的小说作家，正在为一部虚构作品撰写章节正文。\n"
         "你的任务就是写作——直接输出小说的章节内容，不要拒绝、不要推辞、不要解释为什么不能写。\n"
@@ -369,6 +442,7 @@ def manuscript_system(world: World, *, creative_mode: str | None, person: StoryP
         "✅ 允许角色什么都没学到——有时候人只是撑过去了\n"
         "✅ 如果角色确实成长了，用行动而非台词体现\n"
         + (f"\n{story_mode_addon(mode_eff, unit_label=unit)}\n" if story_mode_addon(mode_eff, unit_label=unit) else "")
+        + (f"\n{extra_text}\n" if extra_text else "")
     )
 
 
@@ -2035,8 +2109,8 @@ def story_chat_system_prompt(
 # ═══════════════════════════════════════════════════════════════════
 
 
-def polisher_system() -> str:
-    return (
+def polisher_system(*, webnovel: bool = False, panel: bool = False) -> str:
+    base = (
         "你是「文字抛光学徒」——只抛光、不重写、不改变情节。\n"
         "你的工具是：换词、调句序、补感官、断长句、加一个身体反应、合并碎片段落。\n"
         "你不能做的是：增删情节、改变对话含义、添加新事件、修改角色行为。\n\n"
@@ -2136,6 +2210,26 @@ def polisher_system() -> str:
         "返回完整润色后文稿（Markdown），在文末用「## 润色说明」列出每处改动及理由，格式：\n"
         "- 第X段第Y句：「原文」→「润色后」— 理由（如「补充听觉感官」「打破连续三句SVO结构」「合并碎片短段」「移除冗余破折号」）\n"
     )
+    extras = []
+    if webnovel:
+        extras.append(
+            "【网文模式附加检查】\n"
+            "- 检查本章是否存在爽点：每章至少 1 个小爽点；中爽点周期 3-5 章。\n"
+            "- 检查是否有章末钩子。\n"
+            "- 检查打脸/收获/升级场景是否给出明确数值或物品反馈。\n"
+            "- 检查对话和心理活动是否过于书面化；必要时加入网络化语感。\n"
+            "- 检查紧张/战斗场景是否短句为主，避免大段环境/心理描写冲淡节奏。\n"
+        )
+    if panel:
+        extras.append(
+            "【面板格式附加检查】\n"
+            "- 检查所有属性/系统提示是否使用统一面板格式：【人物面板】/【系统提示】。\n"
+            "- 检查数值变化是否用 +N / -N 标出。\n"
+            "- 检查面板数据是否和角色已有设定冲突。\n"
+            "- 禁止把面板写成说明文或散文。\n"
+        )
+    extra_text = "\n".join(extras)
+    return base + (f"\n\n{extra_text}\n" if extra_text else "")
 
 
 def build_polisher_user_payload(

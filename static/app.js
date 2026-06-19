@@ -4434,6 +4434,10 @@ function storyMetaToForm() {
   if ($("storyChatToggleChunking")) $("storyChatToggleChunking").checked = wd.enable_scene_chunking !== false;
   if ($("storyToggleUnified")) $("storyToggleUnified").checked = wd.enable_unified_extractors === true;
   if ($("storyChatToggleUnified")) $("storyChatToggleUnified").checked = wd.enable_unified_extractors === true;
+  if ($("storyToggleWebnovel")) $("storyToggleWebnovel").checked = wd.enable_webnovel_style === true;
+  if ($("storyChatToggleWebnovel")) $("storyChatToggleWebnovel").checked = wd.enable_webnovel_style === true;
+  if ($("storyTogglePanel")) $("storyTogglePanel").checked = wd.enable_panel_template === true;
+  if ($("storyChatTogglePanel")) $("storyChatTogglePanel").checked = wd.enable_panel_template === true;
   if ($("storyToggleAgents")) $("storyToggleAgents").checked = wd.enable_character_agents === true;
   if ($("storyChatToggleAgents")) $("storyChatToggleAgents").checked = wd.enable_character_agents === true;
   if ($("storyAgentMaxRounds")) $("storyAgentMaxRounds").value = String(wd.agent_max_rounds ?? 4);
@@ -4442,6 +4446,8 @@ function storyMetaToForm() {
   _updateAgentPanelUI(wd.enable_character_agents === true);
   // Sync agent toggles between panels
   _bindAgentToggleSync();
+  // Sync webnovel / panel toggles between panels
+  _bindWebnovelPanelToggleSync();
   if ($("storyToggleKnowledge")) $("storyToggleKnowledge").checked = wd.enable_knowledge_track !== false;
   if ($("storyToggleDecisions")) $("storyToggleDecisions").checked = wd.enable_decision_track !== false;
   if ($("storyTogglePhysical")) $("storyTogglePhysical").checked = wd.enable_physical_state_track !== false;
@@ -4576,6 +4582,28 @@ function _bindAgentToggleSync() {
   if (writeRounds && chatRounds) {
     writeRounds.addEventListener('change', () => { chatRounds.value = writeRounds.value; });
     chatRounds.addEventListener('change', () => { writeRounds.value = chatRounds.value; });
+  }
+}
+
+let _webnovelPanelToggleSyncBound = false;
+
+function _bindWebnovelPanelToggleSync() {
+  if (_webnovelPanelToggleSyncBound) return;
+  _webnovelPanelToggleSyncBound = true;
+  const pairs = [
+    ["storyToggleWebnovel", "storyChatToggleWebnovel"],
+    ["storyTogglePanel", "storyChatTogglePanel"],
+  ];
+  for (const [writeId, chatId] of pairs) {
+    const writeToggle = $(writeId);
+    const chatToggle = $(chatId);
+    if (!writeToggle || !chatToggle) continue;
+    writeToggle.addEventListener("change", () => {
+      chatToggle.checked = writeToggle.checked;
+    });
+    chatToggle.addEventListener("change", () => {
+      writeToggle.checked = chatToggle.checked;
+    });
   }
 }
 
@@ -5441,6 +5469,10 @@ async function _saveWritingDefaultsFromForm() {
     enable_scene_chunking: $("storyToggleChunking")?.checked ?? $("storyChatToggleChunking")?.checked,
     enable_unified_extractors: $("storyToggleUnified")?.checked ?? $("storyChatToggleUnified")?.checked,
     enable_character_agents: $("storyToggleAgents")?.checked ?? $("storyChatToggleAgents")?.checked ?? false,
+    enable_webnovel_style:
+      $("storyToggleWebnovel")?.checked ?? $("storyChatToggleWebnovel")?.checked ?? false,
+    enable_panel_template:
+      $("storyTogglePanel")?.checked ?? $("storyChatTogglePanel")?.checked ?? false,
     agent_max_rounds: parseInt(
       $("storyAgentMaxRounds")?.value || $("storyChatAgentMaxRounds")?.value || "4", 10
     ),
@@ -5932,6 +5964,12 @@ function initStoryPanelBindings() {
       void refreshUsageStats();
     });
   }
+
+  // Webnovel / panel style toggles
+  $("storyToggleWebnovel")?.addEventListener("change", () => void _saveWritingDefaultsFromForm());
+  $("storyChatToggleWebnovel")?.addEventListener("change", () => void _saveWritingDefaultsFromForm());
+  $("storyTogglePanel")?.addEventListener("change", () => void _saveWritingDefaultsFromForm());
+  $("storyChatTogglePanel")?.addEventListener("change", () => void _saveWritingDefaultsFromForm());
 
   // Knowledge detection toggle
   $("storyToggleKnowledge")?.addEventListener("change", () => void saveKnowledgeToggle());

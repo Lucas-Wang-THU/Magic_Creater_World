@@ -256,6 +256,8 @@ class StoryWritingDefaultsPatchBody(BaseModel):
     enable_break_mechanism: bool | None = None
     enable_character_agents: bool | None = None
     agent_max_rounds: int | None = Field(default=None, ge=1, le=8)
+    enable_webnovel_style: bool | None = None
+    enable_panel_template: bool | None = None
 
 
 class StoryGenerateManuscriptBody(BaseModel):
@@ -2155,6 +2157,12 @@ def api_patch_story_writing_defaults(
         changed = True
     if body.agent_max_rounds is not None:
         wd.agent_max_rounds = body.agent_max_rounds
+        changed = True
+    if body.enable_webnovel_style is not None:
+        wd.enable_webnovel_style = body.enable_webnovel_style
+        changed = True
+    if body.enable_panel_template is not None:
+        wd.enable_panel_template = body.enable_panel_template
         changed = True
     if changed:
         w.bump_version()

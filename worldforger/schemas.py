@@ -756,6 +756,9 @@ class StoryWritingDefaults(BaseModel):
     enable_break_mechanism: bool = True
     enable_character_agents: bool = False  # 角色 Agent 涌现叙事
     agent_max_rounds: int = Field(default=4, ge=1, le=8)  # 每场景最大互动轮数
+    # 网文风格与面板模板（可选）
+    enable_webnovel_style: bool = Field(default=False, description="启用网文爽点节奏与网络化表达")
+    enable_panel_template: bool = Field(default=False, description="启用人物/系统面板统一模板")
 
 
 class StoryOutlineMacro(BaseModel):
