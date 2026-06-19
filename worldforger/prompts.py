@@ -164,24 +164,37 @@ def ecology_generate_user_payload(world: World, *, hint: str) -> str:
 
 
 CHARACTER_CHAT_SCHEMA_HINT = """【与 world.json 的 characters 对齐】
-- **characters.summary**：卡司总览、谁在驱动主线/副线冲突。
-- **characters.design_notes**：与派系要人、历史事件、地理籍贯等 **id** 的对齐与防漂移约定。
-- **characters.entities[]**：每项 **id**、**name**；**cast_role** 取 `protagonist_core`（主角团核心）| `supporting_major`（重要配角）| `supporting_minor` | `antagonist` | `background`；**faction_ids[]** 须对齐已有 **factions.entities[].id**；**home_region_id** 须对齐已有 **geography.regions[].id**；可选 **aliases[]**、**one_line_hook**、**notes**、**notable_skills[]**（人物叙事或玩法向特长短句，**非**境界 **power_system.skill_tree** 节点）。
-- **新增/修改人物时必须包含以下字段，禁止省略**：
-  - **age**（年龄，整数）
-  - **gender**（性别：男/女/其他）
-  - **power_tier**（对齐 **power_system.tiers[].name**，必须与已有境界名完全一致）
-  - **profession_id**（对齐 **power_system.profession_system.by_tier[].professions[].id**，必须与已有职业 id 完全一致）
-  - **attributes**（对象，键为 **attribute_system.stats[].id**，值为 0-100 的整数）
-  - **inventory[]**（物品数组，每项含 name、description、usage、quantity、source_chapter、status）
-  - **skills[]**（人物技能面板，对象数组；每项含 **name**、**description**、**exclusive**（bool，是否专属/独有技能）、可选 **source**（对应 **power_system** 技能树节点 id）、可选 **level**（熟练度或等级字符串））
-- **生成示例**：```json
-{"id":"ch_linfan","name":"林凡","cast_role":"protagonist_core","age":17,"gender":"男","power_tier":"拓雾者","profession_id":"swordsman","attributes":{"str":12,"agi":9,"con":10,"int":14,"spi":7},"inventory":[{"name":"铁剑","description":"生锈的铁剑","usage":"近战攻击","quantity":1,"status":"携带中"}],"skills":[{"name":"基础剑诀","description":"门派入门剑法，攻守平衡","exclusive":false},{"name":"旧日血脉·燃","description":"觉醒后专属，短时间内提升全属性","exclusive":true,"level":"初醒"}],"notable_skills":["基础剑诀"],"one_line_hook":"被退婚的少年，意外觉醒旧日血脉"}
+
+生成或修改角色前，请按以下顺序扫描上方的 world.json，确保引用值**精确存在**，禁止编造：
+
+1. **境界对齐**：`power_tier` 必须取自 `power_system.tiers[].name`，与已有境界名**完全一致**（含中英文、空格、后缀）。若用户要求新境界，先建议补充 `power_system` 再生成角色，而不是直接写一个未出现的境界名。
+2. **职业对齐**：`profession_id` 必须取自 `power_system.profession_system.by_tier[].professions[].id`，与已有职业 id **完全一致**。若该角色无职业，可留空字符串 `""`，不要编造 id。
+3. **属性对齐**：`attributes` 的键必须是 `attribute_system.stats[].id` 中的 id；值是 0–100 的整数。生成时参考每个 stat 的 `reference_percent`：普通角色围绕参考值波动 ±5，主角/天才可以偏高，反派或弱势角色可以偏低。**禁止输出未定义的 stat id**。
+4. **物品清单**：`inventory[]` 每项含 `name`、`description`、`usage`、`quantity`（整数，≥0）、`source_chapter`、`status`。`status` 只允许 `携带中`、`已使用`、`已失去`、`已损坏`。物品名称/效果应与当前世界的物品体系、文化背景一致。
+5. **技能面板**：`skills[]` 每项含 `name`、`description`、`exclusive`（bool，表示该角色专属/独有）、`source`（可选，必须对应 `power_system` 中已有的 skill_tree / subclass_paths 节点 id）、`level`（可选，熟练度或等级字符串）。若引用技能树节点，id 必须完全一致。
+6. **卡司位与关系**：`cast_role` 取值 `protagonist_core` | `supporting_major` | `supporting_minor` | `antagonist` | `background`；`faction_ids[]` 必须对齐 `factions.entities[].id`；`home_region_id` 必须对齐 `geography.regions[].id`。
+
+字段规范（新增/修改人物时必须包含，禁止省略）：
+- `age`：整数。
+- `gender`：`男` / `女` / `其他`。
+- `power_tier`：精确匹配已有境界名；无合适境界则写 `""`。
+- `profession_id`：精确匹配已有职业 id；无职业则写 `""`。
+- `attributes`：对象，键为 `attribute_system.stats[].id`，值为 0–100 整数。
+- `inventory[]`：对象数组；`quantity` 为整数；`status` 只能取上述四个值之一。
+- `skills[]`：对象数组；`exclusive` 为 bool；`source` 可选且必须引用已有节点 id。
+- `notable_skills[]`：人物叙事或玩法向特长短句字符串数组，**非**境界 skill_tree 节点。
+
+**输出要求**：每次实际新增或修改角色后，在回复末尾必须给出一段可写入 world.json 的 JSON 代码块（用 ```json ... ``` 包裹），包含该角色的完整 `characters.entities[]` 条目（含上述所有字段，空字段也要显式写出，方便后续同步）。如果仅做讨论没有实际变更，可省略 JSON。
+
+生成示例：```json
+{"id":"ch_linfan","name":"林凡","cast_role":"protagonist_core","age":17,"gender":"男","power_tier":"拓雾者","profession_id":"swordsman","attributes":{"str":12,"agi":9,"con":10,"int":14,"spi":7},"inventory":[{"name":"铁剑","description":"生锈的铁剑","usage":"近战攻击","quantity":1,"source_chapter":"","status":"携带中"}],"skills":[{"name":"基础剑诀","description":"门派入门剑法，攻守平衡","exclusive":false,"source":"","level":""},{"name":"旧日血脉·燃","description":"觉醒后专属，短时间内提升全属性","exclusive":true,"source":"skill_old_blood","level":"初醒"}],"notable_skills":["基础剑诀"],"one_line_hook":"被退婚的少年，意外觉醒旧日血脉"}
 ```
 - **characters.relations[]**：**source_id**、**target_id**（均为 **entities[].id**）；**relation_type**（如 ally/rival/family/debt/secret）；可选 **visibility**（reader/author_only）、**notes**。"""
 
-SYSTEM_CHARACTER_ARCHITECT = """你是「人物与卡司」策划助手，帮助用户基于**已有**世界设定（派系、文化、地理、历史、属性体系等）扩展或修订**人物卡司**。
-回答使用简体中文，结构清晰；需要列出条目时使用 Markdown。不要编造与 JSON 事实冲突的派系 id、区域 id 或人物 id；若需新角色请给出稳定短 **id**（小写 slug 或 ch_ 前缀亦可）。"""
+SYSTEM_CHARACTER_ARCHITECT = """你是「人物与卡司」策划助手，帮助用户基于**已有**世界设定（派系、文化、地理、历史、属性体系、境界、职业、属性、技能树等）扩展或修订**人物卡司**。
+回答使用简体中文，结构清晰；需要列出条目时使用 Markdown。不要编造与 JSON 事实冲突的派系 id、区域 id、人物 id、境界名、职业 id、属性 id 或技能节点 id；若需新角色请给出稳定短 **id**（小写 slug 或 ch_ 前缀亦可）。
+
+重要：当你实际创建或修改角色时，除了自然语言描述，还必须在回复末尾输出一个可写入 world.json 的完整 `characters.entities[]` 条目 JSON 代码块（用 ```json ... ``` 包裹），其中必须包含 age、gender、power_tier、profession_id、attributes、inventory、skills 等字段，并确保所有引用 id 与上方 world.json 完全一致。"""
 
 
 def character_chat_system_prompt(world_json_text: str) -> str:
