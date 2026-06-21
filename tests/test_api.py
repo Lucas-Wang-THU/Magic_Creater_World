@@ -698,3 +698,38 @@ def test_character_detail_patch_skills_and_notable_skills():
     detail = client.get(f"/api/worlds/{wid}/characters/ch_test/detail").json()
     assert detail["skills"][0]["name"] == "剑术"
     assert detail["notable_skills"] == ["剑术", "专注"]
+
+
+def test_clear_knowledge_graph_clears_all_tracking_sections():
+    from worldforger.world_store import load_world
+
+    wid = client.post("/api/worlds", json={"name": "clear tracking"}).json()["world"]["meta"]["id"]
+    w = client.get(f"/api/worlds/{wid}").json()["world"]
+    w["characters"]["entities"].append(
+        {"id": "ch_a", "name": "A", "speech_profile": {"avg_sentence_length": "short", "verbal_tics": ["啧"]}}
+    )
+    w["character_knowledge"]["entries"].append({"knowledge_id": "k1", "character_id": "ch_a", "topic": "测试"})
+    w["character_decisions"].append({"decision_id": "d1", "character_id": "ch_a", "type": "moral_choice"})
+    w["character_physical_states"].append({"character_id": "ch_a", "fatigue": "tired"})
+    w["character_personal_timelines"].append({"character_id": "ch_a", "events": [{"chapter_id": "ch1", "title": "出生"}]})
+    w["character_aftermaths"].append({"aftermath_id": "a1", "character_id": "ch_a", "current_status": "active"})
+    client.put(f"/api/worlds/{wid}", json=w)
+
+    r = client.post(f"/api/worlds/{wid}/knowledge-graph/clear")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True
+    assert body["world"]["character_knowledge"]["entries"] == []
+    assert body["world"]["character_decisions"] == []
+    assert body["world"]["character_physical_states"] == []
+    assert body["world"]["character_personal_timelines"] == []
+    assert body["world"]["character_aftermaths"] == []
+    ent = next(e for e in body["world"]["characters"]["entities"] if e["id"] == "ch_a")
+    assert not ent.get("speech_profile")
+
+    saved = load_world(wid)
+    assert saved.character_knowledge.entries == []
+    assert saved.character_decisions == []
+    assert saved.character_physical_states == []
+    assert saved.character_personal_timelines == []
+    assert saved.character_aftermaths == []

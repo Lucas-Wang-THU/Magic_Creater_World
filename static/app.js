@@ -1002,6 +1002,15 @@ function deleteCharacterEntityById(entityId) {
     : [];
   $("charEntitiesJson").value = JSON.stringify(nextEnt, null, 2);
   $("charRelationsJson").value = JSON.stringify(nextRel, null, 2);
+  if (state.world?.characters) state.world.characters.entities = nextEnt;
+  const narratorCid = (state.world?.story?.narrator?.character_id || "").trim();
+  if (narratorCid === id) {
+    if (state.world?.story?.narrator) state.world.story.narrator.character_id = "";
+    refreshStoryNarratorSelect("");
+  }
+  // Refresh ALL character-dependent story selects
+  refreshStoryNarratorSelect(state.world?.story?.narrator?.character_id || "");
+  refreshStoryChapterSelects();
   setDirty(true);
   refreshCharactersVizFromForm();
   // Auto-save after deletion
@@ -1032,6 +1041,8 @@ function appendCharacterEntity(defaultRole) {
   $("charEntitiesJson").value = JSON.stringify(entities, null, 2);
   setDirty(true);
   refreshCharactersVizFromForm();
+  refreshStoryNarratorSelect(state.world?.story?.narrator?.character_id || "");
+  refreshStoryChapterSelects();
   persistWorldFromForm().then(() => {
     toast("已添加角色并落盘，可在卡片中填写详情");
   }).catch(() => {
@@ -1246,6 +1257,7 @@ function refreshCharRelationNetworkViz() {
   const parsed = tryParseCharacterEntitiesRelations();
   if (!parsed) {
     if (stats) stats.textContent = "";
+    renderCharRelationList();
     return;
   }
   if (stats) {
@@ -1255,6 +1267,102 @@ function refreshCharRelationNetworkViz() {
   }
   // P2-10: Use interactive vis.js network instead of static Mermaid
   renderCharacterNetworkFromData(parsed.entities, parsed.relations, "charRelationNetworkHost");
+  renderCharRelationList();
+}
+
+function _charNameById(id, entities) {
+  const e = (entities || []).find((x) => x && typeof x === "object" && String(x.id ?? "").trim() === String(id ?? "").trim());
+  return e?.name || id || "?";
+}
+
+function _collectCharacterRelations(parsed) {
+  const items = [];
+  const entities = Array.isArray(parsed?.entities) ? parsed.entities : [];
+  const globalRels = Array.isArray(parsed?.relations) ? parsed.relations : [];
+  globalRels.forEach((r, idx) => {
+    if (!r || typeof r !== "object") return;
+    if (!r.source_id && !r.target_id) return;
+    items.push({ source: r.source_id, target: r.target_id, type: r.relation_type || r.type || "", notes: r.notes || "", scope: "global", idx });
+  });
+  entities.forEach((e) => {
+    if (!e || typeof e !== "object" || !e.id) return;
+    const rels = Array.isArray(e.relations) ? e.relations : [];
+    rels.forEach((r, idx) => {
+      if (!r || typeof r !== "object") return;
+      if (!r.target_id) return;
+      items.push({ source: e.id, target: r.target_id, type: r.type || r.relation_type || "", notes: r.notes || "", scope: "entity", entityId: e.id, idx });
+    });
+  });
+  return items;
+}
+
+function renderCharRelationList() {
+  const listEl = $("charRelationList");
+  if (!listEl) return;
+  const parsed = tryParseCharacterEntitiesRelations();
+  if (!parsed) {
+    listEl.innerHTML = '<p class="muted tiny" style="padding:8px 0">无法解析卡司 JSON。</p>';
+    return;
+  }
+  const items = _collectCharacterRelations(parsed);
+  if (!items.length) {
+    listEl.innerHTML = '<p class="muted tiny" style="padding:8px 0">暂无关系，可在「卡司数据」中手写或在对话中生成。</p>';
+    return;
+  }
+  const nameMap = new Map((parsed.entities || []).filter((e) => e && e.id).map((e) => [String(e.id).trim(), e.name || e.id]));
+  listEl.innerHTML = items.map((item, i) => {
+    const s = nameMap.get(String(item.source || "").trim()) || item.source || "?";
+    const t = nameMap.get(String(item.target || "").trim()) || item.target || "?";
+    const scopeLabel = item.scope === "entity" ? "（来自角色内嵌 relations）" : "";
+    return `<div class="char-relation-item">
+      <div class="char-relation-item-main">
+        <span class="char-relation-source">${escapeHtml(s)}</span>
+        <span class="ms char-relation-arrow" aria-hidden="true">arrow_forward</span>
+        <span class="char-relation-target">${escapeHtml(t)}</span>
+        ${item.type ? `<span class="char-relation-type">${escapeHtml(item.type)}</span>` : ""}
+      </div>
+      ${item.notes ? `<div class="char-relation-notes muted tiny">${escapeHtml(item.notes)}${escapeHtml(scopeLabel)}</div>` : (scopeLabel ? `<div class="char-relation-notes muted tiny">${escapeHtml(scopeLabel)}</div>` : "")}
+      <button type="button" class="ghost btn-sm btn-ic char-relation-del" data-char-relation-idx="${i}" title="删除此关系">
+        <span class="ms" aria-hidden="true" style="font-size:16px">close</span>
+      </button>
+    </div>`;
+  }).join("");
+  listEl.querySelectorAll("[data-char-relation-idx]").forEach((btn) => {
+    btn.addEventListener("click", () => deleteCharacterRelationAt(parseInt(btn.dataset.charRelationIdx)));
+  });
+}
+
+function deleteCharacterRelationAt(listIdx) {
+  const parsed = tryParseCharacterEntitiesRelations();
+  if (!parsed) { toast("卡司 JSON 无效"); return; }
+  const items = _collectCharacterRelations(parsed);
+  if (listIdx < 0 || listIdx >= items.length) return;
+  const item = items[listIdx];
+  if (!confirm("确定删除这条人物关系？")) return;
+
+  if (item.scope === "global") {
+    const relInput = $("charRelationsJson");
+    if (!relInput) return;
+    let rels;
+    try { rels = JSON.parse(relInput.value || "[]"); } catch { toast("关系 JSON 无效"); return; }
+    if (!Array.isArray(rels)) return;
+    rels.splice(item.idx, 1);
+    relInput.value = JSON.stringify(rels, null, 2);
+  } else {
+    const entInput = $("charEntitiesJson");
+    if (!entInput) return;
+    let ents;
+    try { ents = JSON.parse(entInput.value || "[]"); } catch { toast("卡司 JSON 无效"); return; }
+    if (!Array.isArray(ents)) return;
+    const e = ents.find((x) => x && x.id === item.entityId);
+    if (!e || !Array.isArray(e.relations)) return;
+    e.relations.splice(item.idx, 1);
+    entInput.value = JSON.stringify(ents, null, 2);
+  }
+
+  setDirty(true);
+  refreshCharRelationNetworkViz();
+  persistWorldFromForm().then(() => toast("已删除关系并落盘")).catch(() => toast("已删除（落盘失败，请手动保存）"));
 }
 
 /** 从当前表单刷新主角团 / 配角卡片；在「人物关系网络」页时刷新关系图 */
@@ -4530,10 +4638,66 @@ function updateStoryMarkdownPreview(previewId, text, authorView) {
   el.innerHTML = renderAssistantMarkdownHtml(raw);
 }
 
+const CHAPTER_CN_NUMBERS = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9, 十: 10, 百: 100 };
+
+function _chineseNumberToInt(s) {
+  if (!s) return NaN;
+  if (/^\d+$/.test(s)) return parseInt(s, 10);
+  let total = 0;
+  let current = 0;
+  for (const ch of s) {
+    const v = CHAPTER_CN_NUMBERS[ch];
+    if (v === undefined) continue;
+    if (v === 100) {
+      current = (current || 1) * 100;
+      total += current;
+      current = 0;
+    } else if (v === 10) {
+      current = (current || 1) * 10;
+    } else {
+      current += v;
+    }
+  }
+  return total + current;
+}
+
+function _extractChapterNumber(title) {
+  const t = String(title || "");
+  // 第一章 / 第1章 / 第 1 章 / 第一回 / 第一话
+  const m = t.match(/第\s*([0-9]+|[一二三四五六七八九十百]+)\s*[章节回话]/i);
+  if (m) {
+    const n = /^\d+$/.test(m[1]) ? parseInt(m[1], 10) : _chineseNumberToInt(m[1]);
+    if (!Number.isNaN(n)) return n;
+  }
+  // Chapter 1 / Session 2 / Scene 3 / Act 4
+  const m2 = t.match(/\b(?:chapter|session|scene|act|part)\s*([0-9]+)\b/i);
+  if (m2) return parseInt(m2[1], 10);
+  // "1. xxx" / "1、xxx"
+  const m3 = t.match(/^\s*([0-9]+)[\.\s、]/);
+  if (m3) return parseInt(m3[1], 10);
+  return Infinity;
+}
+
+function _compareChapterTitle(a, b) {
+  const na = _extractChapterNumber(a.title || a.id || "");
+  const nb = _extractChapterNumber(b.title || b.id || "");
+  const bothFinite = Number.isFinite(na) && Number.isFinite(nb);
+  if (bothFinite && na !== nb) return na - nb;
+  return String(a.title || a.id || "").localeCompare(String(b.title || b.id || ""), "zh-CN");
+}
+
 function sortedStoryChapters() {
   const arr = state.world?.story?.chapters;
   if (!Array.isArray(arr)) return [];
-  return [...arr].sort((a, b) => (a.order || 0) - (b.order || 0) || String(a.id).localeCompare(String(b.id)));
+  const mode = state.storyChapterSortMode || "order";
+  const copy = [...arr];
+  if (mode === "title_asc") {
+    return copy.sort((a, b) => _compareChapterTitle(a, b) || (a.order || 0) - (b.order || 0));
+  }
+  if (mode === "title_desc") {
+    return copy.sort((a, b) => _compareChapterTitle(b, a) || (a.order || 0) - (b.order || 0));
+  }
+  return copy.sort((a, b) => (a.order || 0) - (b.order || 0) || String(a.id).localeCompare(String(b.id)));
 }
 
 function storyMetaToForm() {
@@ -4593,20 +4757,29 @@ function storyMetaToForm() {
   updateStoryWbTitle();
 }
 
+function _isValidNarratorCharacterId(cid) {
+  if (!cid) return false;
+  const ents = state.world?.characters?.entities || [];
+  return ents.some((e) => e && typeof e === "object" && String(e.id ?? "").trim() === String(cid).trim());
+}
+
 function refreshStoryNarratorSelect(selectedId) {
   const ents = state.world?.characters?.entities || [];
+  const safeId = _isValidNarratorCharacterId(selectedId) ? String(selectedId).trim() : "";
   let html = '<option value="">（不绑定 POV 角色）</option>';
   for (const e of ents) {
     if (!e || typeof e !== "object") continue;
     const id = String(e.id ?? "").trim();
     if (!id) continue;
     const name = String(e.name ?? id).trim();
-    const selAttr = id === selectedId ? " selected" : "";
+    const selAttr = id === safeId ? " selected" : "";
     html += `<option value="${escapeAttr(id)}"${selAttr}>${escapeHtml(name)} · ${escapeHtml(id)}</option>`;
   }
   for (const id of ["storyNarratorCharacter", "storyChatNarratorCharacter"]) {
     const sel = $(id);
-    if (sel) sel.innerHTML = html;
+    if (!sel) continue;
+    sel.innerHTML = html;
+    if (safeId === "" && sel.value) sel.value = "";
   }
 }
 
@@ -4616,7 +4789,11 @@ function syncStoryChatWritingControlsFromForm() {
   if ($("storyChatNarratorPerson")) $("storyChatNarratorPerson").value = sn.person || "third_person_limited";
   if ($("storyChatAttachPrev")) $("storyChatAttachPrev").value = String(wd.attach_prev_chapters ?? 3);
   const cid = (sn.character_id || "").trim();
-  if ($("storyChatNarratorCharacter")) $("storyChatNarratorCharacter").value = cid;
+  const chatSel = $("storyChatNarratorCharacter");
+  if (chatSel) {
+    const validIds = new Set([...chatSel.options].map((o) => o.value));
+    chatSel.value = validIds.has(cid) ? cid : "";
+  }
 }
 
 const STORY_CHAPTER_NAV_IDS = ["storyChapterNav", "storyChatChapterNav"];
@@ -5751,7 +5928,8 @@ function collectStoryMetaForWorld(w) {
     ? collectStoryForeshadowingFromDom()
     : parseJson($("storyForeshadowJson")?.value, "story.foreshadowing");
   if (!w.story.narrator) w.story.narrator = {};
-  w.story.narrator.character_id = ($("storyNarratorCharacter")?.value ?? "").trim();
+  const narratorCid = ($("storyNarratorCharacter")?.value ?? "").trim();
+  w.story.narrator.character_id = _isValidNarratorCharacterId(narratorCid) ? narratorCid : "";
   w.story.narrator.person = $("storyNarratorPerson")?.value || "third_person_limited";
   w.story.narrator.voice_notes = ($("storyNarratorVoice")?.value ?? "").trim();
   if (!w.story.writing_defaults) w.story.writing_defaults = {};
@@ -5797,6 +5975,40 @@ function initStoryPanelBindings() {
 
   $("btnStoryAddChapterSide")?.addEventListener("click", () => $("btnStoryAddChapter")?.click());
   $("btnStoryAddChapterChat")?.addEventListener("click", () => $("btnStoryAddChapter")?.click());
+  document.querySelectorAll(".btn-story-sort").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const modes = ["order", "title_asc", "title_desc"];
+      const cur = state.storyChapterSortMode || "order";
+      const next = modes[(modes.indexOf(cur) + 1) % modes.length];
+      state.storyChapterSortMode = next;
+      const labels = { order: "顺序", title_asc: "名称↑", title_desc: "名称↓" };
+      document.querySelectorAll(".btn-story-sort").forEach((b) => {
+        const lbl = b.querySelector(".btn-story-sort-label");
+        if (lbl) lbl.textContent = labels[next];
+        b.title = `当前：${labels[next]}；点击切换排序`;
+      });
+      renderStoryChapterNav();
+      toast(`会话列表已切换为：${labels[next]}`);
+    });
+  });
+  document.querySelectorAll(".btn-story-select-all").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const allCbs = [...document.querySelectorAll(".story-chapter-nav .story-ch-cb")];
+      if (!allCbs.length) return;
+      const allChecked = allCbs.every((cb) => cb.checked);
+      const target = !allChecked;
+      allCbs.forEach((cb) => { cb.checked = target; });
+      refreshBatchBar();
+      document.querySelectorAll(".btn-story-select-all").forEach((b) => {
+        const icon = b.querySelector(".ms");
+        const label = b.querySelector("span:not(.ms)");
+        if (icon) icon.textContent = target ? "check_box" : "select_all";
+        if (label) label.textContent = target ? "取消" : "全选";
+        b.title = target ? "取消全选" : "全选所有章节";
+      });
+      toast(target ? "已全选所有章节" : "已取消全选");
+    });
+  });
   let _lastCheckCid = null;
   for (const navId of STORY_CHAPTER_NAV_IDS) {
     $(navId)?.addEventListener("click", (e) => {
@@ -5946,15 +6158,21 @@ function initStoryPanelBindings() {
   });
 
   $("btnStorySaveManuscript")?.addEventListener("click", async () => {
-    const cid = $("storyMsChapterSelect")?.value;
-    if (!cid || !state.world) return;
+    const cid = $("storyMsChapterSelect")?.value || state.storyActiveChapterId;
+    const editorEl = $("storyManuscriptEdit");
+    if (!cid || !state.world) {
+      toast("请先选择章节");
+      return;
+    }
+    if (!editorEl) {
+      toast("文稿编辑器未就绪，请刷新页面");
+      return;
+    }
+    const content = editorEl.value;
     try {
       const res = await api(
         `/api/worlds/${state.world.meta.id}/story/chapters/${encodeURIComponent(cid)}/manuscript`,
-        {
-          method: "PUT",
-          body: JSON.stringify({ content: $("storyManuscriptEdit")?.value ?? "" }),
-        }
+        { method: "PUT", body: JSON.stringify({ content }) }
       );
       toast(`文稿已保存（约 ${res.word_count ?? 0} 字）`);
       await refreshStoryPanel();
@@ -7338,6 +7556,16 @@ function refreshBatchBar() {
       btn.classList.toggle("story-ch-nav-btn--sel", cb && cb.checked);
     });
   }
+  // Sync select-all button label
+  const allCbs = [...document.querySelectorAll(".story-chapter-nav .story-ch-cb")];
+  const allChecked = allCbs.length > 0 && allCbs.every((cb) => cb.checked);
+  document.querySelectorAll(".btn-story-select-all").forEach((b) => {
+    const icon = b.querySelector(".ms");
+    const label = b.querySelector("span:not(.ms)");
+    if (icon) icon.textContent = allChecked ? "check_box" : "select_all";
+    if (label) label.textContent = allChecked ? "取消" : "全选";
+    b.title = allChecked ? "取消全选" : "全选所有章节";
+  });
 }
 
 async function batchSetStatus(newStatus) {
@@ -8165,6 +8393,27 @@ async function init() {
       toast(e.message);
       return;
     }
+    // Auto-save manuscript edits if the editor has been modified
+    const msEdit = $("storyManuscriptEdit");
+    const msChapter = $("storyMsChapterSelect")?.value;
+    if (msEdit && msChapter && state.world?.meta?.id) {
+      try {
+        await api(
+          `/api/worlds/${state.world.meta.id}/story/chapters/${encodeURIComponent(msChapter)}/manuscript`,
+          { method: "PUT", body: JSON.stringify({ content: msEdit.value }) }
+        );
+      } catch (_) { /* best-effort */ }
+    }
+    // Save macro outline if edited
+    const macroEdit = $("storyMacroEdit");
+    if (macroEdit && state.world?.meta?.id) {
+      try {
+        await api(
+          `/api/worlds/${state.world.meta.id}/story/macro-outline`,
+          { method: "PUT", body: JSON.stringify({ content: macroEdit.value }) }
+        );
+      } catch (_) { /* best-effort */ }
+    }
     const saved = await api(`/api/worlds/${body.meta.id}`, {
       method: "PUT",
       body: JSON.stringify(body),
@@ -8945,12 +9194,13 @@ async function init() {
     "请用 Markdown **按派系 id 分小节**列出便于同步；若提供 JSON，文末单个 **```json** 根对象须为 `{ \"factions\": { \"entities\": [ ... ] } }`，每个实体须含 **id** 与 **key_figures**（字符串数组），其余字段可与已有世界一致并写全以便合并。";
 
   const CHARACTER_ROSTER_CHAT_PROMPT =
-    "请为当前世界补充或修订 **人物卡司**（world.json 的 **characters**；与派系、地理 id 对齐；便于「对话后同步」落盘）。请用自然语言 + 清晰小节，尽量与下列键名对齐（不必默认输出整段 JSON，除非我要求）：\n\n" +
+    "请为当前世界补充或修订 **人物卡司**（world.json 的 **characters**；与派系、地理、境界、职业、属性 id 对齐；便于「对话后同步」落盘）。请用自然语言 + 清晰小节，尽量与下列键名对齐（不必默认输出整段 JSON，除非我要求）：\n\n" +
     "1）**characters.summary**：谁在驱动主线/副线，卡司规模与叙事功能。\n" +
     "2）**characters.design_notes**：与 **factions** 要人、**history**、**geography.regions** 籍贯等 **id** 的对齐与防漂移约定。\n" +
-    "3）**characters.entities[]**：每项 **id**、**name**；**cast_role** 取 `protagonist_core`（主角团核心）| `supporting_major` | `supporting_minor` | `antagonist` | `background`；**faction_ids[]** 须对齐已有 **factions.entities[].id**；**home_region_id** 须对齐已有 **geography.regions[].id**；可选 **aliases[]**、**one_line_hook**、**notes**、**notable_skills[]**（人物叙事或玩法向特长短句，**非**境界 **power_system.skill_tree** 节点）。\n" +
-    "4）**characters.relations[]**：**source_id**、**target_id**（均为 **entities[].id**）；**relation_type**（如 ally/rival/family/debt/secret）；可选 **visibility**、**notes**。\n\n" +
-    "若你准备给出可机读补丁，请在回复**文末**用单个 **```json** 代码块给出根对象 `{ \"characters\": { ... } }`。";
+    "3）**characters.entities[]**：每项 **id**、**name**；**cast_role** 取 `protagonist_core`（主角团核心）| `supporting_major` | `supporting_minor` | `antagonist` | `background`；**faction_ids[]** 须对齐已有 **factions.entities[].id**；**home_region_id** 须对齐已有 **geography.regions[].id**；可选 **aliases[]**、**one_line_hook**、**notes**、**notable_skills[]**（叙事向特长短句）。\n" +
+    "4）**新增/修订人物时必须包含以下字段，禁止省略**：**age**（整数）、**gender**（男/女/其他）、**power_tier**（必须精确匹配 `power_system.tiers[].name`，无则留空）、**profession_id**（必须精确匹配 `power_system.profession_system.by_tier[].professions[].id`，无则留空）、**attributes**（对象，键为 `attribute_system.stats[].id`，值 0–100）、**inventory[]**（物品数组，每项 name/description/usage/quantity/source_chapter/status）、**skills[]**（技能面板，每项 name/description/exclusive(bool)/source(可选，对应已有技能树节点 id)/level(可选)）。\n" +
+    "5）**characters.relations[]**：**source_id**、**target_id**（均为 **entities[].id**）；**relation_type**（如 ally/rival/family/debt/secret）；可选 **visibility**、**notes**。\n\n" +
+    "若你准备给出可机读补丁，请在回复**文末**用单个 **```json** 代码块给出根对象 `{ \"characters\": { ... } }`，其中每个实体须包含第 4 步列出的全部字段。";
 
   function fillCharChatPromptTemplate(text, { mode = "replace", enableCharacterGuide = false } = {}) {
     if (!state.world) {
@@ -9101,10 +9351,10 @@ async function init() {
 
   if (charChipBox) {
     const charChips = [
-      ["groups", "对齐派系 id", "请列出当前 world.json 中已有 **factions.entities[].id** 与 **geography.regions[].id**，据此设计 3～6 名主要人物：每人给出建议 **id**、**name**、**cast_role**、**faction_ids[]**、**home_region_id**、**one_line_hook**，并说明与现有派系/区域如何挂钩。"],
+      ["groups", "对齐派系 id", "请列出当前 world.json 中已有 **factions.entities[].id**、**geography.regions[].id**、**power_system.tiers[].name**、**profession_system.by_tier[].professions[].id** 与 **attribute_system.stats[].id**。据此设计 3～6 名主要人物：每人给出建议 **id**、**name**、**cast_role**、**faction_ids[]**、**home_region_id**、**one_line_hook**，并显式写出 **age**、**gender**、**power_tier**、**profession_id**、**attributes**、**inventory[]**、**skills[]**，确保所有 id/名称与现有世界设定精确对齐。"],
       ["family_history", "人物关系边", "在已有或拟新增的 **characters.entities[]** 上，补充 **characters.relations[]**：每条 **source_id**、**target_id**、**relation_type**、**notes**；关系要有戏剧功能（债务、秘密、家族、对立、同盟）。"],
-      ["military_tech", "主角团张力", "请设计 **cast_role** 为 **protagonist_core** 的主角团（3～5 人）：写清每人 **notable_skills[]**（叙事向短句）、内在目标冲突，以及他们为何被迫同行。"],
-      ["person_alert", "反派与压力", "请增加或修订 **antagonist** 与 **supporting_major**：每人 **one_line_hook**、与主角团的 **relations**（rival/debt/secret 等），并挂钩 **history** 或 **factions**。"],
+      ["military_tech", "主角团张力", "请设计 **cast_role** 为 **protagonist_core** 的主角团（3～5 人）：每人必须包含 **age**、**gender**、**power_tier**（对齐已有境界名）、**profession_id**（对齐已有职业 id）、**attributes**（对齐 attribute_system.stats[].id）、**inventory[]**、**skills[]**（可含专属技能 exclusive=true）、**notable_skills[]**（叙事向短句）、内在目标冲突，以及他们为何被迫同行。"],
+      ["person_alert", "反派与压力", "请增加或修订 **antagonist** 与 **supporting_major**（3～5 人）：每人必须包含 **age**、**gender**、**power_tier**（对齐已有境界名）、**profession_id**（对齐已有职业 id）、**attributes**（对齐 attribute_system.stats[].id）、**inventory[]**、**skills[]**（可含专属技能 exclusive=true）、**one_line_hook**、与主角团的 **relations**（rival/debt/secret 等），并挂钩 **history** 或 **factions**。"],
       ["auto_stories", "卡司总览", CHARACTER_ROSTER_CHAT_PROMPT, { charGuide: true, append: false }],
     ];
     charChips.forEach((row) => {
@@ -9356,12 +9606,17 @@ async function saveKnowledgeToggle() {
 
 async function clearKnowledgeGraph() {
   if (!state.world?.meta?.id) return;
-  if (!confirm("确定清空所有角色知识条目？此操作不可撤销。")) return;
+  if (!confirm("确定清空认知图谱、关键决策、身体状况、个人时间线、语言风格和情绪后遗症？此操作不可撤销。")) return;
   try {
     const res = await api(`/api/worlds/${state.world.meta.id}/knowledge-graph/clear`, { method: "POST" });
     state.world = res.world;
     renderKnowledgePanel();
-    toast("知识图谱已清空");
+    renderDecisionsPanel();
+    renderPhysicalStatesPanel();
+    renderTimelinePanel();
+    renderSpeechProfilesPanel();
+    renderAftermathPanel();
+    toast("已清空认知图谱、关键决策、身体状况、个人时间线、语言风格和情绪后遗症");
   } catch (e) { toast("清空失败：" + e.message); }
 }
 

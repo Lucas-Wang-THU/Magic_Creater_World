@@ -11,6 +11,7 @@ export const state = {
   storyOutlineSub: "macro",
   activeStoryNav: "storyOverview",
   storyActiveChapterId: "",
+  storyChapterSortMode: "order",
   storyUnitLabel: "章",
   storyGen: null,
   powerSubView: "system",

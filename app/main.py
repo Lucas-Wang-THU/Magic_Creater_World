@@ -503,6 +503,11 @@ def api_put_world(world_id: str, body: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail=f"invalid world: {e}") from e
     if w.meta.id != world_id:
         raise HTTPException(status_code=400, detail="meta.id must match URL world_id")
+    # 清理已不存在的 POV 角色绑定
+    valid_char_ids = {str(e.get("id", "")).strip() for e in (w.characters.entities or []) if isinstance(e, dict)}
+    narrator_cid = (w.story.narrator.character_id or "").strip()
+    if narrator_cid and narrator_cid not in valid_char_ids:
+        w.story.narrator.character_id = ""
     w.bump_version()
     save_world(w, export_markdown=True)
     return w.model_dump(mode="json")
@@ -2308,9 +2313,17 @@ def api_get_knowledge_graph(world_id: str) -> dict[str, Any]:
 
 @app.post("/api/worlds/{world_id}/knowledge-graph/clear")
 def api_clear_knowledge_graph(world_id: str) -> dict[str, Any]:
-    """Clear all knowledge entries (useful for resetting after major rewrites)."""
+    """Clear character runtime tracking data: knowledge, decisions, physical states,
+    personal timelines, speech profiles, and emotional aftermaths."""
     w = _story_world_or_404(world_id)
     w.character_knowledge.entries = []
+    w.character_decisions = []
+    w.character_physical_states = []
+    w.character_personal_timelines = []
+    w.character_aftermaths = []
+    for entity in w.characters.entities:
+        if isinstance(entity, dict) and "speech_profile" in entity:
+            entity["speech_profile"] = {}
     w.bump_version()
     save_world(w, export_markdown=False)
     return {"ok": True, "world": w.model_dump(mode="json")}

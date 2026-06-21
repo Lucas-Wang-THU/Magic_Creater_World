@@ -370,7 +370,17 @@
                 
                 <div class="story-wb-aside-head">
                   <span class="story-wb-aside-title"><span id="storyChatAsideUnitLabel">章</span>列表</span>
-                  <button type="button" class="ghost tiny btn-ic" id="btnStoryAddChapterChat" title="新建章节">+</button>
+                  <div class="story-wb-aside-actions">
+                    <button type="button" class="ghost tiny btn-ic btn-story-sort" title="切换排序：顺序 / 名称升序 / 名称降序">
+                      <span class="ms" aria-hidden="true">sort</span><span class="btn-story-sort-label">顺序</span>
+                    </button>
+                    <button type="button" class="ghost tiny btn-ic btn-story-select-all" title="全选/取消全选">
+                      <span class="ms" aria-hidden="true">select_all</span><span>全选</span>
+                    </button>
+                    <button type="button" class="ghost tiny btn-ic" id="btnStoryAddChapterChat" title="新建章节">
+                      <span class="ms" aria-hidden="true">add</span>
+                    </button>
+                  </div>
                 </div>
                 <div class="story-batch-bar" id="storyBatchBar2">
                   <span class="story-batch-count">已选 0 章</span>
@@ -1216,6 +1226,13 @@
                 </div>
               </div>
             </div>
+            <div class="char-relation-list-card">
+              <div class="char-relation-list-head">
+                <span class="char-relation-list-title">关系列表</span>
+                <span class="muted tiny">点击 × 删除 <code>characters.relations[]</code> 或角色内嵌 <code>relations</code> 中的条目</span>
+              </div>
+              <div id="charRelationList" class="char-relation-list"></div>
+            </div>
           </div>
         </section>
 
@@ -1241,7 +1258,7 @@
               <label class="muted lbl-ic tiny"><input type="checkbox" id="storyToggleAftermath" checked /> 后遗症</label>
               <span class="knowledge-toolbar-spacer"></span>
               <button type="button" class="ghost tiny btn-ic" id="btnExtractAllKnowledge" title="扫描已有章节，提取知识和决策"><span class="ms" aria-hidden="true">auto_awesome</span>从已有章节提取</button>
-              <button type="button" class="ghost tiny" id="btnClearKnowledge" title="清空所有条目（不可撤销）">清空</button>
+              <button type="button" class="ghost tiny" id="btnClearKnowledge" title="清空认知图谱、关键决策、身体状况、个人时间线、语言风格和情绪后遗症（不可撤销）">清空</button>
             </div>
             <!-- 标签切换 -->
             <div class="knowledge-tabs" id="knowledgeTabs">
@@ -1296,7 +1313,17 @@
               <aside class="story-wb-aside" aria-label="章节导航">
                 <div class="story-wb-aside-head">
                   <span class="story-wb-aside-title"><span id="storyAsideUnitLabel">章</span>列表</span>
-                  <button type="button" class="ghost tiny btn-ic" id="btnStoryAddChapterSide" title="新建章节">+</button>
+                  <div class="story-wb-aside-actions">
+                    <button type="button" class="ghost tiny btn-ic btn-story-sort" title="切换排序：顺序 / 名称升序 / 名称降序">
+                      <span class="ms" aria-hidden="true">sort</span><span class="btn-story-sort-label">顺序</span>
+                    </button>
+                    <button type="button" class="ghost tiny btn-ic btn-story-select-all" title="全选/取消全选">
+                      <span class="ms" aria-hidden="true">select_all</span><span>全选</span>
+                    </button>
+                    <button type="button" class="ghost tiny btn-ic" id="btnStoryAddChapterSide" title="新建章节">
+                      <span class="ms" aria-hidden="true">add</span>
+                    </button>
+                  </div>
                 </div>
                 <div class="story-batch-bar" id="storyBatchBar1">
                   <span class="story-batch-count">已选 0 章</span>
