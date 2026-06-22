@@ -537,6 +537,69 @@ def test_apply_structure_patch_characters():
     assert merged.characters.relations[0].get("relation_type") == "rival"
 
 
+def test_character_relation_merge_appends_new_relation_type_for_same_pair():
+    base = {
+        "relations": [
+            {
+                "source_id": "ch_a",
+                "target_id": "ch_b",
+                "relation_type": "ally",
+                "notes": "旧同盟",
+            }
+        ]
+    }
+    patch = {
+        "relations": [
+            {
+                "source_id": "ch_a",
+                "target_id": "ch_b",
+                "relation_type": "secret",
+                "notes": "共同隐瞒真相",
+            }
+        ]
+    }
+
+    merged = merge_section_conservative(base, patch)
+
+    assert len(merged["relations"]) == 2
+    assert [r["relation_type"] for r in merged["relations"]] == ["ally", "secret"]
+
+
+def test_character_relation_merge_updates_only_same_relation_type():
+    base = {
+        "relations": [
+            {
+                "source_id": "ch_a",
+                "target_id": "ch_b",
+                "relation_type": "ally",
+                "notes": "暂时合作",
+            },
+            {
+                "source_id": "ch_a",
+                "target_id": "ch_b",
+                "relation_type": "debt",
+                "notes": "欠一次人情",
+            },
+        ]
+    }
+    patch = {
+        "relations": [
+            {
+                "source_id": "ch_a",
+                "target_id": "ch_b",
+                "relation_type": "ally",
+                "notes": "正式结盟",
+            }
+        ]
+    }
+
+    merged = merge_section_conservative(base, patch)
+
+    assert len(merged["relations"]) == 2
+    assert merged["relations"][0]["notes"] == "正式结盟"
+    assert merged["relations"][1]["notes"] == "欠一次人情"
+
+
 def test_apply_structure_patch_economy():
     w = create_world("经济合并")
     patch = {

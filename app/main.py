@@ -765,12 +765,15 @@ async def _sync_reply_into_world(
         creative_mode=(creative_mode or "").strip() or world.meta.creative_mode,
         proofreader_max_retries=pr_max_retries,
     )
-    if result.get("ok") and persist and result.get("updated_sections"):
+    if result.get("ok") and persist:
         merged = result["world"]
-        merged.bump_version()
-        save_world(merged, export_markdown=True)
-        result["world"] = merged
-        result["persisted"] = True
+        if result.get("updated_sections"):
+            merged.bump_version()
+            save_world(merged, export_markdown=True)
+            result["world"] = merged
+            result["persisted"] = True
+        else:
+            result["persisted"] = False
     else:
         result["persisted"] = False
     return result
@@ -1228,10 +1231,18 @@ def api_get_macro_outline(world_id: str) -> dict[str, str]:
 def api_put_macro_outline(world_id: str, body: StoryTextBody) -> dict[str, Any]:
     w = _story_world_or_404(world_id)
     write_text(macro_outline_path(world_id), body.content)
+    from worldforger.story.story_chapter_sync import reconcile_macro_outline_chapters
+    w, chapter_sync_notes = reconcile_macro_outline_chapters(w, body.content)
     w.story.outline_macro.updated_at = utc_now_iso()
     w.bump_version()
     save_world(w, export_markdown=False)
-    return {"ok": True, "updated_at": w.story.outline_macro.updated_at}
+    return {
+        "ok": True,
+        "updated_at": w.story.outline_macro.updated_at,
+        "chapter_sync_notes": chapter_sync_notes,
+        "story": w.story.model_dump(mode="json"),
+        "chapters_display": chapter_display_for_prompt(w),
+    }
 
 
 @app.get("/api/worlds/{world_id}/story/chapters/{chapter_id}/beat")

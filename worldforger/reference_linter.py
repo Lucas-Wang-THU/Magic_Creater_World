@@ -535,5 +535,35 @@ def fix_world_references(world: World) -> tuple[World, list[str]]:
             if len(kept2) != len([_n(str(z)) for z in old if _n(str(z))]):
                 rte["controlling_faction_ids"] = kept2
 
+    # ── 人物关系：移除 source_id 或 target_id 不在卡司列表中的边 ──
+    char_ids = set()
+    for ent in (data.get("characters") or {}).get("entities") or []:
+        if isinstance(ent, dict):
+            cid = _n(ent.get("id"))
+            if cid:
+                char_ids.add(cid)
+    if char_ids:
+        char_rels = (data.get("characters") or {}).get("relations")
+        if isinstance(char_rels, list):
+            kept_rels = []
+            for rel in char_rels:
+                if not isinstance(rel, dict):
+                    continue
+                s = _n(rel.get("source_id"))
+                t = _n(rel.get("target_id"))
+                if not s or not t:
+                    log.append("已移除：人物关系中缺少 source_id 或 target_id 的边")
+                    continue
+                if s not in char_ids:
+                    log.append(f"已移除：人物关系 source_id「{s}」不在卡司列表中")
+                    continue
+                if t not in char_ids:
+                    log.append(f"已移除：人物关系 target_id「{t}」不在卡司列表中")
+                    continue
+                kept_rels.append(rel)
+            if len(kept_rels) != len(char_rels):
+                data["characters"]["relations"] = kept_rels
+                log.append(f"人物关系已清理：{len(char_rels)}→{len(kept_rels)} 条（移除了 {len(char_rels)-len(kept_rels)} 条无效边）")
+
     w2 = World.model_validate(data)
     return w2, log

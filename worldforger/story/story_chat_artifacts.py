@@ -7,7 +7,7 @@ from typing import Any
 
 from worldforger.story.foreshadow_apply import apply_foreshadow_operations, parse_story_foreshadow_blocks
 from worldforger.schemas import StoryChapter, World
-from worldforger.story.story_chapter_sync import title_from_beat_markdown
+from worldforger.story.story_chapter_sync import reconcile_macro_outline_chapters, title_from_beat_markdown
 from worldforger.story.story_store import (
     beat_path,
     default_beat_rel,
@@ -96,7 +96,9 @@ def auto_apply_story_artifacts_from_reply(
             continue
         if kind == "macro":
             write_text(macro_outline_path(wid), content)
+            world, chapter_notes = reconcile_macro_outline_chapters(world, content)
             applied.append("写入粗纲 macro_outline.md")
+            applied.extend(chapter_notes)
             continue
         cid = (block.get("chapter_id") or "").strip()
         if not cid:

@@ -63,6 +63,30 @@ def test_story_macro_outline_put_get():
     assert macro_outline_path(wid).is_file()
 
 
+def test_story_macro_outline_put_updates_chapter_by_order_without_duplicate():
+    w = create_world("粗纲 API 精确覆盖")
+    wid = w.meta.id
+    w.story.chapters.append(StoryChapter(id="ch_existing", order=1, title="旧章名"))
+    save_world(w)
+
+    first = client.put(
+        f"/api/worlds/{wid}/story/macro-outline",
+        json={"content": "# 全书粗纲\n\n## 第一章：新章名\n"},
+    )
+    assert first.status_code == 200
+    assert first.json()["story"]["chapters"][0]["id"] == "ch_existing"
+
+    second = client.put(
+        f"/api/worlds/{wid}/story/macro-outline",
+        json={"content": "# 全书粗纲\n\n## 第一章：再次修订\n"},
+    )
+    assert second.status_code == 200
+    chapters = second.json()["story"]["chapters"]
+    assert len(chapters) == 1
+    assert chapters[0]["id"] == "ch_existing"
+    assert chapters[0]["title"] == "再次修订"
+
+
 @patch("app.main.generate_macro_outline", new_callable=AsyncMock, return_value="# AI 粗纲")
 def test_story_generate_macro(mock_gen):
     w = create_world("生成粗纲")

@@ -409,49 +409,40 @@
                   >
                 </div>
                 <div class="story-chat-write-strip card-inset">
-                  <div class="row story-write-row">
-                    <label class="muted">叙事人物 <select id="storyChatNarratorCharacter"></select></label>
-                    <label class="muted"
-                      >人称
-                      <select id="storyChatNarratorPerson">
-                        <option value="first_person">第一人称</option>
-                        <option value="third_person_limited" selected>第三人称（有限）</option>
-                        <option value="third_person_omniscient">第三人称（全知）</option>
-                      </select></label
-                    >
-                    <label class="muted"
-                      >前 <input type="number" id="storyChatAttachPrev" min="0" max="5" value="3" style="width: 3rem" /> 章</label
-                    >
+                  <div class="story-write-bar">
+                    <section class="story-write-bar-section story-write-bar-section--narrative">
+                      <header class="story-write-bar-section-head">
+                        <span class="ms" aria-hidden="true">visibility</span>
+                        <span><strong>叙事视角</strong><small>选择 POV、叙事人称与回看前文范围</small></span>
+                      </header>
+                      <div class="story-write-bar-fields">
+                        <label class="story-write-bar-control story-write-bar-control--character">
+                          <span class="story-write-bar-label">POV 角色</span>
+                          <select id="storyChatNarratorCharacter" class="story-write-bar-select"></select>
+                        </label>
+                        <label class="story-write-bar-control story-write-bar-control--person">
+                          <span class="story-write-bar-label">叙事人称</span>
+                          <select id="storyChatNarratorPerson" class="story-write-bar-select"><option value="first_person">第一人称</option><option value="third_person_limited" selected>第三人称有限</option><option value="third_person_omniscient">第三人称全知</option></select>
+                        </label>
+                        <label class="story-write-bar-control story-write-bar-control--number">
+                          <span class="story-write-bar-label">前文上下文</span>
+                          <span class="story-write-bar-inline">回看前 <input type="number" id="storyChatAttachPrev" min="0" max="5" value="3"> 章</span>
+                        </label>
+                      </div>
+                    </section>
+                    <section class="story-write-bar-section story-write-bar-section--options">
+                      <header class="story-write-bar-section-head">
+                        <span class="ms" aria-hidden="true">tune</span>
+                        <span><strong>生成处理</strong><small>控制长文拆分、提取与润色流程</small></span>
+                      </header>
+                      <div class="story-write-bar-options">
+                        <label class="story-write-bar-chk" title="润色者：审校↔润色反馈闭环"><input type="checkbox" id="storyChatTogglePolisher" checked><span>启用润色</span></label>
+                        <label class="story-write-bar-chk story-write-bar-chk--select" title="最大润色轮数"><span>润色轮数</span><select id="storyChatPolishMaxRounds"><option value="1">1 轮</option><option value="2" selected>2 轮</option><option value="3">3 轮</option></select></label>
+                        <label class="story-write-bar-chk" title="长章节自动分场景生成"><input type="checkbox" id="storyChatToggleChunking" checked><span>场景分块</span></label>
+                        <label class="story-write-bar-chk" title="3合1统一后处理提取器"><input type="checkbox" id="storyChatToggleUnified"><span>统一提取</span></label>
+                      </div>
+                    </section>
                   </div>
-                  <div class="row story-write-row">
-                    <label class="muted lbl-ic"
-                      ><input type="checkbox" id="storyChatTogglePolisher" checked /> 润色者</label
-                    >
-                    <label class="muted"
-                      >最大轮数
-                      <select id="storyChatPolishMaxRounds" style="width: 3.5rem">
-                        <option value="1">1</option>
-                        <option value="2" selected>2</option>
-                        <option value="3">3</option>
-                      </select></label
-                    >
-                  </div>
-              <div class="row story-write-row">
-                <label class="muted lbl-ic tiny"
-                  ><input type="checkbox" id="storyChatToggleChunking" checked /> 场景分块生成</label
-                >
-                <label class="muted lbl-ic tiny"
-                  ><input type="checkbox" id="storyChatToggleUnified" /> 统一后处理</label
-                >
-              </div>
-              <div class="row story-write-row">
-                <label class="muted lbl-ic tiny"
-                  ><input type="checkbox" id="storyChatToggleWebnovel" /> 网文爽点模式</label
-                >
-                <label class="muted lbl-ic tiny"
-                  ><input type="checkbox" id="storyChatTogglePanel" /> 人物面板模板</label
-                >
-              </div>
               <!-- 角色 Agent 涌现叙事 -->
               <div class="agent-panel" id="storyChatAgentPanel">
                 <div class="agent-panel-head">
@@ -1539,59 +1530,44 @@
               </div>
             </div>
             <div id="storyPaneWrite" class="story-pane hidden">
-              <div class="row story-write-row">
-                <label class="muted">叙事人物 <select id="storyNarratorCharacter"></select></label>
-                <label class="muted"
-                  >人称
-                  <select id="storyNarratorPerson">
-                    <option value="first_person">第一人称</option>
-                    <option value="third_person_limited" selected>第三人称（有限）</option>
-                    <option value="third_person_omniscient">第三人称（全知）</option>
-                  </select></label
-                >
-                <label class="muted"
-                  >前 <input type="number" id="storyAttachPrev" min="0" max="5" value="3" style="width: 3rem" /> 章</label
-                >
-              </div>
-              <div class="row story-write-row">
-                <label class="muted lbl-ic"
-                  ><input type="checkbox" id="storyToggleKG" checked /> 知识图谱提取</label
-                >
-                <label class="muted lbl-ic"
-                  ><input type="checkbox" id="storyToggleConsistency" checked /> 一致性审校</label
-                >
-                <label class="muted lbl-ic"
-                  ><input type="checkbox" id="storyToggleSentiment" checked /> 情感弧线追踪</label
-                >
-              </div>
-              <div class="row story-write-row">
-                <label class="muted lbl-ic"
-                  ><input type="checkbox" id="storyTogglePolisher" checked /> 润色者</label
-                >
-                <label class="muted"
-                  >最大轮数
-                  <select id="storyPolishMaxRounds" style="width: 3.5rem">
-                    <option value="1">1</option>
-                    <option value="2" selected>2</option>
-                    <option value="3">3</option>
-                  </select></label
-                >
-              </div>
-              <div class="row story-write-row">
-                <label class="muted lbl-ic tiny"
-                  ><input type="checkbox" id="storyToggleChunking" checked /> 场景分块生成</label
-                >
-                <label class="muted lbl-ic tiny"
-                  ><input type="checkbox" id="storyToggleUnified" /> 统一后处理</label
-                >
-              </div>
-              <div class="row story-write-row">
-                <label class="muted lbl-ic tiny"
-                  ><input type="checkbox" id="storyToggleWebnovel" /> 网文爽点模式</label
-                >
-                <label class="muted lbl-ic tiny"
-                  ><input type="checkbox" id="storyTogglePanel" /> 人物面板模板</label
-                >
+              <div class="story-write-bar">
+                <section class="story-write-bar-section story-write-bar-section--narrative">
+                  <header class="story-write-bar-section-head">
+                    <span class="ms" aria-hidden="true">visibility</span>
+                    <span><strong>叙事视角</strong><small>选择 POV、叙事人称与回看前文范围</small></span>
+                  </header>
+                  <div class="story-write-bar-fields">
+                    <label class="story-write-bar-control story-write-bar-control--character">
+                      <span class="story-write-bar-label">POV 角色</span>
+                      <select id="storyNarratorCharacter" class="story-write-bar-select"></select>
+                    </label>
+                    <label class="story-write-bar-control story-write-bar-control--person">
+                      <span class="story-write-bar-label">叙事人称</span>
+                      <select id="storyNarratorPerson" class="story-write-bar-select"><option value="first_person">第一人称</option><option value="third_person_limited" selected>第三人称有限</option><option value="third_person_omniscient">第三人称全知</option></select>
+                    </label>
+                    <label class="story-write-bar-control story-write-bar-control--number">
+                      <span class="story-write-bar-label">前文上下文</span>
+                      <span class="story-write-bar-inline">回看前 <input type="number" id="storyAttachPrev" min="0" max="5" value="3"> 章</span>
+                    </label>
+                  </div>
+                </section>
+                <section class="story-write-bar-section story-write-bar-section--options">
+                  <header class="story-write-bar-section-head">
+                    <span class="ms" aria-hidden="true">tune</span>
+                    <span><strong>生成处理</strong><small>按需启用审校、提取、节奏与格式化流程</small></span>
+                  </header>
+                  <div class="story-write-bar-options">
+                    <label class="story-write-bar-chk" title="叙事知识图谱：提取实体-事件-伏笔三元组"><input type="checkbox" id="storyToggleKG" checked><span>知识图谱</span></label>
+                    <label class="story-write-bar-chk" title="7维一致性审校：位置/性格/物品/POV/伏笔/情感/时间线"><input type="checkbox" id="storyToggleConsistency" checked><span>一致性审校</span></label>
+                    <label class="story-write-bar-chk" title="逐章情感弧线追踪"><input type="checkbox" id="storyToggleSentiment" checked><span>情感追踪</span></label>
+                    <label class="story-write-bar-chk" title="审校↔润色反馈闭环"><input type="checkbox" id="storyTogglePolisher" checked><span>启用润色</span></label>
+                    <label class="story-write-bar-chk story-write-bar-chk--select" title="最大润色轮数"><span>润色轮数</span><select id="storyPolishMaxRounds"><option value="1">1 轮</option><option value="2" selected>2 轮</option><option value="3">3 轮</option></select></label>
+                    <label class="story-write-bar-chk" title="长章节自动分场景并行生成"><input type="checkbox" id="storyToggleChunking" checked><span>场景分块</span></label>
+                    <label class="story-write-bar-chk" title="3合1统一后处理提取器"><input type="checkbox" id="storyToggleUnified"><span>统一提取</span></label>
+                    <label class="story-write-bar-chk" title="注入网文爽点节奏指导"><input type="checkbox" id="storyToggleWebnovel"><span>网文节奏</span></label>
+                    <label class="story-write-bar-chk" title="使用人物面板模板格式化输出"><input type="checkbox" id="storyTogglePanel"><span>人物面板</span></label>
+                  </div>
+                </section>
               </div>
               <!-- 角色 Agent 涌现叙事 -->
               <div class="agent-panel" id="storyAgentPanel">

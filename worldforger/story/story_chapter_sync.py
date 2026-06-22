@@ -6,12 +6,128 @@ import re
 
 from worldforger.schemas import StoryChapter, World
 from worldforger.story.story_store import (
+    beat_path,
     default_beat_rel,
     default_manuscript_rel,
+    macro_outline_path,
+    manuscript_path,
     read_text,
     sorted_chapters,
     story_beats_dir,
+    write_text,
 )
+
+
+_CN_DIGITS = {"零": 0, "〇": 0, "一": 1, "二": 2, "两": 2, "三": 3, "四": 4, "五": 5,
+              "六": 6, "七": 7, "八": 8, "九": 9}
+
+
+def _chapter_number(raw: str) -> int | None:
+    value = (raw or "").strip()
+    if not value:
+        return None
+    if value.isdigit():
+        number = int(value)
+        return number if number > 0 else None
+    total = 0
+    current = 0
+    units = {"十": 10, "百": 100, "千": 1000}
+    for char in value:
+        if char in _CN_DIGITS:
+            current = _CN_DIGITS[char]
+        elif char in units:
+            unit = units[char]
+            total += (current or 1) * unit
+            current = 0
+        else:
+            return None
+    number = total + current
+    return number if number > 0 else None
+
+
+def outline_chapters_from_markdown(content: str) -> list[tuple[int, str]]:
+    """Extract explicit chapter/session headings as ``(order, title)`` rows."""
+    rows: dict[int, str] = {}
+    prefix = r"\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)、]\s+)?(?:\*\*)?\s*"
+    cn = re.compile(
+        prefix
+        + r"第\s*([零〇一二两三四五六七八九十百千\d]+)\s*(?:次\s*)?"
+          r"(跑团会话|章节|章|回|话|节)\s*(?:[：:、.\-—]\s*)?(.*?)\s*(?:\*\*)?\s*$",
+        re.IGNORECASE,
+    )
+    session = re.compile(
+        prefix + r"跑团会话\s*([零〇一二两三四五六七八九十百千\d]+)"
+        r"\s*(?:[：:、.\-—]\s*)?(.*?)\s*(?:\*\*)?\s*$",
+        re.IGNORECASE,
+    )
+    english = re.compile(
+        prefix + r"chapter\s+(\d+)\s*(?:[：:、.\-—]\s*)?(.*?)\s*(?:\*\*)?\s*$",
+        re.IGNORECASE,
+    )
+    for line in (content or "").splitlines():
+        if len(line) > 240:
+            continue
+        match = cn.match(line) or session.match(line) or english.match(line)
+        if not match:
+            continue
+        order = _chapter_number(match.group(1))
+        if order is None:
+            continue
+        title = re.sub(r"\s+", " ", (match.group(3) if match.re is cn else match.group(2)) or "").strip()
+        title = title.strip(" -*_：:")
+        rows[order] = title
+    return sorted(rows.items())
+
+
+def reconcile_macro_outline_chapters(world: World, content: str) -> tuple[World, list[str]]:
+    """Align explicit macro-outline chapter headings to existing chapter orders.
+
+    Existing chapter IDs and files are preserved. A changed outline title updates
+    the chapter at the same order; only previously missing orders create records.
+    """
+    notes: list[str] = []
+    entries = outline_chapters_from_markdown(content)
+    if not entries:
+        return world, notes
+
+    by_order: dict[int, StoryChapter] = {}
+    for chapter in sorted_chapters(world):
+        by_order.setdefault(chapter.order, chapter)
+
+    existing_ids = {c.id for c in world.story.chapters}
+    unit = (world.story.unit_label or "章").strip() or "章"
+    for order, raw_title in entries:
+        title = raw_title or f"第{order}{unit}"
+        chapter = by_order.get(order)
+        if chapter is not None:
+            old_title = (chapter.title or "").strip()
+            if title != old_title:
+                chapter.title = title
+                notes.append(f"第 {order} 章沿用 {chapter.id} 并更新标题：{old_title or '（空）'} → {title}")
+            continue
+
+        base_id = f"ch_outline_{order:04d}"
+        cid = base_id
+        suffix = 2
+        while cid in existing_ids:
+            cid = f"{base_id}_{suffix}"
+            suffix += 1
+        chapter = StoryChapter(
+            id=cid,
+            order=order,
+            title=title,
+            beat_file=default_beat_rel(cid),
+            manuscript_file=default_manuscript_rel(cid),
+        )
+        world.story.chapters.append(chapter)
+        by_order[order] = chapter
+        existing_ids.add(cid)
+        write_text(beat_path(world.meta.id, cid), f"# {title}\n\n（细纲）\n")
+        write_text(manuscript_path(world.meta.id, cid), f"# {title}\n\n")
+        notes.append(f"粗纲新增第 {order} 章：{cid}（{title}）")
+
+    world.story.chapters.sort(key=lambda c: (c.order, c.id))
+    return world, notes
 
 
 def title_from_beat_markdown(content: str) -> str:
@@ -33,6 +149,10 @@ def reconcile_story_chapters(world: World) -> tuple[World, list[str]]:
     """
     wid = world.meta.id
     notes: list[str] = []
+    macro = read_text(macro_outline_path(wid))
+    if macro.strip():
+        world, macro_notes = reconcile_macro_outline_chapters(world, macro)
+        notes.extend(macro_notes)
     by_id = {c.id: c for c in world.story.chapters}
     beats_root = story_beats_dir(wid)
     if not beats_root.is_dir():

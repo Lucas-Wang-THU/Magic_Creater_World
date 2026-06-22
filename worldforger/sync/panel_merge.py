@@ -42,6 +42,9 @@ def merge_section_conservative(
                 continue
             if _array_items_have_ids(bv) and _array_items_have_ids(pv):
                 out[k] = merge_array_by_id(bv, pv)
+            elif k == "relations" and _is_relation_array(bv) and _is_relation_array(pv):
+                # Character/faction/culture relations — match by (source_id, target_id, type) triplet
+                out[k] = _merge_relation_arrays(bv, pv)
             else:
                 out[k] = _merge_array_by_name_or_append(bv, pv)
             continue
@@ -199,6 +202,56 @@ def reconcile_power_system_skill_nodes(data: dict[str, Any]) -> dict[str, Any]:
     if modified:
         print("[MCW-MERGE] Reconciled power_system: moved skill nodes from general to subclass trees")
     return data
+
+
+def _is_relation_array(arr: list[Any]) -> bool:
+    """Check if array items look like relation objects (have source_id or target_id)."""
+    if not arr:
+        return False
+    for item in arr:
+        if not isinstance(item, dict):
+            return False
+        if "source_id" in item or "target_id" in item:
+            return True
+    return False
+
+
+def _relation_key(r: dict[str, Any]) -> str:
+    """Build a stable key for a relation: source_id|target_id|type."""
+    s = str(r.get("source_id", "")).strip()
+    t = str(r.get("target_id", "")).strip()
+    tp = str(r.get("relation_type") or r.get("type") or "").strip()
+    return f"{s}|{t}|{tp}"
+
+
+def _merge_relation_arrays(
+    base_list: list[dict[str, Any]], patch_list: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Merge relation arrays: update existing by key, append new, never delete."""
+    merged: list[dict[str, Any]] = list(base_list)
+    key_to_idx: dict[str, int] = {}
+    for i, item in enumerate(merged):
+        if isinstance(item, dict):
+            key = _relation_key(item)
+            if key:
+                key_to_idx[key] = i
+
+    for patch_item in patch_list:
+        if not isinstance(patch_item, dict):
+            continue
+        key = _relation_key(patch_item)
+        if not key:
+            merged.append(dict(patch_item))
+            continue
+        if key in key_to_idx:
+            # Update existing relation (keep base fields, overlay patch)
+            idx = key_to_idx[key]
+            merged[idx] = merge_section_conservative(merged[idx], patch_item)
+        else:
+            merged.append(dict(patch_item))
+            key_to_idx[key] = len(merged) - 1
+
+    return merged
 
 
 def _array_items_have_ids(arr: list[Any]) -> bool:

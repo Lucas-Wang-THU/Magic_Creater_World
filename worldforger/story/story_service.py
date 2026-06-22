@@ -202,6 +202,8 @@ async def generate_macro_outline(
     write_text(macro_outline_path(wid), header + reply)
     world.story.outline_macro.file = "story/macro_outline.md"
     world.story.outline_macro.updated_at = utc_now_iso()
+    from worldforger.story.story_chapter_sync import reconcile_macro_outline_chapters
+    reconcile_macro_outline_chapters(world, header + reply)
     return reply
 
 

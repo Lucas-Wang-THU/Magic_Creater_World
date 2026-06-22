@@ -4773,7 +4773,7 @@ function refreshStoryNarratorSelect(selectedId) {
     if (!id) continue;
     const name = String(e.name ?? id).trim();
     const selAttr = id === safeId ? " selected" : "";
-    html += `<option value="${escapeAttr(id)}"${selAttr}>${escapeHtml(name)} · ${escapeHtml(id)}</option>`;
+    html += `<option value="${escapeAttr(id)}" title="${escapeAttr(id)}"${selAttr}>${escapeHtml(name)}</option>`;
   }
   for (const id of ["storyNarratorCharacter", "storyChatNarratorCharacter"]) {
     const sel = $(id);
@@ -6133,11 +6133,20 @@ function initStoryPanelBindings() {
   $("btnStorySaveMacro")?.addEventListener("click", async () => {
     if (!state.world) return toast("请先选择世界");
     try {
-      await api(`/api/worlds/${state.world.meta.id}/story/macro-outline`, {
+      const saveRes = await api(`/api/worlds/${state.world.meta.id}/story/macro-outline`, {
         method: "PUT",
         body: JSON.stringify({ content: $("storyMacroEdit")?.value ?? "" }),
       });
-      toast("粗纲已保存");
+      if (saveRes.story) state.world.story = saveRes.story;
+      // Reconcile chapters with updated outline to sync titles and detect orphans
+      const storyRes = await api(`/api/worlds/${state.world.meta.id}/story`);
+      if (storyRes.world) state.world = storyRes.world;
+      await refreshStoryPanel();
+      const syncNotes = [
+        ...(saveRes.chapter_sync_notes || []),
+        ...(storyRes.chapter_sync_notes || []),
+      ];
+      toast(syncNotes.length ? `粗纲已保存：${syncNotes.join("；")}` : "粗纲已保存，章节列表已同步");
     } catch (e) {
       toast("保存失败：" + e.message);
     }
@@ -8573,6 +8582,10 @@ async function init() {
       if (syncRes.ok) {
         state.world = syncRes.world;
         worldToForm(syncRes.world);
+        if (syncRes.updated_sections?.includes("characters")) {
+          refreshCharRelationNetworkViz();
+          refreshCharactersVizFromForm();
+        }
         setDirty(!syncRes.persisted);
         refreshContextPanel();
         refreshOutlineHeader();
@@ -8778,6 +8791,10 @@ async function init() {
       if (syncRes.ok) {
         state.world = syncRes.world;
         worldToForm(syncRes.world);
+        if (syncRes.updated_sections?.includes("characters")) {
+          refreshCharRelationNetworkViz();
+          refreshCharactersVizFromForm();
+        }
         setDirty(!syncRes.persisted);
         refreshContextPanel();
         refreshOutlineHeader();
