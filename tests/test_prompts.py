@@ -1,4 +1,4 @@
-from worldforger.prompts import ecology_generate_user_payload, system_with_world_json
+from worldforger.prompts import character_chat_system_prompt, ecology_generate_user_payload, system_with_world_json
 
 
 def test_system_with_world_json_appends_geography_hint():
@@ -45,6 +45,18 @@ def test_system_with_world_json_appends_factions_hint():
     assert "【派系与 world.json 的 factions 对齐" in s
     assert "key_figures" in s
     assert "ally" in s and "enemy" in s
+
+
+def test_character_chat_prompt_requires_personality_and_speech_profile():
+    s = character_chat_system_prompt('{"meta":{"name":"T"}}')
+    assert "personality" in s
+    assert "personality_profile" in s
+    assert "speech_profile" in s
+    assert "人物生成硬约束" in s
+    assert "新增或修订" in s
+    assert "traits[]" in s
+    assert "signature_phrases[]" in s
+    assert "under_stress" in s
 
 
 def test_ecology_generate_user_payload_contains_region_ids():

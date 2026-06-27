@@ -3,6 +3,7 @@ from worldforger.story.story_chapter_sync import (
     outline_chapters_from_markdown,
     reconcile_macro_outline_chapters,
     reconcile_story_chapters,
+    strip_chapter_title_prefix,
     title_from_beat_markdown,
 )
 from worldforger.story.story_store import beat_path, write_text
@@ -45,6 +46,42 @@ def test_outline_chapter_parser_supports_chinese_and_session_headings():
         (2, "裂隙入口"),
         (12, "旧城终局"),
     ]
+
+
+def test_strip_chapter_title_prefix_removes_duplicate_chapter_label_and_bad_separator():
+    assert strip_chapter_title_prefix("第一章：雾中来客", fallback_order=1) == "雾中来客"
+    assert strip_chapter_title_prefix("第1章 合：雾中来客", fallback_order=1) == "雾中来客"
+    assert strip_chapter_title_prefix("Chapter 2 - Old City", fallback_order=2) == "Old City"
+
+
+def test_outline_chapter_parser_strips_bad_he_separator_after_chapter_label():
+    assert outline_chapters_from_markdown("## 第一章合：雾中来客\n") == [(1, "雾中来客")]
+
+
+def test_outline_chapter_parser_supports_markdown_table_rows():
+    content = """
+| 章号 | 标题 | 核心事件 | 钩子 |
+|------|------|----------|------|
+| 1 | 「规则第一条：观众不得离席」 | 沈厌进入剧院。 | 主持人低语。 |
+| 第2章 | 空椅子上的名字 | 发现何铭座位。 | 何铭还活着。 |
+"""
+    assert outline_chapters_from_markdown(content) == [
+        (1, "「规则第一条：观众不得离席」"),
+        (2, "空椅子上的名字"),
+    ]
+
+
+def test_outline_chapter_parser_respects_declared_chapter_count():
+    content = """
+# 第一卷：剧院规则 · 粗纲（2章）
+
+| 章号 | 标题 | 核心事件 |
+|------|------|----------|
+| 1 | 开局 | 事件 |
+| 2 | 破局 | 事件 |
+| 3 | 第二卷误入 | 事件 |
+"""
+    assert outline_chapters_from_markdown(content) == [(1, "开局"), (2, "破局")]
 
 
 def test_macro_outline_title_change_reuses_existing_chapter_id():

@@ -41,7 +41,7 @@ STRUCTURE_SYSTEM_BASE = """你是「设定结构化同步器」，所有内容�
 - attribute_system: 顶层键名必须为 attribute_system。summary, design_notes, stats[] (每项 id, name; 可选 intro, description, reference_percent), tier_average_profiles[]。
 - factions: summary, entities[] (每项 id, name; 可选 goals, territory, key_figures[] (仅字符串数组), relations[] (target_id, type: ally|enemy|neutral|complex, notes))。
 - cultures: summary, entities[] (每项 id, name, kind: culture|religion|syncretic, summary, tenets, practices, sacred_sites[], key_figures[], relations[])。
-- characters: summary, design_notes, entities[] (每项 id, name; 可选 cast_role, faction_ids[], home_region_id, one_line_hook, notes, notable_skills[], relations[]；新增/修改角色时必须保留 age, gender, power_tier, profession_id, attributes, inventory[], skills[]。对齐规则：power_tier 必须精确匹配 power_system.tiers[].name；profession_id 必须精确匹配 power_system.profession_system.by_tier[].professions[].id，无职业则空字符串；attributes 键必须来自 attribute_system.stats[].id，值 0-100；inventory[].status 仅允许 携带中/已使用/已失去/已损坏；skills[] 为对象数组：name, description, exclusive(bool 是否专属), source(可选，必须对应已有技能树节点 id), level(可选熟练度))。
+- characters: summary, design_notes, entities[] (每项 id, name; 可选 cast_role, faction_ids[], home_region_id, one_line_hook, notes, notable_skills[], relations[]；新增/修改角色时必须保留 age, gender, power_tier, profession_id, attributes, inventory[], skills[], personality, personality_profile, speech_profile。对齐规则：power_tier 必须精确匹配 power_system.tiers[].name；profession_id 必须精确匹配 power_system.profession_system.by_tier[].professions[].id，无职业则空字符串；attributes 键必须来自 attribute_system.stats[].id，值 0-100；inventory[].status 仅允许 携带中/已使用/已失去/已损坏；skills[] 为对象数组：name, description, exclusive(bool 是否专属), source(可选，必须对应已有技能树节点 id), level(可选熟练度)。personality 必须非空；personality_profile 至少包含 traits[], flaws[], motivations[]，可含 values[], fears[], desires[], moral_boundary, relationship_style, growth_arc, contradiction。speech_profile 至少包含 avg_sentence_length, verbosity, emotional_expression, confrontation_style, verbal_tics[], signature_phrases[], under_stress，可含 filler_words[], avoidance_topics[], taboo_words[], silence_meaning, register, rhythm, metaphor_source, address_self, address_patterns, voice_notes)。
 - history: summary, events[] (每项 when, title, summary, consequences[], linked_faction_ids[])。
 - economy: summary, design_notes, currencies[], markets[], trade_routes[], trade_goods[], labor_notes, taxation_notes, volatility_notes。
 - ecology: summary, design_notes, biomes[] (每项 id, name, summary, linked_region_ids[]), species[] (每项 id, name, biome_id, traits[], notable_skills[])。
@@ -195,11 +195,6 @@ def _normalize_json_punctuation(text: str) -> str:
     positions like keys, commas, colons, brackets).  This is safe because JSON
     structural characters are always ASCII.
     """
-    # Chinese comma → ASCII comma (only outside strings)
-    # Chinese colon → ASCII colon
-    # Chinese brackets → ASCII brackets
-    # Approach: replace known structural characters globally.
-    # These are unambiguous in JSON context: ，never appears as a valid JSON token.
     replacements = {
         "，": ",",   # ，→,
         "：": ":",   # ：→:
@@ -208,9 +203,24 @@ def _normalize_json_punctuation(text: str) -> str:
         "「": '"',   # 「→"
         "」": '"',   # 」→"
     }
-    result = text
-    for old, new in replacements.items():
-        result = result.replace(old, new)
+    out: list[str] = []
+    in_string = False
+    escape = False
+    for ch in text:
+        if escape:
+            out.append(ch)
+            escape = False
+            continue
+        if ch == "\\":
+            out.append(ch)
+            escape = True
+            continue
+        if ch == '"':
+            out.append(ch)
+            in_string = not in_string
+            continue
+        out.append(replacements.get(ch, ch) if not in_string else ch)
+    result = "".join(out)
     if result != text:
         print("[MCW-SYNC] Normalized Chinese punctuation in JSON")
     return result
@@ -339,6 +349,10 @@ def parse_structure_json(raw: str) -> dict[str, Any]:
     if result:
         print("[MCW-SYNC] JSON recovered via per-key extraction")
         return result
+    result = _extract_partial_top_level_keys(segment)
+    if result:
+        print("[MCW-SYNC] JSON recovered via partial per-key extraction")
+        return result
     raise ValueError(f"no json object in model output (tried {len(attempts)} repair strategies)")
 
 
@@ -380,8 +394,9 @@ def _salvage_partial_json(text: str) -> dict[str, Any]:
     for attempt in [repaired3, _strip_trailing_commas(repaired3)]:
         try:
             result = json.loads(attempt)
-            print("[MCW-SYNC] Salvage: trimmed incomplete trailing entry successfully")
-            return result
+            if result:
+                print("[MCW-SYNC] Salvage: trimmed incomplete trailing entry successfully")
+                return result
         except json.JSONDecodeError:
             continue
 
@@ -392,8 +407,9 @@ def _salvage_partial_json(text: str) -> dict[str, Any]:
         repaired3b = _auto_close_json(trimmed)
         try:
             result = json.loads(repaired3b)
-            print("[MCW-SYNC] Salvage: trimmed to last valid comma successfully")
-            return result
+            if result:
+                print("[MCW-SYNC] Salvage: trimmed to last valid comma successfully")
+                return result
         except json.JSONDecodeError:
             pass
 
@@ -401,6 +417,10 @@ def _salvage_partial_json(text: str) -> dict[str, Any]:
     result = _extract_top_level_keys(segment)
     if result:
         print("[MCW-SYNC] Salvage: recovered via per-key extraction from truncated output")
+        return result
+    result = _extract_partial_top_level_keys(segment)
+    if result:
+        print("[MCW-SYNC] Salvage: recovered via partial per-key extraction from truncated output")
         return result
 
     raise ValueError("all salvage strategies failed on truncated output")
@@ -563,6 +583,170 @@ def _extract_top_level_keys(segment: str) -> dict[str, Any]:
     return result
 
 
+def _find_json_string_end(text: str, start: int) -> int:
+    escape = False
+    for i in range(start + 1, len(text)):
+        ch = text[i]
+        if escape:
+            escape = False
+            continue
+        if ch == "\\":
+            escape = True
+            continue
+        if ch == '"':
+            return i + 1
+    return -1
+
+
+def _find_json_value_end(text: str, start: int) -> int:
+    i = start
+    while i < len(text) and text[i].isspace():
+        i += 1
+    if i >= len(text):
+        return -1
+    ch = text[i]
+    if ch == '"':
+        return _find_json_string_end(text, i)
+    if ch in "{[":
+        opener = ch
+        closer = "}" if opener == "{" else "]"
+        depth = 0
+        in_string = False
+        escape = False
+        for j in range(i, len(text)):
+            cj = text[j]
+            if escape:
+                escape = False
+                continue
+            if cj == "\\":
+                escape = True
+                continue
+            if cj == '"' and not in_string:
+                in_string = True
+                continue
+            if cj == '"' and in_string:
+                in_string = False
+                continue
+            if in_string:
+                continue
+            if cj == opener:
+                depth += 1
+            elif cj == closer:
+                depth -= 1
+                if depth == 0:
+                    return j + 1
+        return -1
+    m = re.match(r"(true|false|null|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)", text[i:])
+    return i + m.end() if m else -1
+
+
+def _extract_simple_json_field(obj_text: str, field: str) -> Any:
+    m = re.search(r'"' + re.escape(field) + r'"\s*:\s*', obj_text)
+    if not m:
+        return None
+    end = _find_json_value_end(obj_text, m.end())
+    if end == -1:
+        return None
+    raw = obj_text[m.end() : end]
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+
+def _extract_complete_objects_from_array(array_text: str) -> list[dict[str, Any]]:
+    start = array_text.find("[")
+    if start == -1:
+        return []
+    items: list[dict[str, Any]] = []
+    i = start + 1
+    while i < len(array_text):
+        while i < len(array_text) and array_text[i] not in "{]":
+            i += 1
+        if i >= len(array_text) or array_text[i] == "]":
+            break
+        end = _find_json_value_end(array_text, i)
+        if end == -1:
+            break
+        raw = array_text[i:end]
+        for fix_fn in (lambda x: x, _strip_trailing_commas, _fix_missing_commas):
+            try:
+                parsed = json.loads(fix_fn(raw))
+                if isinstance(parsed, dict):
+                    items.append(parsed)
+                break
+            except json.JSONDecodeError:
+                continue
+        i = end
+    return items
+
+
+def _salvage_item_quality_system_object(obj_text: str) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    summary = _extract_simple_json_field(obj_text, "summary")
+    if isinstance(summary, str):
+        out["summary"] = summary
+
+    grades_match = re.search(r'"grades"\s*:\s*\[', obj_text)
+    if grades_match:
+        grades_text = obj_text[grades_match.end() - 1 :]
+        grades = _extract_complete_objects_from_array(grades_text)
+        if grades:
+            out["grades"] = grades
+
+    return out
+
+
+def _extract_partial_top_level_keys(segment: str) -> dict[str, Any]:
+    """Recover useful sections when the root JSON is truncated mid-section.
+
+    This intentionally stays conservative: generic keys are parsed only after
+    auto-close/trim succeeds, while item_quality_system gets a field-level
+    salvage path because long grade descriptions are commonly truncated.
+    """
+    known_keys = [
+        "geography", "ecology", "power_system", "item_quality_system",
+        "attribute_system", "factions", "cultures", "characters",
+        "history", "economy", "story",
+    ]
+    result: dict[str, Any] = {}
+    for key in known_keys:
+        pattern = re.compile(r'"' + re.escape(key) + r'"\s*:\s*\{')
+        m = pattern.search(segment)
+        if not m:
+            continue
+        val_start = m.end() - 1
+        next_key_start = len(segment)
+        for other in known_keys:
+            if other == key:
+                continue
+            om = re.search(r',\s*"' + re.escape(other) + r'"\s*:\s*\{', segment[val_start + 1 :])
+            if om:
+                next_key_start = min(next_key_start, val_start + 1 + om.start())
+        val_segment = segment[val_start:next_key_start].rstrip().rstrip(",")
+
+        attempts = [
+            _auto_close_json(val_segment),
+            _strip_trailing_commas(_auto_close_json(val_segment)),
+            _auto_close_json(_trim_incomplete_entry(val_segment)),
+        ]
+        for attempt in attempts:
+            try:
+                parsed = json.loads(attempt)
+                if isinstance(parsed, dict) and parsed:
+                    result[key] = parsed
+                    break
+            except json.JSONDecodeError:
+                continue
+        if key in result:
+            continue
+        if key == "item_quality_system":
+            salvaged = _salvage_item_quality_system_object(val_segment)
+            if salvaged:
+                result[key] = salvaged
+    return result
+
+
 def apply_structure_patch(
     world: World, patch: dict[str, Any]
 ) -> tuple[World, list[str], list[str], dict[str, list[str]]]:
@@ -578,8 +762,17 @@ def apply_structure_patch(
             data.get("power_system") or {},
             patch["power_system"],
         )
+        patch["power_system"] = _align_power_system_patch_subclasses_to_professions(
+            data.get("power_system") or {},
+            patch["power_system"],
+        )
         if power_notes:
             normalize_notes.setdefault("power_system", []).extend(power_notes)
+    if isinstance(patch.get("characters"), dict):
+        patch["characters"] = _align_characters_patch_to_existing_entities(
+            data.get("characters") or {},
+            patch["characters"],
+        )
     # Code-level constraint validation — safety net below the prompt layer
     constraint_warnings = validate_patch_constraints(patch)
     for w in constraint_warnings:
@@ -630,6 +823,102 @@ def apply_structure_patch(
     return new_world, updated, warnings, normalize_notes
 
 
+def _normalize_character_lookup_label(value: Any) -> str:
+    text = str(value or "").strip().casefold()
+    return re.sub(r"[`*_#\s:：,，.。;；/\\|·\-—_]+", "", text)
+
+
+def _align_characters_patch_to_existing_entities(
+    base_characters: dict[str, Any],
+    patch_characters: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve generated/name-only character patches to existing character ids.
+
+    The structure synchronizer may output a revised character by name only.
+    Normalization then gives it a synthetic ``ch_<hash>`` id, which would append
+    a duplicate instead of supplementing the existing character.  Align before
+    merge so conservative id-based merging can preserve old fields and add new
+    ones.
+    """
+    if not isinstance(base_characters, dict) or not isinstance(patch_characters, dict):
+        return patch_characters
+    base_entities = base_characters.get("entities")
+    patch_entities = patch_characters.get("entities")
+    if not isinstance(base_entities, list) or not isinstance(patch_entities, list):
+        return patch_characters
+
+    id_set: set[str] = set()
+    label_to_id: dict[str, str] = {}
+    for ent in base_entities:
+        if not isinstance(ent, dict):
+            continue
+        cid = str(ent.get("id") or "").strip()
+        if not cid:
+            continue
+        id_set.add(cid)
+        labels = [ent.get("name")]
+        aliases = ent.get("aliases")
+        if isinstance(aliases, list):
+            labels.extend(aliases)
+        for label in labels:
+            key = _normalize_character_lookup_label(label)
+            if key and key not in label_to_id:
+                label_to_id[key] = cid
+
+    out = dict(patch_characters)
+    id_remap: dict[str, str] = {}
+    aligned_entities: list[Any] = []
+    for ent in patch_entities:
+        if not isinstance(ent, dict):
+            aligned_entities.append(ent)
+            continue
+        row = dict(ent)
+        raw_id = str(row.get("id") or "").strip()
+        name_key = _normalize_character_lookup_label(row.get("name"))
+        matched_id = label_to_id.get(name_key, "")
+        synthetic_id = bool(re.fullmatch(r"ch_[0-9a-f]{10,16}", raw_id))
+        if matched_id and (not raw_id or synthetic_id or raw_id not in id_set):
+            if raw_id and raw_id != matched_id:
+                id_remap[raw_id] = matched_id
+            row["id"] = matched_id
+        aligned_entities.append(row)
+    out["entities"] = aligned_entities
+
+    # Also map names/aliases introduced in this very patch.  LLMs often emit
+    # new entities with ids, then use display names in characters.relations[].
+    for ent in aligned_entities:
+        if not isinstance(ent, dict):
+            continue
+        cid = str(ent.get("id") or "").strip()
+        if not cid:
+            continue
+        labels = [ent.get("name")]
+        aliases = ent.get("aliases")
+        if isinstance(aliases, list):
+            labels.extend(aliases)
+        for label in labels:
+            key = _normalize_character_lookup_label(label)
+            if key and key not in label_to_id:
+                label_to_id[key] = cid
+
+    relations = out.get("relations")
+    if isinstance(relations, list):
+        aligned_relations: list[Any] = []
+        for rel in relations:
+            if not isinstance(rel, dict):
+                aligned_relations.append(rel)
+                continue
+            row = dict(rel)
+            for key in ("source_id", "target_id"):
+                raw = str(row.get(key) or "").strip()
+                mapped = id_remap.get(raw) or label_to_id.get(_normalize_character_lookup_label(raw))
+                if mapped:
+                    row[key] = mapped
+            aligned_relations.append(row)
+        out["relations"] = aligned_relations
+    return out
+
+
 def _match_power_tier_name(raw_heading: str, base_power_system: dict[str, Any]) -> str:
     """Match a Markdown heading like '碎尘境（因果）' to an existing tier name."""
     heading = re.sub(r"[`*_#\s]", "", raw_heading or "")
@@ -667,22 +956,233 @@ def _extract_profession_ref_from_heading(raw_heading: str) -> tuple[str, str]:
     return name, prof_id
 
 
+def _normalize_profession_label(value: Any) -> str:
+    text = str(value or "").strip().casefold()
+    text = re.sub(r"[`*_#\s:：,，.。;；/\\|·\-—_]+", "", text)
+    text = re.sub(r"[（(].*?[）)]", "", text)
+    for suffix in ("专属技能树", "职业技能树", "流派技能树", "子职业技能树", "技能树", "子职业", "职业", "流派", "路径"):
+        if text.endswith(suffix.casefold()) and len(text) > len(suffix):
+            text = text[: -len(suffix)]
+            break
+    return text
+
+
+def _profession_blocks_for_tier(
+    base_power_system: dict[str, Any],
+    patch_power_system: dict[str, Any] | None,
+    tier_name: str,
+) -> list[dict[str, Any]]:
+    blocks: list[dict[str, Any]] = []
+    for source in (base_power_system, patch_power_system or {}):
+        prof = source.get("profession_system") if isinstance(source, dict) else None
+        if not isinstance(prof, dict):
+            continue
+        by_tier = prof.get("by_tier")
+        if not isinstance(by_tier, list):
+            continue
+        for block in by_tier:
+            if not isinstance(block, dict):
+                continue
+            if str(block.get("tier_name") or "").strip() != tier_name:
+                continue
+            for item in block.get("professions") or []:
+                if isinstance(item, dict):
+                    blocks.append(item)
+    return blocks
+
+
+def _match_profession_in_tier(
+    base_power_system: dict[str, Any],
+    tier_name: str,
+    *,
+    profession_id: str = "",
+    profession_name: str = "",
+    patch_power_system: dict[str, Any] | None = None,
+) -> dict[str, str]:
+    """Return the same-tier profession matched by id or display name."""
+    candidates = _profession_blocks_for_tier(base_power_system, patch_power_system, tier_name)
+    prof_id_norm = _normalize_profession_label(profession_id)
+    name_norm = _normalize_profession_label(profession_name)
+    if not candidates or (not prof_id_norm and not name_norm):
+        return {}
+
+    for item in candidates:
+        pid = str(item.get("id") or "").strip()
+        if pid and _normalize_profession_label(pid) == prof_id_norm:
+            return {"id": pid, "name": str(item.get("name") or "").strip()}
+
+    for item in candidates:
+        pid = str(item.get("id") or "").strip()
+        pname = str(item.get("name") or "").strip()
+        aliases = [
+            _normalize_profession_label(pname),
+            _normalize_profession_label(pid),
+            _normalize_profession_label(item.get("tagline")),
+        ]
+        aliases = [x for x in aliases if x]
+        for probe in (name_norm, prof_id_norm):
+            if not probe:
+                continue
+            if probe in aliases:
+                return {"id": pid, "name": pname}
+            if any(len(alias) >= 2 and (alias in probe or probe in alias) for alias in aliases):
+                return {"id": pid, "name": pname}
+    return {}
+
+
 def _profession_name_for_id(base_power_system: dict[str, Any], tier_name: str, prof_id: str) -> str:
-    prof = base_power_system.get("profession_system")
-    if not isinstance(prof, dict) or not prof_id:
+    return _match_profession_in_tier(
+        base_power_system,
+        tier_name,
+        profession_id=prof_id,
+    ).get("name", "")
+
+
+def _existing_subclass_id_for_profession(
+    base_power_system: dict[str, Any],
+    tier_name: str,
+    profession_id: str,
+    profession_name: str,
+) -> str:
+    tiers = base_power_system.get("tiers")
+    if not isinstance(tiers, list):
         return ""
-    by_tier = prof.get("by_tier")
-    if not isinstance(by_tier, list):
-        return ""
-    for block in by_tier:
-        if not isinstance(block, dict):
+    prof_norm = _normalize_profession_label(profession_id)
+    name_norm = _normalize_profession_label(profession_name)
+    for tier in tiers:
+        if not isinstance(tier, dict):
             continue
-        if str(block.get("tier_name") or "").strip() != tier_name:
+        if str(tier.get("name") or "").strip() != tier_name:
             continue
-        for item in block.get("professions") or []:
-            if isinstance(item, dict) and item.get("id") == prof_id:
-                return str(item.get("name") or "").strip()
+        for path in tier.get("subclass_paths") or []:
+            if not isinstance(path, dict):
+                continue
+            path_id = str(path.get("id") or "").strip()
+            path_prof_id = _normalize_profession_label(path.get("profession_id"))
+            path_name = _normalize_profession_label(path.get("name"))
+            if prof_norm and (path_prof_id == prof_norm or _normalize_profession_label(path_id) == prof_norm):
+                return path_id
+            if name_norm and path_name == name_norm:
+                return path_id
     return ""
+
+
+def _align_power_system_patch_subclasses_to_professions(
+    base_power_system: dict[str, Any],
+    patch_power_system: dict[str, Any],
+) -> dict[str, Any]:
+    """Align subclass_paths to same-tier profession ids before conservative merge.
+
+    LLM replies often describe a profession-specific skill tree by profession
+    name ("Blade Warden 技能树") without repeating profession_id.  The merge
+    layer keys subclass_paths by id, so we resolve name/id references here and
+    reuse an existing subclass path id when possible.
+    """
+    tiers = patch_power_system.get("tiers")
+    if not isinstance(base_power_system, dict) or not isinstance(tiers, list):
+        return patch_power_system
+
+    out = dict(patch_power_system)
+    explicit_prof_ids_by_tier_name: dict[tuple[str, str], str] = {}
+    for tier_patch in tiers:
+        if not isinstance(tier_patch, dict):
+            continue
+        tier_name = str(tier_patch.get("name") or tier_patch.get("tier_name") or "").strip()
+        if not tier_name:
+            continue
+        for path in tier_patch.get("subclass_paths") or []:
+            if not isinstance(path, dict):
+                continue
+            prof_id = str(path.get("profession_id") or "").strip()
+            path_name = _normalize_profession_label(path.get("name") or path.get("id"))
+            if prof_id and path_name:
+                explicit_prof_ids_by_tier_name[(tier_name, path_name)] = prof_id
+
+    prof_system = out.get("profession_system")
+    if isinstance(prof_system, dict) and explicit_prof_ids_by_tier_name:
+        prof_out = dict(prof_system)
+        aligned_blocks: list[Any] = []
+        for block in prof_system.get("by_tier") or []:
+            if not isinstance(block, dict):
+                aligned_blocks.append(block)
+                continue
+            tier_name = str(block.get("tier_name") or "").strip()
+            row = dict(block)
+            professions: list[Any] = []
+            for prof in block.get("professions") or []:
+                if not isinstance(prof, dict):
+                    professions.append(prof)
+                    continue
+                pname = _normalize_profession_label(prof.get("name") or prof.get("id"))
+                explicit = explicit_prof_ids_by_tier_name.get((tier_name, pname))
+                if explicit and (not str(prof.get("id") or "").strip() or re.fullmatch(r"prof_\d+", str(prof.get("id") or "").strip())):
+                    fixed_prof = dict(prof)
+                    fixed_prof["id"] = explicit
+                    professions.append(fixed_prof)
+                else:
+                    professions.append(prof)
+            row["professions"] = professions
+            aligned_blocks.append(row)
+        prof_out["by_tier"] = aligned_blocks
+        out["profession_system"] = prof_out
+
+    tiers = out.get("tiers")
+    aligned_tiers: list[Any] = []
+    for tier_patch in tiers:
+        if not isinstance(tier_patch, dict):
+            aligned_tiers.append(tier_patch)
+            continue
+        tier_name = str(tier_patch.get("name") or tier_patch.get("tier_name") or "").strip()
+        paths = tier_patch.get("subclass_paths")
+        if not tier_name or not isinstance(paths, list):
+            aligned_tiers.append(tier_patch)
+            continue
+        row = dict(tier_patch)
+        aligned_paths: list[Any] = []
+        for idx, path in enumerate(paths):
+            if not isinstance(path, dict):
+                aligned_paths.append(path)
+                continue
+            raw_prof_id = str(path.get("profession_id") or "").strip()
+            raw_path_id = str(path.get("id") or "").strip()
+            raw_name = str(path.get("name") or "").strip()
+            matched = _match_profession_in_tier(
+                base_power_system,
+                tier_name,
+                profession_id=raw_prof_id or raw_path_id,
+                profession_name=raw_name or raw_path_id,
+                patch_power_system=out,
+            )
+            if not matched.get("id"):
+                aligned_paths.append(path)
+                continue
+            fixed = dict(path)
+            fixed["profession_id"] = matched["id"]
+            if matched.get("name") and not raw_name:
+                fixed["name"] = matched["name"]
+            existing_id = _existing_subclass_id_for_profession(
+                base_power_system,
+                tier_name,
+                matched["id"],
+                matched.get("name", ""),
+            )
+            path_id_norm = _normalize_profession_label(raw_path_id)
+            should_replace_id = (
+                not raw_path_id
+                or raw_path_id.startswith("path_")
+                or path_id_norm == _normalize_profession_label(raw_name)
+                or path_id_norm == _normalize_profession_label(matched.get("name"))
+            )
+            if existing_id:
+                fixed["id"] = existing_id
+            elif should_replace_id:
+                fixed["id"] = matched["id"] or raw_path_id or f"path_{idx + 1}"
+            aligned_paths.append(fixed)
+        row["subclass_paths"] = aligned_paths
+        aligned_tiers.append(row)
+    out["tiers"] = aligned_tiers
+    return out
+
 
 
 def _power_markdown_design_notes(reply: str) -> str:
@@ -732,6 +1232,15 @@ def extract_power_system_markdown_supplement(
                 pending_general = False
         elif stripped.startswith("#### "):
             current_subclass_name, current_profession_id = _extract_profession_ref_from_heading(stripped[5:])
+            matched_prof = _match_profession_in_tier(
+                base_power_system,
+                current_tier,
+                profession_id=current_profession_id,
+                profession_name=current_subclass_name,
+            )
+            if matched_prof.get("id"):
+                current_profession_id = matched_prof["id"]
+                current_subclass_name = matched_prof.get("name") or current_subclass_name
             pending_general = False
         elif "通用技能树" in stripped:
             current_subclass_name = ""
@@ -1281,6 +1790,10 @@ async def sync_panels_from_dialogue(
             print(f"[MCW-SYNC] Output appears truncated (ends with '{raw.rstrip()[-80:]}')")
             try:
                 raw_patch = _salvage_partial_json(raw)
+                if not raw_patch:
+                    raw_patch = _extract_partial_top_level_keys(
+                        _normalize_json_punctuation(_strip_code_fence(raw))
+                    )
                 print(
                     f"[MCW-SYNC] Salvaged partial JSON from truncated output, "
                     f"keys: {list(raw_patch.keys())}"

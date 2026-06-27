@@ -806,14 +806,36 @@ def format_speech_profiles(world: "World") -> str:
             lines.append(f"  情绪表达: {expr_labels.get(sp['emotional_expression'], sp['emotional_expression'])}")
         if sp.get("confrontation_style"):
             lines.append(f"  对抗方式: {conf_labels.get(sp['confrontation_style'], sp['confrontation_style'])}")
+        if sp.get("verbosity"):
+            lines.append(f"  啰嗦度: {sp['verbosity']}")
+        if sp.get("register"):
+            lines.append(f"  语域: {sp['register']}")
+        if sp.get("rhythm"):
+            lines.append(f"  节奏: {sp['rhythm']}")
+        if sp.get("metaphor_source"):
+            lines.append(f"  常用比喻来源: {sp['metaphor_source']}")
         if sp.get("verbal_tics"):
             lines.append(f"  口头禅: {', '.join(sp['verbal_tics'][:3])}")
+        if sp.get("filler_words"):
+            lines.append(f"  填充词: {', '.join(sp['filler_words'][:4])}")
+        if sp.get("signature_phrases"):
+            lines.append(f"  招牌短语: {', '.join(sp['signature_phrases'][:4])}")
+        if sp.get("taboo_words"):
+            lines.append(f"  禁用词: {', '.join(sp['taboo_words'][:4])}")
+        if sp.get("address_self"):
+            lines.append(f"  自称: {sp['address_self']}")
+        addr = sp.get("address_patterns")
+        if isinstance(addr, dict) and addr:
+            pairs = [f"{k}->{v}" for k, v in list(addr.items())[:4]]
+            lines.append(f"  称呼模式: {', '.join(pairs)}")
         if sp.get("avoidance_topics"):
             lines.append(f"  回避话题: {', '.join(sp['avoidance_topics'][:3])}")
         if sp.get("silence_meaning"):
             lines.append(f"  沉默时: {sp['silence_meaning']}")
         if sp.get("under_stress"):
             lines.append(f"  压力下: {sp['under_stress']}")
+        if sp.get("voice_notes"):
+            lines.append(f"  口吻备注: {sp['voice_notes']}")
         profiles.append("\n".join(lines))
     if not profiles:
         return ""
@@ -2290,15 +2312,30 @@ def _build_char_voice_profile(world: World) -> str:
         name = (c.get("name") or "").strip()
         if not name:
             continue
-        voice = (c.get("voice_notes") or "").strip()
+        sp = c.get("speech_profile") if isinstance(c.get("speech_profile"), dict) else {}
+        voice = (c.get("voice_notes") or sp.get("voice_notes") or "").strip()
         personality = (c.get("personality") or "").strip()
-        if not voice and not personality:
+        pp = c.get("personality_profile") if isinstance(c.get("personality_profile"), dict) else {}
+        traits = pp.get("traits") if isinstance(pp.get("traits"), list) else []
+        flaws = pp.get("flaws") if isinstance(pp.get("flaws"), list) else []
+        motivations = pp.get("motivations") if isinstance(pp.get("motivations"), list) else []
+        if not voice and not personality and not traits and not flaws and not motivations and not sp:
             continue
         parts = [f"- {name}"]
         if personality:
             parts.append(f"性格：{personality[:120]}")
+        if traits:
+            parts.append(f"特质：{'、'.join(str(x) for x in traits[:4])}")
+        if flaws:
+            parts.append(f"缺陷：{'、'.join(str(x) for x in flaws[:3])}")
+        if motivations:
+            parts.append(f"动机：{'、'.join(str(x) for x in motivations[:3])}")
         if voice:
             parts.append(f"语言习惯：{voice[:120]}")
+        if sp.get("signature_phrases"):
+            parts.append(f"招牌短语：{'、'.join(str(x) for x in sp.get('signature_phrases', [])[:3])}")
+        if sp.get("register") or sp.get("rhythm"):
+            parts.append(f"口吻层级：{sp.get('register','')} {sp.get('rhythm','')}".strip())
         lines.append("；".join(parts))
     return "\n".join(lines) if lines else ""
 

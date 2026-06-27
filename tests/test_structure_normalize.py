@@ -430,3 +430,134 @@ def test_normalize_characters_skills_alias_and_string_fallback():
     assert e["skills"][1]["description"] == "隐匿身形"
     assert e["skills"][1]["exclusive"] is True
     assert e["skills"][1]["level"] == "精通"
+
+
+def test_normalize_characters_top_level_list_wrapped_to_entities():
+    out = normalize_structure_patch(
+        {
+            "characters": [
+                {"name": "阿绫", "one_line_hook": "被迫拿起旧印"},
+                {"name": "朔夜", "cast_role": "antagonist"},
+            ]
+        }
+    )
+
+    assert len(out["characters"]["entities"]) == 2
+    assert out["characters"]["entities"][0]["name"] == "阿绫"
+
+
+def test_normalize_characters_does_not_default_cast_role_on_partial_patch():
+    out = normalize_structure_patch({"characters": {"entities": [{"id": "ch_a", "name": "阿绫"}]}})
+
+    assert "cast_role" not in out["characters"]["entities"][0]
+
+
+def test_normalize_characters_personality_and_expanded_speech_profile():
+    out = normalize_structure_patch(
+        {
+            "characters": {
+                "entities": [
+                    {
+                        "id": "ch_voice",
+                        "name": "阿绫",
+                        "personality": "外冷内热，害怕被怜悯。",
+                        "personality_profile": {
+                            "traits": ["谨慎", "护短"],
+                            "flaws": ["逞强"],
+                            "motivations": ["证明自己"],
+                            "moral_boundary": "不伤无辜",
+                        },
+                        "speech_profile": {
+                            "register": "街头短句",
+                            "rhythm": "先停顿再反击",
+                            "metaphor_source": "深海与锚",
+                            "address_self": "我",
+                            "signature_phrases": ["我自己来"],
+                            "taboo_words": ["求你"],
+                            "address_patterns": {"ch_b": "小鬼"},
+                        },
+                    }
+                ]
+            }
+        }
+    )
+
+    ent = out["characters"]["entities"][0]
+    assert ent["personality"].startswith("外冷内热")
+    assert ent["personality_profile"]["traits"] == ["谨慎", "护短"]
+    assert ent["personality_profile"]["moral_boundary"] == "不伤无辜"
+    assert ent["speech_profile"]["register"] == "街头短句"
+    assert ent["speech_profile"]["signature_phrases"] == ["我自己来"]
+    assert ent["speech_profile"]["address_patterns"] == {"ch_b": "小鬼"}
+
+
+def test_normalize_characters_promotes_inline_relation_aliases():
+    out = normalize_structure_patch(
+        {
+            "characters": {
+                "entities": [
+                    {
+                        "id": "ch_a",
+                        "name": "阿绫",
+                        "relationships": [
+                            {
+                                "target": "朔夜",
+                                "relationship": "rival",
+                                "detail": "争夺同一枚旧印",
+                            }
+                        ],
+                    }
+                ]
+            }
+        }
+    )
+
+    rels = out["characters"]["relations"]
+    assert rels == [
+        {
+            "source_id": "ch_a",
+            "target_id": "朔夜",
+            "relation_type": "rival",
+            "notes": "争夺同一枚旧印",
+        }
+    ]
+
+
+def test_normalize_characters_accepts_relationship_edges_aliases():
+    out = normalize_structure_patch(
+        {
+            "characters": {
+                "relationship_edges": [
+                    {
+                        "source_name": "阿绫",
+                        "target_name": "朔夜",
+                        "relationship_type": "secret",
+                        "summary": "共同隐瞒真相",
+                    }
+                ]
+            }
+        }
+    )
+
+    rel = out["characters"]["relations"][0]
+    assert rel["source_id"] == "阿绫"
+    assert rel["target_id"] == "朔夜"
+    assert rel["relation_type"] == "secret"
+    assert rel["notes"] == "共同隐瞒真相"
+
+
+def test_normalize_story_chapter_titles_strip_chapter_prefix():
+    out = normalize_structure_patch(
+        {
+            "story": {
+                "chapters": [
+                    {"id": "ch_01", "order": 1, "title": "第一章：雾中来客"},
+                    {"id": "ch_02", "order": 2, "title": "第2章 合：裂隙入口"},
+                ]
+            }
+        }
+    )
+
+    chapters = out["story"]["chapters"]
+    assert chapters[0]["title"] == "雾中来客"
+    assert chapters[1]["title"] == "裂隙入口"

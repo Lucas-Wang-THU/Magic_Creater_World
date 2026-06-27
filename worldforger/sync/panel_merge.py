@@ -40,6 +40,9 @@ def merge_section_conservative(
         if isinstance(bv, list) and isinstance(pv, list):
             if len(pv) == 0 and len(bv) > 0:
                 continue
+            if k in {"consequences", "linked_faction_ids"}:
+                out[k] = list(pv)
+                continue
             if _array_items_have_ids(bv) and _array_items_have_ids(pv):
                 out[k] = merge_array_by_id(bv, pv)
             elif k == "relations" and _is_relation_array(bv) and _is_relation_array(pv):
@@ -58,18 +61,31 @@ def merge_section_conservative(
 def _merge_array_by_name_or_append(
     base_list: list[dict[str, Any]], patch_list: list[dict[str, Any]]
 ) -> list[dict[str, Any]]:
-    """无伪数组的聚合符：按 name 去重追加；若无 name 则按 JSON 序列化去重。
+    """无 id 数组的聚合符：按稳定标题键去重追加；若无键则按 JSON 去重。
 
     绝不删除 base 中已有条目。
     """
     merged: list[dict[str, Any]] = list(base_list)
 
-    # 收集已有条目的 key（name 或 JSON 哈希）
+    def item_key(item: dict[str, Any]) -> str:
+        raw = (
+            item.get("name")
+            or item.get("tier_name")
+            or item.get("title")
+            or item.get("when")
+            or ""
+        )
+        key = str(raw or "").strip()
+        if item.get("title") and item.get("when"):
+            key = f"{str(item.get('when')).strip()}|{str(item.get('title')).strip()}"
+        return key
+
+    # 收集已有条目的 key（name/tier_name/title/when+title 或 JSON 哈希）
     seen_names: set[str] = set()
     seen_hashes: set[str] = set()
     for item in merged:
         if isinstance(item, dict):
-            nm = (item.get("name") or item.get("tier_name") or "").strip()
+            nm = item_key(item)
             if nm:
                 seen_names.add(nm)
             else:
@@ -82,8 +98,8 @@ def _merge_array_by_name_or_append(
             # 非 dict 项按原样追加
             merged.append(patch_item)
             continue
-        # Match by name (common) or tier_name (power_system.tiers / profession_system.by_tier)
-        raw_nm = (patch_item.get("name") or patch_item.get("tier_name") or "").strip()
+        # Match by name/title/when (common), or tier_name (power/profession blocks).
+        raw_nm = item_key(patch_item)
         # Normalize: strip trailing "境" suffix for matching (e.g. "碎尘境" → "碎尘")
         nm = raw_nm
         if nm.endswith("境") and len(nm) > 1:
@@ -104,7 +120,7 @@ def _merge_array_by_name_or_append(
                 # 同名/tier_name 项做 deep-merge 更新
                 for idx, base_item in enumerate(merged):
                     if isinstance(base_item, dict):
-                        base_nm = (base_item.get("name") or base_item.get("tier_name") or "").strip()
+                        base_nm = item_key(base_item)
                         if base_nm == key:
                             merged[idx] = merge_section_conservative(base_item, patch_item)
                             break

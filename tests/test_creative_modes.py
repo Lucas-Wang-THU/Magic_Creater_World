@@ -25,6 +25,12 @@ def test_chat_guides_content_joins():
     assert eco
     assert "economy" in eco.lower() or "经济" in eco
 
+    chars = chat_guides_content(["character_roster"])
+    assert chars
+    assert "personality_profile" in chars
+    assert "speech_profile" in chars
+    assert "新增/修订人物时必须同步写出" in chars
+
 
 def test_genre_tags_prompt_addon_empty():
     assert genre_tags_prompt_addon(None) is None

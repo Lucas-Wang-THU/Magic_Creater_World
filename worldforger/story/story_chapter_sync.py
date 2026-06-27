@@ -45,9 +45,69 @@ def _chapter_number(raw: str) -> int | None:
     return number if number > 0 else None
 
 
+def strip_chapter_title_prefix(raw_title: str, fallback_order: int | None = None) -> str:
+    """Remove duplicated chapter labels from a stored chapter title.
+
+    Frontend already displays the order as "第一章"; storing titles like
+    "第一章：启程" would render as "第一章 第一章：启程".
+    """
+    title = re.sub(r"\s+", " ", (raw_title or "")).strip()
+    title = title.strip(" -*_")
+    if fallback_order is not None:
+        title = re.sub(r"^合[：:]\s*", "", title).strip()
+    if not title:
+        return ""
+    pattern = re.compile(
+        r"^第\s*([零〇一二两三四五六七八九十百千\d]+)\s*(?:次\s*)?"
+        r"(跑团会话|章节|章|回|话|节)\s*(?:[：:、.\-—]\s*|\s+)?(.+?)\s*$",
+        re.IGNORECASE,
+    )
+    m = pattern.match(title)
+    if m:
+        n = _chapter_number(m.group(1))
+        if fallback_order is None or n is None or n == fallback_order:
+            cleaned = (m.group(3) or "").strip(" -*_：:")
+            cleaned = re.sub(r"^合[：:]\s*", "", cleaned).strip()
+            if cleaned:
+                return cleaned
+    english = re.match(
+        r"^(?:chapter|session|scene|act|part)\s*(\d+)\s*(?:[：:、.\-—]\s*|\s+)?(.+?)\s*$",
+        title,
+        re.IGNORECASE,
+    )
+    if english:
+        n = _chapter_number(english.group(1))
+        if fallback_order is None or n is None or n == fallback_order:
+            cleaned = (english.group(2) or "").strip(" -*_：:")
+            cleaned = re.sub(r"^合[：:]\s*", "", cleaned).strip()
+            if cleaned:
+                return cleaned
+    numbered = re.match(r"^\s*(\d+)[.)、]\s*(.+?)\s*$", title)
+    if numbered:
+        n = _chapter_number(numbered.group(1))
+        if fallback_order is None or n is None or n == fallback_order:
+            cleaned = (numbered.group(2) or "").strip(" -*_：:")
+            cleaned = re.sub(r"^合[：:]\s*", "", cleaned).strip()
+            if cleaned:
+                return cleaned
+    return title
+
+
 def outline_chapters_from_markdown(content: str) -> list[tuple[int, str]]:
     """Extract explicit chapter/session headings as ``(order, title)`` rows."""
     rows: dict[int, str] = {}
+    max_declared_chapters: int | None = None
+    for line in (content or "").splitlines()[:20]:
+        if not re.match(r"^\s*#{1,6}\s+", line):
+            continue
+        m_count = re.search(
+            r"(?:粗纲|大纲|全书|全卷|第一卷)[^\n]{0,50}[（(]\s*([零〇一二两三四五六七八九十百千\d]+)\s*章[）)]",
+            line,
+            re.IGNORECASE,
+        )
+        if m_count:
+            max_declared_chapters = _chapter_number(m_count.group(1))
+            break
     prefix = r"\s*(?:#{1,6}\s+|[-*+]\s+|\d+[.)、]\s+)?(?:\*\*)?\s*"
     cn = re.compile(
         prefix
@@ -64,19 +124,43 @@ def outline_chapters_from_markdown(content: str) -> list[tuple[int, str]]:
         prefix + r"chapter\s+(\d+)\s*(?:[：:、.\-—]\s*)?(.*?)\s*(?:\*\*)?\s*$",
         re.IGNORECASE,
     )
+    table_row = re.compile(r"^\s*\|\s*([^|\n]+?)\s*\|\s*([^|\n]+?)\s*\|")
     for line in (content or "").splitlines():
         if len(line) > 240:
             continue
+        table_match = table_row.match(line)
+        if table_match:
+            first = table_match.group(1).strip()
+            second = table_match.group(2).strip()
+            if not re.fullmatch(r"[-:：\s]+", first) and first not in {"章号", "章节", "章", "序号"}:
+                order_text = first
+                label_match = re.search(
+                    r"第\s*([零〇一二两三四五六七八九十百千\d]+)\s*(?:次\s*)?(?:跑团会话|章节|章|回|话|节)",
+                    order_text,
+                    re.IGNORECASE,
+                )
+                if label_match:
+                    order_text = label_match.group(1)
+                order = _chapter_number(order_text)
+                if order is not None:
+                    title = strip_chapter_title_prefix(second, fallback_order=order)
+                    rows[order] = title
+                    continue
         match = cn.match(line) or session.match(line) or english.match(line)
         if not match:
             continue
         order = _chapter_number(match.group(1))
         if order is None:
             continue
-        title = re.sub(r"\s+", " ", (match.group(3) if match.re is cn else match.group(2)) or "").strip()
-        title = title.strip(" -*_：:")
+        title = strip_chapter_title_prefix(
+            match.group(3) if match.re is cn else match.group(2),
+            fallback_order=order,
+        )
         rows[order] = title
-    return sorted(rows.items())
+    result = sorted(rows.items())
+    if max_declared_chapters:
+        result = [(order, title) for order, title in result if order <= max_declared_chapters]
+    return result
 
 
 def reconcile_macro_outline_chapters(world: World, content: str) -> tuple[World, list[str]]:

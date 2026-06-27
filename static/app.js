@@ -289,6 +289,105 @@ async function openCharDetail(charId) {
       </div>
     `).join("");
 
+    const pp = res.personality_profile || {};
+    const sp = res.speech_profile || {};
+    const joinList = (arr) => Array.isArray(arr) ? arr.join("，") : "";
+    const ppPersonality = String(res.personality || "");
+    const ppTraits = joinList(pp.traits);
+    const ppValues = joinList(pp.values);
+    const ppFlaws = joinList(pp.flaws);
+    const ppMotivations = joinList(pp.motivations);
+    const ppFears = joinList(pp.fears);
+    const ppMoral = String(pp.moral_boundary || "");
+    const ppRelation = String(pp.relationship_style || "");
+    const ppArc = String(pp.growth_arc || "");
+    const ppContra = String(pp.contradiction || "");
+
+    const spSent = String(sp.avg_sentence_length || "mixed");
+    const spVerb = String(sp.verbosity || "normal");
+    const spExpr = String(sp.emotional_expression || "direct");
+    const spConf = String(sp.confrontation_style || "faces_it");
+    const spRegister = String(sp.register || "");
+    const spRhythm = String(sp.rhythm || "");
+    const spMetaphor = String(sp.metaphor_source || "");
+    const spSelf = String(sp.address_self || "");
+    const spVoice = String(sp.voice_notes || "");
+    const spTics = joinList(sp.verbal_tics);
+    const spFiller = joinList(sp.filler_words);
+    const spSig = joinList(sp.signature_phrases);
+    const spTaboo = joinList(sp.taboo_words);
+    const spAvoid = joinList(sp.avoidance_topics);
+    const spAddr = (sp.address_patterns && typeof sp.address_patterns === "object")
+      ? Object.entries(sp.address_patterns).map(([k, v]) => `${k}:${v}`).join("，")
+      : "";
+    const spSilence = String(sp.silence_meaning || "");
+    const spStress = String(sp.under_stress || "");
+
+    const personalitySection = `
+      <div class="cd-section">
+        <div class="cd-section-head">
+          <span class="cd-section-title"><span class="ms cd-field-ic" aria-hidden="true">psychology</span> 性格画像</span>
+        </div>
+        <div class="cd-read-block">${renderPersonalityProfileBlock(res)}</div>
+        <details class="cd-edit-block" open>
+          <summary class="cd-edit-summary">编辑性格设定</summary>
+          <div class="personality-edit-grid">
+            <label class="pp-edit-field pp-edit-field--full"><span class="pp-edit-label"><span class="ms" aria-hidden="true">psychology</span> 性格摘要</span><textarea id="cdPpPersonality" class="char-roster-field-ta" rows="2" spellcheck="true" placeholder="外显气质、核心矛盾、行为倾向">${escapeHtml(ppPersonality)}</textarea></label>
+            <div class="pp-edit-group">
+              <div class="pp-edit-group-title"><span class="ms" aria-hidden="true">sparkle</span> 核心</div>
+              <label class="pp-edit-field"><span class="pp-edit-label">特质 traits</span><input type="text" id="cdPpTraits" value="${escapeAttr(ppTraits)}" placeholder="谨慎，护短" /></label>
+              <label class="pp-edit-field"><span class="pp-edit-label">价值观 values</span><input type="text" id="cdPpValues" value="${escapeAttr(ppValues)}" placeholder="自由，承诺" /></label>
+              <label class="pp-edit-field"><span class="pp-edit-label">缺陷 flaws</span><input type="text" id="cdPpFlaws" value="${escapeAttr(ppFlaws)}" placeholder="逞强，不善求助" /></label>
+            </div>
+            <div class="pp-edit-group">
+              <div class="pp-edit-group-title"><span class="ms" aria-hidden="true">rocket_launch</span> 驱动</div>
+              <label class="pp-edit-field"><span class="pp-edit-label">动机 motivations</span><input type="text" id="cdPpMotivations" value="${escapeAttr(ppMotivations)}" placeholder="证明自己，保护某人" /></label>
+              <label class="pp-edit-field"><span class="pp-edit-label">恐惧 fears</span><input type="text" id="cdPpFears" value="${escapeAttr(ppFears)}" placeholder="失控，被抛弃" /></label>
+              <label class="pp-edit-field"><span class="pp-edit-label">道德底线</span><input type="text" id="cdPpMoralBoundary" value="${escapeAttr(ppMoral)}" placeholder="不伤无辜" /></label>
+            </div>
+            <div class="pp-edit-group">
+              <div class="pp-edit-group-title"><span class="ms" aria-hidden="true">group</span> 关系</div>
+              <label class="pp-edit-field"><span class="pp-edit-label">关系模式</span><input type="text" id="cdPpRelationshipStyle" value="${escapeAttr(ppRelation)}" placeholder="先试探，再托付" /></label>
+            </div>
+            <div class="pp-edit-group pp-edit-group--wide">
+              <div class="pp-edit-group-title"><span class="ms" aria-hidden="true">trending_up</span> 弧线</div>
+              <label class="pp-edit-field"><span class="pp-edit-label">成长弧线</span><input type="text" id="cdPpGrowthArc" value="${escapeAttr(ppArc)}" placeholder="从孤立到信任团队" /></label>
+              <label class="pp-edit-field"><span class="pp-edit-label">内在矛盾</span><input type="text" id="cdPpContradiction" value="${escapeAttr(ppContra)}" placeholder="渴望亲近却害怕暴露弱点" /></label>
+            </div>
+          </div>
+        </details>
+      </div>`;
+
+    const speechSection = `
+      <div class="cd-section">
+        <div class="cd-section-head">
+          <span class="cd-section-title"><span class="ms cd-field-ic" aria-hidden="true">mic</span> 语言风格</span>
+        </div>
+        <div class="cd-read-block">${renderSpeechProfileBlock(res)}</div>
+        <details class="cd-edit-block" open>
+          <summary class="cd-edit-summary">编辑语言风格</summary>
+          <div class="speech-card-inline cd-speech-edit-grid">
+            <label class="muted tiny">句式 <select id="cdSpAvgSentenceLength" style="font-size:0.74rem"><option value="mixed"${spSent==="mixed"?" selected":""}>混合</option><option value="short"${spSent==="short"?" selected":""}>短句</option><option value="medium"${spSent==="medium"?" selected":""}>中等</option><option value="long"${spSent==="long"?" selected":""}>长句</option></select></label>
+            <label class="muted tiny">啰嗦度 <select id="cdSpVerbosity" style="font-size:0.74rem"><option value="normal"${spVerb==="normal"?" selected":""}>正常</option><option value="terse"${spVerb==="terse"?" selected":""}>简短</option><option value="verbose"${spVerb==="verbose"?" selected":""}>啰嗦</option></select></label>
+            <label class="muted tiny">情绪表达 <select id="cdSpEmotionalExpression" style="font-size:0.74rem"><option value="direct"${spExpr==="direct"?" selected":""}>直接表达</option><option value="indirect"${spExpr==="indirect"?" selected":""}>间接暗示</option><option value="suppressed"${spExpr==="suppressed"?" selected":""}>压抑型</option><option value="explosive"${spExpr==="explosive"?" selected":""}>爆发型</option><option value="sarcastic"${spExpr==="sarcastic"?" selected":""}>讽刺型</option></select></label>
+            <label class="muted tiny">对抗 <select id="cdSpConfrontationStyle" style="font-size:0.74rem"><option value="faces_it"${spConf==="faces_it"?" selected":""}>直接面对</option><option value="deflects"${spConf==="deflects"?" selected":""}>转移话题</option><option value="withdraws"${spConf==="withdraws"?" selected":""}>沉默离开</option><option value="escalates"${spConf==="escalates"?" selected":""}>升级冲突</option></select></label>
+            <label class="muted tiny">语域 register<input type="text" id="cdSpRegister" value="${escapeAttr(spRegister)}" placeholder="街头、学院、官僚、古雅" style="font-size:0.74rem;width:100%" /></label>
+            <label class="muted tiny">节奏 rhythm<input type="text" id="cdSpRhythm" value="${escapeAttr(spRhythm)}" placeholder="停顿多、快问快答、先绕后刺" style="font-size:0.74rem;width:100%" /></label>
+            <label class="muted tiny">比喻来源<input type="text" id="cdSpMetaphorSource" value="${escapeAttr(spMetaphor)}" placeholder="海、机械、宗教、病理" style="font-size:0.74rem;width:100%" /></label>
+            <label class="muted tiny">自称<input type="text" id="cdSpAddressSelf" value="${escapeAttr(spSelf)}" placeholder="我、本人、老子、在下" style="font-size:0.74rem;width:100%" /></label>
+            <label class="muted tiny">口头禅 <input type="text" id="cdSpVerbalTics" value="${escapeAttr(spTics)}" placeholder="啧, ……算了" style="font-size:0.74rem;width:100%" /></label>
+            <label class="muted tiny">填充词 <input type="text" id="cdSpFillerWords" value="${escapeAttr(spFiller)}" placeholder="那个，嗯" style="font-size:0.74rem;width:100%" /></label>
+            <label class="muted tiny">招牌短语 <input type="text" id="cdSpSignaturePhrases" value="${escapeAttr(spSig)}" placeholder="我自己来" style="font-size:0.74rem;width:100%" /></label>
+            <label class="muted tiny">禁用词 <input type="text" id="cdSpTabooWords" value="${escapeAttr(spTaboo)}" placeholder="不会说的词或称呼" style="font-size:0.74rem;width:100%" /></label>
+            <label class="muted tiny">回避话题 <input type="text" id="cdSpAvoidanceTopics" value="${escapeAttr(spAvoid)}" placeholder="家庭, 过去" style="font-size:0.74rem;width:100%" /></label>
+            <label class="muted tiny">称呼模式 <input type="text" id="cdSpAddressPatterns" value="${escapeAttr(spAddr)}" placeholder="ch_a:老师，ch_b:小鬼" style="font-size:0.74rem;width:100%" /></label>
+            <label class="muted tiny">沉默含义 <input type="text" id="cdSpSilenceMeaning" value="${escapeAttr(spSilence)}" placeholder="在思考，不是冷漠" style="font-size:0.74rem;width:100%" /></label>
+            <label class="muted tiny">压力下 <input type="text" id="cdSpUnderStress" value="${escapeAttr(spStress)}" placeholder="开始说短句" style="font-size:0.74rem;width:100%" /></label>
+            <label class="muted tiny">口吻备注 <textarea id="cdSpVoiceNotes" class="char-roster-field-ta" rows="2" placeholder="对白写作额外注意" style="font-size:0.74rem;width:100%">${escapeHtml(spVoice)}</textarea></label>
+          </div>
+        </details>
+      </div>`;
+
     body.innerHTML = `
       <div class="cd-grid">
         <div class="cd-field">
@@ -373,6 +472,8 @@ async function openCharDetail(charId) {
           <span class="cd-legend-dot cd-legend-exclusive"></span> 专属技能
         </div>
       </div>
+      ${personalitySection}
+      ${speechSection}
       <div class="cd-actions">
         <button class="primary btn-ic cd-save-btn" onclick="window.saveCharDetail('${charId}')" title="将修改保存到 world.json">
           <span class="ms" aria-hidden="true" style="font-size:18px">save</span> 保存角色详情
@@ -500,6 +601,49 @@ async function saveCharDetail(charId) {
     }
   });
 
+  const splitList = (raw) => String(raw || "").split(/[,，;；\n]+/).map((s) => s.trim()).filter(Boolean);
+  const parseAddressPatterns = (raw) => {
+    const out = {};
+    splitList(raw).forEach((pair) => {
+      const m = pair.split(/[:：=]/);
+      const k = (m.shift() || "").trim();
+      const v = m.join(":").trim();
+      if (k && v) out[k] = v;
+    });
+    return out;
+  };
+  const personality = $("cdPpPersonality")?.value?.trim() || "";
+  const personality_profile = {
+    traits: splitList($("cdPpTraits")?.value),
+    values: splitList($("cdPpValues")?.value),
+    flaws: splitList($("cdPpFlaws")?.value),
+    motivations: splitList($("cdPpMotivations")?.value),
+    fears: splitList($("cdPpFears")?.value),
+    moral_boundary: $("cdPpMoralBoundary")?.value?.trim() || "",
+    relationship_style: $("cdPpRelationshipStyle")?.value?.trim() || "",
+    growth_arc: $("cdPpGrowthArc")?.value?.trim() || "",
+    contradiction: $("cdPpContradiction")?.value?.trim() || "",
+  };
+  const speech_profile = {
+    avg_sentence_length: $("cdSpAvgSentenceLength")?.value?.trim() || "mixed",
+    verbosity: $("cdSpVerbosity")?.value?.trim() || "normal",
+    emotional_expression: $("cdSpEmotionalExpression")?.value?.trim() || "direct",
+    confrontation_style: $("cdSpConfrontationStyle")?.value?.trim() || "faces_it",
+    register: $("cdSpRegister")?.value?.trim() || "",
+    rhythm: $("cdSpRhythm")?.value?.trim() || "",
+    metaphor_source: $("cdSpMetaphorSource")?.value?.trim() || "",
+    address_self: $("cdSpAddressSelf")?.value?.trim() || "",
+    verbal_tics: splitList($("cdSpVerbalTics")?.value),
+    filler_words: splitList($("cdSpFillerWords")?.value),
+    signature_phrases: splitList($("cdSpSignaturePhrases")?.value),
+    taboo_words: splitList($("cdSpTabooWords")?.value),
+    avoidance_topics: splitList($("cdSpAvoidanceTopics")?.value),
+    address_patterns: parseAddressPatterns($("cdSpAddressPatterns")?.value),
+    silence_meaning: $("cdSpSilenceMeaning")?.value?.trim() || "",
+    under_stress: $("cdSpUnderStress")?.value?.trim() || "",
+    voice_notes: $("cdSpVoiceNotes")?.value?.trim() || "",
+  };
+
   const body = {
     power_tier: $("cdPowerTier")?.value || "",
     profession_id: $("cdProfession")?.value || "",
@@ -507,6 +651,9 @@ async function saveCharDetail(charId) {
     gender: $("cdGender")?.value || "",
     inventory: inventory,
     skills: skills,
+    personality: personality,
+    personality_profile: personality_profile,
+    speech_profile: speech_profile,
     // Collect attribute values from sliders
     attributes: (() => {
       const attrs = {};
@@ -765,6 +912,107 @@ function _formatCharMetaChips(ent) {
   return parts.join("");
 }
 
+function _ppChipsHtml(arr, max = 6, cls = "") {
+  if (!Array.isArray(arr)) return "";
+  const chips = arr.slice(0, max).filter(Boolean).map((s) => `<span class="pp-chip ${cls}">${escapeHtml(String(s))}</span>`).join("");
+  return chips ? `<div class="pp-chip-row">${chips}</div>` : "";
+}
+
+function renderPersonalityProfileBlock(ent) {
+  const personalityRaw = String(ent?.personality ?? "").trim();
+  const pp = (ent?.personality_profile && typeof ent.personality_profile === "object") ? ent.personality_profile : {};
+  if (!personalityRaw && !Object.keys(pp).length) return "";
+  const cards = [];
+  const traits = _ppChipsHtml(pp.traits, 8, "pp-chip--traits");
+  if (traits) cards.push({ ic: "sparkle", title: "核心特质", body: traits });
+  const values = _ppChipsHtml(pp.values, 6, "pp-chip--values");
+  if (values) cards.push({ ic: "diamond", title: "价值观", body: values });
+  const flaws = _ppChipsHtml(pp.flaws, 5, "pp-chip--flaws");
+  if (flaws) cards.push({ ic: "sentiment_dissatisfied", title: "缺陷", body: flaws });
+  const motivations = _ppChipsHtml(pp.motivations, 5, "pp-chip--motivations");
+  if (motivations) cards.push({ ic: "rocket_launch", title: "动机", body: motivations });
+  const fears = _ppChipsHtml(pp.fears, 5, "pp-chip--fears");
+  if (fears) cards.push({ ic: "warning", title: "恐惧", body: fears });
+  if (pp.moral_boundary) cards.push({ ic: "gavel", title: "道德底线", body: `<div class="pp-text-line">${escapeHtml(pp.moral_boundary)}</div>` });
+  if (pp.relationship_style) cards.push({ ic: "group", title: "关系模式", body: `<div class="pp-text-line">${escapeHtml(pp.relationship_style)}</div>` });
+  if (pp.growth_arc) cards.push({ ic: "trending_up", title: "成长弧线", body: `<div class="pp-quote">${escapeHtml(pp.growth_arc)}</div>` });
+  if (pp.contradiction) cards.push({ ic: "sync_alt", title: "内在矛盾", body: `<div class="pp-quote pp-quote--contradiction">${escapeHtml(pp.contradiction)}</div>` });
+  if (!cards.length && personalityRaw) {
+    cards.push({ ic: "psychology", title: "性格摘要", body: `<div class="pp-summary">${escapeHtml(personalityRaw)}</div>` });
+  }
+  const cardsHtml = cards.map((c) => `<div class="pp-card">
+    <div class="pp-card-head"><span class="ms pp-card-ic" aria-hidden="true">${c.ic}</span><span class="pp-card-title">${escapeHtml(c.title)}</span></div>
+    <div class="pp-card-body">${c.body}</div>
+  </div>`).join("");
+  const summary = personalityRaw && cards.some((c) => c.title !== "性格摘要")
+    ? `<p class="pp-summary">${escapeHtml(personalityRaw)}</p>`
+    : "";
+  return `<section class="char-roster-block char-roster-block--personality">
+    <div class="char-roster-block-hd"><span class="ms" aria-hidden="true" style="font-size:14px;vertical-align:-2px;margin-right:4px">psychology</span>性格 · personality</div>
+    <div class="char-roster-block-bd">
+      ${summary}
+      <div class="pp-grid">${cardsHtml}</div>
+    </div>
+  </section>`;
+}
+
+const SP_ENUM_LABELS = {
+  avg_sentence_length: { mixed: "混合", short: "短句", medium: "中等", long: "长句" },
+  verbosity: { normal: "正常", terse: "简短", verbose: "啰嗦" },
+  emotional_expression: { direct: "直接表达", indirect: "间接暗示", suppressed: "压抑型", explosive: "爆发型", sarcastic: "讽刺型" },
+  confrontation_style: { faces_it: "直接面对", deflects: "转移话题", withdraws: "沉默离开", escalates: "升级冲突" },
+};
+function _spLabel(map, key) { return map?.[key] || key; }
+
+function renderSpeechProfileBlock(ent) {
+  const sp = (ent?.speech_profile && typeof ent.speech_profile === "object") ? ent.speech_profile : {};
+  const hasAny = Object.values(sp).some((v) =>
+    v !== undefined && v !== null && v !== "" &&
+    (!Array.isArray(v) || v.length) &&
+    !(typeof v === "object" && Object.keys(v).length === 0)
+  );
+  if (!hasAny) return "";
+  const cards = [];
+  const tonePills = [];
+  if (sp.avg_sentence_length) tonePills.push(`<span class="sp-pill sp-pill--tone">${escapeHtml(_spLabel(SP_ENUM_LABELS.avg_sentence_length, sp.avg_sentence_length))}</span>`);
+  if (sp.verbosity) tonePills.push(`<span class="sp-pill sp-pill--tone">${escapeHtml(_spLabel(SP_ENUM_LABELS.verbosity, sp.verbosity))}</span>`);
+  if (sp.emotional_expression) tonePills.push(`<span class="sp-pill sp-pill--tone">${escapeHtml(_spLabel(SP_ENUM_LABELS.emotional_expression, sp.emotional_expression))}</span>`);
+  if (sp.confrontation_style) tonePills.push(`<span class="sp-pill sp-pill--tone">${escapeHtml(_spLabel(SP_ENUM_LABELS.confrontation_style, sp.confrontation_style))}</span>`);
+  if (tonePills.length) cards.push({ ic: "record_voice_over", title: "语调", body: `<div class="sp-pill-row">${tonePills.join("")}</div>` });
+  const wordingItems = [];
+  [["register", "语域"], ["rhythm", "节奏"], ["metaphor_source", "比喻来源"], ["address_self", "自称"]].forEach(([k, label]) => {
+    if (sp[k]) wordingItems.push(`<div class="sp-text-item"><span class="sp-text-label">${label}</span><span class="sp-text-val">${escapeHtml(sp[k])}</span></div>`);
+  });
+  if (wordingItems.length) cards.push({ ic: "edit_note", title: "措辞", body: `<div class="sp-text-list">${wordingItems.join("")}</div>` });
+  const ticParts = [];
+  if (Array.isArray(sp.verbal_tics) && sp.verbal_tics.length) ticParts.push(_ppChipsHtml(sp.verbal_tics, 8, "sp-chip--tic"));
+  if (Array.isArray(sp.filler_words) && sp.filler_words.length) ticParts.push(_ppChipsHtml(sp.filler_words, 8, "sp-chip--filler"));
+  if (Array.isArray(sp.signature_phrases) && sp.signature_phrases.length) ticParts.push(_ppChipsHtml(sp.signature_phrases, 8, "sp-chip--sig"));
+  if (Array.isArray(sp.taboo_words) && sp.taboo_words.length) ticParts.push(_ppChipsHtml(sp.taboo_words, 8, "sp-chip--taboo"));
+  if (Array.isArray(sp.avoidance_topics) && sp.avoidance_topics.length) ticParts.push(_ppChipsHtml(sp.avoidance_topics, 8, "sp-chip--avoid"));
+  if (ticParts.length) cards.push({ ic: "chat_bubble", title: "口癖与禁区", body: `<div class="sp-tics">${ticParts.join("")}</div>` });
+  const addrEntries = (sp.address_patterns && typeof sp.address_patterns === "object") ? Object.entries(sp.address_patterns) : [];
+  if (addrEntries.length) {
+    const addrHtml = addrEntries.map(([k, v]) => `<div class="sp-addr-row"><span class="sp-addr-target">${escapeHtml(k)}</span><span class="ms sp-addr-arrow" aria-hidden="true">arrow_forward</span><span class="sp-addr-call">${escapeHtml(v)}</span></div>`).join("");
+    cards.push({ ic: "contacts", title: "称呼模式", body: addrHtml });
+  }
+  const ctxItems = [];
+  [["silence_meaning", "沉默含义"], ["under_stress", "压力下"], ["voice_notes", "口吻备注"]].forEach(([k, label]) => {
+    if (sp[k]) ctxItems.push(`<div class="sp-text-item"><span class="sp-text-label">${label}</span><span class="sp-text-val">${escapeHtml(sp[k])}</span></div>`);
+  });
+  if (ctxItems.length) cards.push({ ic: "hearing", title: "特殊情境", body: `<div class="sp-text-list">${ctxItems.join("")}</div>` });
+  const cardsHtml = cards.map((c) => `<div class="pp-card sp-card">
+    <div class="pp-card-head"><span class="ms pp-card-ic" aria-hidden="true">${c.ic}</span><span class="pp-card-title">${escapeHtml(c.title)}</span></div>
+    <div class="pp-card-body">${c.body}</div>
+  </div>`).join("");
+  return `<section class="char-roster-block char-roster-block--speech">
+    <div class="char-roster-block-hd"><span class="ms" aria-hidden="true" style="font-size:14px;vertical-align:-2px;margin-right:4px">mic</span>语言风格 · speech_profile</div>
+    <div class="char-roster-block-bd">
+      <div class="pp-grid sp-grid">${cardsHtml}</div>
+    </div>
+  </section>`;
+}
+
 function renderCharCastCardEditHtml(ent, variant = "protagonists") {
   const idRaw = String(ent?.id ?? "").trim();
   if (!idRaw) return "";
@@ -773,6 +1021,17 @@ function renderCharCastCardEditHtml(ent, variant = "protagonists") {
   const hue = CAST_ROLE_HUES[roleRaw] ?? 210;
   const hook = String(ent?.one_line_hook ?? "");
   const notes = String(ent?.notes ?? "");
+  const personality = String(ent?.personality ?? "");
+  const pp = (ent?.personality_profile && typeof ent.personality_profile === "object") ? ent.personality_profile : {};
+  const ppTraits = Array.isArray(pp.traits) ? pp.traits.join("，") : "";
+  const ppValues = Array.isArray(pp.values) ? pp.values.join("，") : "";
+  const ppFlaws = Array.isArray(pp.flaws) ? pp.flaws.join("，") : "";
+  const ppMotivations = Array.isArray(pp.motivations) ? pp.motivations.join("，") : "";
+  const ppFears = Array.isArray(pp.fears) ? pp.fears.join("，") : "";
+  const ppMoral = String(pp.moral_boundary || "");
+  const ppRelation = String(pp.relationship_style || "");
+  const ppArc = String(pp.growth_arc || "");
+  const ppContra = String(pp.contradiction || "");
   const skills = Array.isArray(ent?.notable_skills) ? ent.notable_skills : [];
   const skillsTxt = skills.map((s) => String(s).trim()).filter(Boolean).join("\n");
   const aliases = Array.isArray(ent?.aliases) ? ent.aliases : [];
@@ -783,8 +1042,20 @@ function renderCharCastCardEditHtml(ent, variant = "protagonists") {
   const spSent = String(sp.avg_sentence_length || "mixed");
   const spExpr = String(sp.emotional_expression || "direct");
   const spConf = String(sp.confrontation_style || "faces_it");
+  const spVerb = String(sp.verbosity || "normal");
+  const spRegister = String(sp.register || "");
+  const spRhythm = String(sp.rhythm || "");
+  const spMetaphor = String(sp.metaphor_source || "");
+  const spSelf = String(sp.address_self || "");
+  const spVoice = String(sp.voice_notes || "");
   const spTics = Array.isArray(sp.verbal_tics) ? sp.verbal_tics.join("，") : "";
+  const spFiller = Array.isArray(sp.filler_words) ? sp.filler_words.join("，") : "";
+  const spSig = Array.isArray(sp.signature_phrases) ? sp.signature_phrases.join("，") : "";
+  const spTaboo = Array.isArray(sp.taboo_words) ? sp.taboo_words.join("，") : "";
   const spAvoid = Array.isArray(sp.avoidance_topics) ? sp.avoidance_topics.join("，") : "";
+  const spAddr = (sp.address_patterns && typeof sp.address_patterns === "object")
+    ? Object.entries(sp.address_patterns).map(([k, v]) => `${k}:${v}`).join("，")
+    : "";
   const spSilence = String(sp.silence_meaning || "");
   const spStress = String(sp.under_stress || "");
   // Select avatar icon based on character data: power_tier > profession > cast_role
@@ -845,6 +1116,34 @@ function renderCharCastCardEditHtml(ent, variant = "protagonists") {
         <textarea class="char-roster-field-ta" data-char-field="notes" rows="2" spellcheck="true">${escapeHtml(
           notes
         )}</textarea></section>
+      <details class="char-roster-block char-roster-block--edit char-roster-personality" open><summary class="char-roster-block-hd" style="cursor:pointer"><span class="ms" aria-hidden="true" style="font-size:14px;vertical-align:-2px;margin-right:4px">psychology</span>性格设定 · personality</summary>
+        <div class="personality-edit-grid">
+          <label class="pp-edit-field pp-edit-field--full"><span class="pp-edit-label"><span class="ms" aria-hidden="true">psychology</span> 性格摘要</span><textarea class="char-roster-field-ta" data-char-field="personality" rows="2" spellcheck="true" placeholder="外显气质、核心矛盾、行为倾向">${escapeHtml(
+            personality
+          )}</textarea></label>
+          <div class="pp-edit-group">
+            <div class="pp-edit-group-title"><span class="ms" aria-hidden="true">sparkle</span> 核心</div>
+            <label class="pp-edit-field"><span class="pp-edit-label">特质 traits</span><input type="text" data-char-field="pp_traits" value="${escapeAttr(ppTraits)}" placeholder="谨慎，护短" /></label>
+            <label class="pp-edit-field"><span class="pp-edit-label">价值观 values</span><input type="text" data-char-field="pp_values" value="${escapeAttr(ppValues)}" placeholder="自由，承诺" /></label>
+            <label class="pp-edit-field"><span class="pp-edit-label">缺陷 flaws</span><input type="text" data-char-field="pp_flaws" value="${escapeAttr(ppFlaws)}" placeholder="逞强，不善求助" /></label>
+          </div>
+          <div class="pp-edit-group">
+            <div class="pp-edit-group-title"><span class="ms" aria-hidden="true">rocket_launch</span> 驱动</div>
+            <label class="pp-edit-field"><span class="pp-edit-label">动机 motivations</span><input type="text" data-char-field="pp_motivations" value="${escapeAttr(ppMotivations)}" placeholder="证明自己，保护某人" /></label>
+            <label class="pp-edit-field"><span class="pp-edit-label">恐惧 fears</span><input type="text" data-char-field="pp_fears" value="${escapeAttr(ppFears)}" placeholder="失控，被抛弃" /></label>
+            <label class="pp-edit-field"><span class="pp-edit-label">道德底线</span><input type="text" data-char-field="pp_moral_boundary" value="${escapeAttr(ppMoral)}" placeholder="不伤无辜" /></label>
+          </div>
+          <div class="pp-edit-group">
+            <div class="pp-edit-group-title"><span class="ms" aria-hidden="true">group</span> 关系</div>
+            <label class="pp-edit-field"><span class="pp-edit-label">关系模式</span><input type="text" data-char-field="pp_relationship_style" value="${escapeAttr(ppRelation)}" placeholder="先试探，再托付" /></label>
+          </div>
+          <div class="pp-edit-group pp-edit-group--wide">
+            <div class="pp-edit-group-title"><span class="ms" aria-hidden="true">trending_up</span> 弧线</div>
+            <label class="pp-edit-field"><span class="pp-edit-label">成长弧线</span><input type="text" data-char-field="pp_growth_arc" value="${escapeAttr(ppArc)}" placeholder="从孤立到信任团队" /></label>
+            <label class="pp-edit-field"><span class="pp-edit-label">内在矛盾</span><input type="text" data-char-field="pp_contradiction" value="${escapeAttr(ppContra)}" placeholder="渴望亲近却害怕暴露弱点" /></label>
+          </div>
+        </div>
+      </details>
       <section class="char-roster-block char-roster-block--edit"><div class="char-roster-block-hd">别名 aliases（逗号或顿号分隔）</div>
         <input type="text" class="char-roster-field-ctrl" data-char-field="aliases" value="${escapeAttr(
           aliasesTxt
@@ -863,15 +1162,25 @@ function renderCharCastCardEditHtml(ent, variant = "protagonists") {
             home
           )}" autocomplete="off" /></label>
       </section>
-      <details class="char-roster-block char-roster-block--edit char-roster-speech"><summary class="char-roster-block-hd" style="cursor:pointer">🎤 语言风格 · speech_profile</summary>
+      <details class="char-roster-block char-roster-block--edit char-roster-speech"><summary class="char-roster-block-hd" style="cursor:pointer"><span class="ms" aria-hidden="true" style="font-size:14px;vertical-align:-2px;margin-right:4px">mic</span>语言风格 · speech_profile</summary>
         <div class="speech-card-inline">
           <label class="muted tiny">句式 <select data-char-field="sp_avg_sentence_length" style="font-size:0.74rem"><option value="mixed"${spSent==="mixed"?" selected":""}>混合</option><option value="short"${spSent==="short"?" selected":""}>短句</option><option value="medium"${spSent==="medium"?" selected":""}>中等</option><option value="long"${spSent==="long"?" selected":""}>长句</option></select></label>
+          <label class="muted tiny">啰嗦度 <select data-char-field="sp_verbosity" style="font-size:0.74rem"><option value="normal"${spVerb==="normal"?" selected":""}>正常</option><option value="terse"${spVerb==="terse"?" selected":""}>简短</option><option value="verbose"${spVerb==="verbose"?" selected":""}>啰嗦</option></select></label>
           <label class="muted tiny">情绪表达 <select data-char-field="sp_emotional_expression" style="font-size:0.74rem"><option value="direct"${spExpr==="direct"?" selected":""}>直接表达</option><option value="indirect"${spExpr==="indirect"?" selected":""}>间接暗示</option><option value="suppressed"${spExpr==="suppressed"?" selected":""}>压抑型</option><option value="explosive"${spExpr==="explosive"?" selected":""}>爆发型</option><option value="sarcastic"${spExpr==="sarcastic"?" selected":""}>讽刺型</option></select></label>
           <label class="muted tiny">对抗 <select data-char-field="sp_confrontation_style" style="font-size:0.74rem"><option value="faces_it"${spConf==="faces_it"?" selected":""}>直接面对</option><option value="deflects"${spConf==="deflects"?" selected":""}>转移话题</option><option value="withdraws"${spConf==="withdraws"?" selected":""}>沉默离开</option><option value="escalates"${spConf==="escalates"?" selected":""}>升级冲突</option></select></label>
+          <label class="muted tiny">语域 register<input type="text" data-char-field="sp_register" value="${escapeAttr(spRegister)}" placeholder="街头、学院、官僚、古雅" style="font-size:0.74rem;width:100%" /></label>
+          <label class="muted tiny">节奏 rhythm<input type="text" data-char-field="sp_rhythm" value="${escapeAttr(spRhythm)}" placeholder="停顿多、快问快答、先绕后刺" style="font-size:0.74rem;width:100%" /></label>
+          <label class="muted tiny">比喻来源<input type="text" data-char-field="sp_metaphor_source" value="${escapeAttr(spMetaphor)}" placeholder="海、机械、宗教、病理" style="font-size:0.74rem;width:100%" /></label>
+          <label class="muted tiny">自称<input type="text" data-char-field="sp_address_self" value="${escapeAttr(spSelf)}" placeholder="我、本人、老子、在下" style="font-size:0.74rem;width:100%" /></label>
           <label class="muted tiny">口头禅 <input type="text" data-char-field="sp_verbal_tics" value="${escapeAttr(spTics)}" placeholder="啧, ……算了" style="font-size:0.74rem;width:100%" /></label>
+          <label class="muted tiny">填充词 <input type="text" data-char-field="sp_filler_words" value="${escapeAttr(spFiller)}" placeholder="那个，嗯" style="font-size:0.74rem;width:100%" /></label>
+          <label class="muted tiny">招牌短语 <input type="text" data-char-field="sp_signature_phrases" value="${escapeAttr(spSig)}" placeholder="我自己来" style="font-size:0.74rem;width:100%" /></label>
+          <label class="muted tiny">禁用词 <input type="text" data-char-field="sp_taboo_words" value="${escapeAttr(spTaboo)}" placeholder="不会说的词或称呼" style="font-size:0.74rem;width:100%" /></label>
           <label class="muted tiny">回避话题 <input type="text" data-char-field="sp_avoidance_topics" value="${escapeAttr(spAvoid)}" placeholder="家庭, 过去" style="font-size:0.74rem;width:100%" /></label>
+          <label class="muted tiny">称呼模式 <input type="text" data-char-field="sp_address_patterns" value="${escapeAttr(spAddr)}" placeholder="ch_a:老师，ch_b:小鬼" style="font-size:0.74rem;width:100%" /></label>
           <label class="muted tiny">沉默含义 <input type="text" data-char-field="sp_silence_meaning" value="${escapeAttr(spSilence)}" placeholder="在思考，不是冷漠" style="font-size:0.74rem;width:100%" /></label>
           <label class="muted tiny">压力下 <input type="text" data-char-field="sp_under_stress" value="${escapeAttr(spStress)}" placeholder="开始说短句" style="font-size:0.74rem;width:100%" /></label>
+          <label class="muted tiny">口吻备注 <input type="text" data-char-field="sp_voice_notes" value="${escapeAttr(spVoice)}" placeholder="对白写作额外注意" style="font-size:0.74rem;width:100%" /></label>
         </div>
       </details>
     </div>
@@ -897,6 +1206,29 @@ function readCharEditCardFromDom(article) {
   const cast_role = (g("cast_role")?.value ?? "").trim() || "background";
   const one_line_hook = (g("one_line_hook")?.value ?? "").trim();
   const notes = (g("notes")?.value ?? "").trim();
+  const personality = (g("personality")?.value ?? "").trim();
+  const splitList = (raw) => String(raw || "").split(/[,，;；\n]+/).map((s) => s.trim()).filter(Boolean);
+  const parseAddressPatterns = (raw) => {
+    const out = {};
+    splitList(raw).forEach((pair) => {
+      const m = pair.split(/[:：=]/);
+      const k = (m.shift() || "").trim();
+      const v = m.join(":").trim();
+      if (k && v) out[k] = v;
+    });
+    return out;
+  };
+  const personality_profile = {
+    traits: splitList(g("pp_traits")?.value),
+    values: splitList(g("pp_values")?.value),
+    flaws: splitList(g("pp_flaws")?.value),
+    motivations: splitList(g("pp_motivations")?.value),
+    fears: splitList(g("pp_fears")?.value),
+    moral_boundary: (g("pp_moral_boundary")?.value ?? "").trim(),
+    relationship_style: (g("pp_relationship_style")?.value ?? "").trim(),
+    growth_arc: (g("pp_growth_arc")?.value ?? "").trim(),
+    contradiction: (g("pp_contradiction")?.value ?? "").trim(),
+  };
   const aliasesRaw = (g("aliases")?.value ?? "").trim();
   const aliases = aliasesRaw
     .split(/[,，;；\n]+/)
@@ -915,23 +1247,42 @@ function readCharEditCardFromDom(article) {
   const home_region_id = (g("home_region_id")?.value ?? "").trim();
   // Speech profile
   const spSent = (g("sp_avg_sentence_length")?.value ?? "mixed").trim();
+  const spVerb = (g("sp_verbosity")?.value ?? "normal").trim();
   const spExpr = (g("sp_emotional_expression")?.value ?? "direct").trim();
   const spConf = (g("sp_confrontation_style")?.value ?? "faces_it").trim();
+  const spRegister = (g("sp_register")?.value ?? "").trim();
+  const spRhythm = (g("sp_rhythm")?.value ?? "").trim();
+  const spMetaphor = (g("sp_metaphor_source")?.value ?? "").trim();
+  const spSelf = (g("sp_address_self")?.value ?? "").trim();
   const spTics = (g("sp_verbal_tics")?.value ?? "").trim();
+  const spFiller = (g("sp_filler_words")?.value ?? "").trim();
+  const spSig = (g("sp_signature_phrases")?.value ?? "").trim();
+  const spTaboo = (g("sp_taboo_words")?.value ?? "").trim();
   const spAvoid = (g("sp_avoidance_topics")?.value ?? "").trim();
+  const spAddr = (g("sp_address_patterns")?.value ?? "").trim();
   const spSilence = (g("sp_silence_meaning")?.value ?? "").trim();
   const spStress = (g("sp_under_stress")?.value ?? "").trim();
+  const spVoice = (g("sp_voice_notes")?.value ?? "").trim();
   const speech_profile = {
     avg_sentence_length: spSent,
+    verbosity: spVerb,
     emotional_expression: spExpr,
     confrontation_style: spConf,
-    verbal_tics: spTics ? spTics.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [],
-    avoidance_topics: spAvoid ? spAvoid.split(/[,，]/).map(s => s.trim()).filter(Boolean) : [],
+    register: spRegister,
+    rhythm: spRhythm,
+    metaphor_source: spMetaphor,
+    address_self: spSelf,
+    verbal_tics: splitList(spTics),
+    filler_words: splitList(spFiller),
+    signature_phrases: splitList(spSig),
+    taboo_words: splitList(spTaboo),
+    avoidance_topics: splitList(spAvoid),
+    address_patterns: parseAddressPatterns(spAddr),
     silence_meaning: spSilence,
     under_stress: spStress,
-    verbosity: "normal",
+    voice_notes: spVoice,
   };
-  return { id, name, cast_role, one_line_hook, notes, aliases, notable_skills, faction_ids, home_region_id, speech_profile };
+  return { id, name, cast_role, one_line_hook, notes, personality, personality_profile, aliases, notable_skills, faction_ids, home_region_id, speech_profile };
 }
 
 function persistCharRosterCards(panelId) {
@@ -964,6 +1315,13 @@ function persistCharRosterCards(panelId) {
     else delete next.one_line_hook;
     if (patch.notes) next.notes = patch.notes;
     else delete next.notes;
+    if (patch.personality) next.personality = patch.personality;
+    else delete next.personality;
+    if (patch.personality_profile && Object.values(patch.personality_profile).some(v => v && (!Array.isArray(v) || v.length))) {
+      next.personality_profile = patch.personality_profile;
+    } else {
+      delete next.personality_profile;
+    }
     if (patch.faction_ids.length) next.faction_ids = patch.faction_ids;
     else delete next.faction_ids;
     if (patch.home_region_id) next.home_region_id = patch.home_region_id;
@@ -1060,6 +1418,7 @@ function renderCharCastCardHtml(ent, opts = {}) {
   const hue = CAST_ROLE_HUES[roleRaw] ?? 210;
   const hookRaw = String(ent?.one_line_hook ?? "").trim();
   const notesRaw = String(ent?.notes ?? "").trim();
+  const sp = (ent?.speech_profile && typeof ent.speech_profile === "object") ? ent.speech_profile : {};
   const displayHook = hookRaw || notesRaw;
   const hook = displayHook ? escapeHtml(displayHook) : "";
   const hookLabel = hookRaw ? "叙事钩 · one_line_hook" : notesRaw ? "备注 · notes" : "叙事";
@@ -1090,6 +1449,8 @@ function renderCharCastCardHtml(ent, opts = {}) {
     facRow || homeRow
       ? `<section class="char-roster-block char-roster-block--meta" aria-label="引用锚点"><div class="char-roster-block-hd">边界 · 引用锚点</div><div class="char-roster-block-bd">${facRow}${homeRow}</div></section>`
       : "";
+  const personalityBlock = renderPersonalityProfileBlock(ent);
+  const speechBlock = renderSpeechProfileBlock(ent);
   const tierName2 = String(ent?.power_tier || "").trim();
   const profId2 = String(ent?.profession_id || "").trim();
   const tierIcons2 = {
@@ -1139,6 +1500,8 @@ function renderCharCastCardHtml(ent, opts = {}) {
           ? `<section class="char-roster-block"><div class="char-roster-block-hd">${hookLabel}</div><div class="char-roster-block-bd char-roster-hook">${hook}</div></section>`
           : ""
       }
+      ${personalityBlock}
+      ${speechBlock}
       ${
         skillsLi
           ? `<section class="char-roster-block char-roster-block--skills"><div class="char-roster-block-hd">特长 notable_skills</div><ul class="char-roster-skill-list">${skillsLi}</ul></section>`
@@ -4661,6 +5024,28 @@ function _chineseNumberToInt(s) {
   return total + current;
 }
 
+function _intToChineseChapterNumber(n) {
+  const num = Number.parseInt(n, 10);
+  if (!Number.isFinite(num) || num <= 0) return String(n || "");
+  const digits = ["零", "一", "二", "三", "四", "五", "六", "七", "八", "九"];
+  if (num <= 10) return num === 10 ? "十" : digits[num];
+  if (num < 20) return `十${digits[num - 10]}`;
+  if (num < 100) {
+    const tens = Math.floor(num / 10);
+    const ones = num % 10;
+    return `${digits[tens]}十${ones ? digits[ones] : ""}`;
+  }
+  return String(num);
+}
+
+function formatStoryChapterLabel(ch, { includeTitle = true } = {}) {
+  const unit = state.storyUnitLabel || "章";
+  const order = _intToChineseChapterNumber(ch?.order || "");
+  const prefix = order ? `第${order}${unit}` : unit;
+  const title = String(ch?.title || ch?.id || "").trim();
+  return includeTitle && title ? `${prefix} ${title}` : prefix;
+}
+
 function _extractChapterNumber(title) {
   const t = String(title || "");
   // 第一章 / 第1章 / 第 1 章 / 第一回 / 第一话
@@ -5370,7 +5755,7 @@ async function refreshAgentPanel() {
   if (sel) {
     const chapters = sortedStoryChapters();
     sel.innerHTML = chapters.map(c =>
-      `<option value="${c.id}" ${c.id === state.storyActiveChapterId ? 'selected' : ''}>第${c.order}章 ${escapeHtml(c.title || c.id)}</option>`
+      `<option value="${c.id}" ${c.id === state.storyActiveChapterId ? 'selected' : ''}>${escapeHtml(formatStoryChapterLabel(c))}</option>`
     ).join("");
   }
   const chId = sel?.value || state.storyActiveChapterId;
@@ -5878,10 +6263,10 @@ async function savePolishToggle(sourceId) {
 	        if (pc.summary_card && pc.summary_card.main_events) { found = pc; break; }
 	      }
 	      if (found) {
-	        prevBody.innerHTML = `<strong>第${found.order}章 ${escapeHtml(found.title || found.id)}</strong><br>${escapeHtml(found.summary_card.main_events)}`;
+        prevBody.innerHTML = `<strong>${escapeHtml(formatStoryChapterLabel(found))}</strong><br>${escapeHtml(found.summary_card.main_events)}`;
 	      } else {
 	        const prev = chapters[activeIdx - 1];
-	        prevBody.textContent = `第${prev.order}章 ${escapeHtml(prev.title || prev.id)}（暂无摘要）`;
+        prevBody.textContent = `${formatStoryChapterLabel(prev)}（暂无摘要）`;
 	      }
 	    } else if (activeIdx === 0) {
 	      prevBody.textContent = "已是第一章，无前章摘要。";
@@ -6846,6 +7231,29 @@ function storyChatActionsIncludeManuscript(actions) {
   return actions.some((a) => a?.tool === "generate_manuscript");
 }
 
+function storyChatGeneratedMacroOutline(res) {
+  if (!res || typeof res !== "object") return false;
+  if (res.intent === "macro_outline") return true;
+  if (Array.isArray(res.auto_applied) && res.auto_applied.some((x) => String(x).includes("粗纲"))) {
+    return true;
+  }
+  const actions = Array.isArray(res.actions) ? res.actions : [];
+  return actions.some((a) => {
+    if (!a || typeof a !== "object") return false;
+    if (a.tool === "generate_macro_outline") return true;
+    if (a.auto_trigger === "generate_macro_outline") return true;
+    if (Array.isArray(a.auto_apply) && a.auto_apply.some((x) => String(x).includes("粗纲"))) return true;
+    return false;
+  });
+}
+
+async function openStoryMacroOutlineView() {
+  await refreshStoryChaptersAligned();
+  switchView("storyOutline");
+  setStoryOutlineSub("macro");
+  await loadStoryMacro();
+}
+
 async function generateStoryManuscriptFromUI(opts = {}) {
   if (!state.world) return toast("请先选择世界");
   const useChat = opts.useChatStrip === true;
@@ -7078,10 +7486,16 @@ async function applyStoryMdBlock(block) {
   if (!state.world?.meta?.id || !block?.content) return;
   const wid = state.world.meta.id;
   if (block.kind === "macro") {
-    await api(`/api/worlds/${wid}/story/macro-outline`, {
+    const res = await api(`/api/worlds/${wid}/story/macro-outline`, {
       method: "PUT",
       body: JSON.stringify({ content: block.content }),
     });
+    if (res.story && state.world) {
+      state.world.story = res.story;
+      storyMetaToForm();
+      refreshStoryChapterSelects(res.chapters_display);
+      renderStoryChapterNav();
+    }
     if ($("storyMacroEdit")) $("storyMacroEdit").value = block.content;
     updateStoryMarkdownPreview("storyMacroPreview", block.content, true);
     switchView("storyOutline");
@@ -7435,7 +7849,7 @@ function renderChapterStatusList() {
         : `<span class="story-ch-status-wc muted tiny">${actual.toLocaleString()} 字</span>`;
       return `<div class="story-ch-status-row">
         <span class="story-ch-status-dot" style="background:${DOT_COLORS[c.status] || '#94a3b8'}" title="${c.status}"></span>
-        <span class="story-ch-status-order">${c.order}.</span>
+        <span class="story-ch-status-order">${escapeHtml(formatStoryChapterLabel(c, { includeTitle: false }))}</span>
         <span class="story-ch-status-title">${escapeHtml(c.title || c.id)}</span>
         ${wcDisplay}
         <input type="number" class="story-ch-target-wc" data-chapter-id="${escapeAttr(c.id)}" value="${target || ''}" placeholder="目标" min="0" step="500" style="width:5em" title="目标字数（0=不限制）" aria-label="目标字数" />
@@ -8971,6 +9385,11 @@ async function init() {
         toast("自动落盘失败：" + (ae?.message || ae));
       }
 
+      if (storyChatGeneratedMacroOutline(res)) {
+        await openStoryMacroOutlineView();
+        toast("粗纲已生成，可在大纲视图查看");
+      }
+
       if (storyChatActionsIncludeManuscript(res.actions) || res.intent === "write_manuscript") {
         await refreshStoryChaptersAligned();
         toast("本章文稿已生成，可点「打开章节文稿」查看");
@@ -9215,9 +9634,32 @@ async function init() {
     "1）**characters.summary**：谁在驱动主线/副线，卡司规模与叙事功能。\n" +
     "2）**characters.design_notes**：与 **factions** 要人、**history**、**geography.regions** 籍贯等 **id** 的对齐与防漂移约定。\n" +
     "3）**characters.entities[]**：每项 **id**、**name**；**cast_role** 取 `protagonist_core`（主角团核心）| `supporting_major` | `supporting_minor` | `antagonist` | `background`；**faction_ids[]** 须对齐已有 **factions.entities[].id**；**home_region_id** 须对齐已有 **geography.regions[].id**；可选 **aliases[]**、**one_line_hook**、**notes**、**notable_skills[]**（叙事向特长短句）。\n" +
-    "4）**新增/修订人物时必须包含以下字段，禁止省略**：**age**（整数）、**gender**（男/女/其他）、**power_tier**（必须精确匹配 `power_system.tiers[].name`，无则留空）、**profession_id**（必须精确匹配 `power_system.profession_system.by_tier[].professions[].id`，无则留空）、**attributes**（对象，键为 `attribute_system.stats[].id`，值 0–100）、**inventory[]**（物品数组，每项 name/description/usage/quantity/source_chapter/status）、**skills[]**（技能面板，每项 name/description/exclusive(bool)/source(可选，对应已有技能树节点 id)/level(可选)）。\n" +
+    "4）**新增/修订人物时必须包含以下字段，禁止省略**：**age**（整数）、**gender**（男/女/其他）、**power_tier**（必须精确匹配 `power_system.tiers[].name`，无则留空）、**profession_id**（必须精确匹配 `power_system.profession_system.by_tier[].professions[].id`，无则留空）、**attributes**（对象，键为 `attribute_system.stats[].id`，值 0–100）、**inventory[]**（物品数组，每项 name/description/usage/quantity/source_chapter/status）、**skills[]**（技能面板，每项 name/description/exclusive(bool)/source(可选，对应已有技能树节点 id)/level(可选)）、**personality**（非空性格摘要）、**personality_profile**（至少 traits[]/flaws[]/motivations[]，可含 values/fears/desires/moral_boundary/relationship_style/growth_arc/contradiction）、**speech_profile**（至少 avg_sentence_length/verbosity/emotional_expression/confrontation_style/verbal_tics[]/signature_phrases[]/under_stress，可含语域、节奏、口癖、称呼模式、压力下说话方式等）。\n" +
     "5）**characters.relations[]**：**source_id**、**target_id**（均为 **entities[].id**）；**relation_type**（如 ally/rival/family/debt/secret）；可选 **visibility**、**notes**。\n\n" +
-    "若你准备给出可机读补丁，请在回复**文末**用单个 **```json** 代码块给出根对象 `{ \"characters\": { ... } }`，其中每个实体须包含第 4 步列出的全部字段。";
+    "若你准备给出可机读补丁，请在回复**文末**用单个 **```json** 代码块给出根对象 `{ \"characters\": { ... } }`，其中每个实体须包含第 4 步列出的全部字段，尤其不能漏掉性格与语言风格档案。";
+
+  const CHARACTER_GENERATION_TEMPLATE_PROMPT =
+    "【人物生成模板】\n" +
+    "请基于当前 world.json 生成/修订人物卡司，并在文末给出可同步落盘的 JSON。请先读取已有 **factions.entities[].id**、**geography.regions[].id**、**power_system.tiers[].name**、**profession_system.by_tier[].professions[].id**、**attribute_system.stats[].id**，所有引用必须精确对齐。\n\n" +
+    "我的需求：\n" +
+    "- 生成对象：[例如：主角团 / 重要配角 / 反派 / 某派系核心人物 / 补全人物关系]\n" +
+    "- 数量：[例如：3～5 人]\n" +
+    "- 叙事功能：[例如：推动主线、制造误会、提供线索、制造生存压力]\n" +
+    "- 角色气质：[例如：冷静克制、街头感、神秘学、热血冒险、政治阴谋]\n" +
+    "- 必须挂钩的派系/地区/历史：[填已有 id 或名称；没有则写“由你建议但必须对齐现有设定”]\n" +
+    "- 关系需求：[例如：至少 4 条 characters.relations[]，包含 rival/debt/secret/ally/family]\n" +
+    "- 避免事项：[例如：不要新增境界；不要编造职业 id；不要覆盖已有角色]\n\n" +
+    "每个新增或修订角色必须包含：\n" +
+    "- id、name、cast_role、faction_ids[]、home_region_id、one_line_hook、notes、notable_skills[]\n" +
+    "- age、gender、power_tier、profession_id、attributes、inventory[]、skills[]\n" +
+    "- personality：非空性格摘要\n" +
+    "- personality_profile：至少 traits[]、flaws[]、motivations[]，可补 values/fears/desires/moral_boundary/relationship_style/growth_arc/contradiction\n" +
+    "- speech_profile：至少 avg_sentence_length、verbosity、emotional_expression、confrontation_style、verbal_tics[]、signature_phrases[]、under_stress，可补 register/rhythm/metaphor_source/address_self/address_patterns/voice_notes\n\n" +
+    "输出要求：\n" +
+    "1. 先用 Markdown 简述设计思路、每个角色的叙事作用和关系张力。\n" +
+    "2. 文末必须给出单个 ```json 代码块，根对象为 `{ \"characters\": { \"entities\": [...], \"relations\": [...] } }`。\n" +
+    "3. `characters.relations[]` 每条必须含 source_id、target_id、relation_type、notes；source_id/target_id 使用角色 id，不要只写中文名。\n" +
+    "4. 若修订已有角色，请保留原 id，只补充或更新字段，不要生成重复人物。";
 
   function fillCharChatPromptTemplate(text, { mode = "replace", enableCharacterGuide = false } = {}) {
     if (!state.world) {
@@ -9368,10 +9810,11 @@ async function init() {
 
   if (charChipBox) {
     const charChips = [
-      ["groups", "对齐派系 id", "请列出当前 world.json 中已有 **factions.entities[].id**、**geography.regions[].id**、**power_system.tiers[].name**、**profession_system.by_tier[].professions[].id** 与 **attribute_system.stats[].id**。据此设计 3～6 名主要人物：每人给出建议 **id**、**name**、**cast_role**、**faction_ids[]**、**home_region_id**、**one_line_hook**，并显式写出 **age**、**gender**、**power_tier**、**profession_id**、**attributes**、**inventory[]**、**skills[]**，确保所有 id/名称与现有世界设定精确对齐。"],
+      ["edit_note", "人物生成模板", CHARACTER_GENERATION_TEMPLATE_PROMPT, { charGuide: true, append: false }],
+      ["groups", "对齐派系 id", "请列出当前 world.json 中已有 **factions.entities[].id**、**geography.regions[].id**、**power_system.tiers[].name**、**profession_system.by_tier[].professions[].id** 与 **attribute_system.stats[].id**。据此设计 3～6 名主要人物：每人给出建议 **id**、**name**、**cast_role**、**faction_ids[]**、**home_region_id**、**one_line_hook**，并显式写出 **age**、**gender**、**power_tier**、**profession_id**、**attributes**、**inventory[]**、**skills[]**、**personality**、**personality_profile**、**speech_profile**，确保所有 id/名称与现有世界设定精确对齐。"],
       ["family_history", "人物关系边", "在已有或拟新增的 **characters.entities[]** 上，补充 **characters.relations[]**：每条 **source_id**、**target_id**、**relation_type**、**notes**；关系要有戏剧功能（债务、秘密、家族、对立、同盟）。"],
-      ["military_tech", "主角团张力", "请设计 **cast_role** 为 **protagonist_core** 的主角团（3～5 人）：每人必须包含 **age**、**gender**、**power_tier**（对齐已有境界名）、**profession_id**（对齐已有职业 id）、**attributes**（对齐 attribute_system.stats[].id）、**inventory[]**、**skills[]**（可含专属技能 exclusive=true）、**notable_skills[]**（叙事向短句）、内在目标冲突，以及他们为何被迫同行。"],
-      ["person_alert", "反派与压力", "请增加或修订 **antagonist** 与 **supporting_major**（3～5 人）：每人必须包含 **age**、**gender**、**power_tier**（对齐已有境界名）、**profession_id**（对齐已有职业 id）、**attributes**（对齐 attribute_system.stats[].id）、**inventory[]**、**skills[]**（可含专属技能 exclusive=true）、**one_line_hook**、与主角团的 **relations**（rival/debt/secret 等），并挂钩 **history** 或 **factions**。"],
+      ["military_tech", "主角团张力", "请设计 **cast_role** 为 **protagonist_core** 的主角团（3～5 人）：每人必须包含 **age**、**gender**、**power_tier**（对齐已有境界名）、**profession_id**（对齐已有职业 id）、**attributes**（对齐 attribute_system.stats[].id）、**inventory[]**、**skills[]**（可含专属技能 exclusive=true）、**notable_skills[]**（叙事向短句）、**personality**、**personality_profile**、**speech_profile**、内在目标冲突，以及他们为何被迫同行。"],
+      ["person_alert", "反派与压力", "请增加或修订 **antagonist** 与 **supporting_major**（3～5 人）：每人必须包含 **age**、**gender**、**power_tier**（对齐已有境界名）、**profession_id**（对齐已有职业 id）、**attributes**（对齐 attribute_system.stats[].id）、**inventory[]**、**skills[]**（可含专属技能 exclusive=true）、**personality**、**personality_profile**、**speech_profile**、**one_line_hook**、与主角团的 **relations**（rival/debt/secret 等），并挂钩 **history** 或 **factions**。"],
       ["auto_stories", "卡司总览", CHARACTER_ROSTER_CHAT_PROMPT, { charGuide: true, append: false }],
     ];
     charChips.forEach((row) => {
@@ -9853,7 +10296,24 @@ function renderSpeechPanel() {
         <label class="muted tiny">口头禅（逗号分隔）<input type="text" class="speech-edit-tics" value="${escapeAttr((sp.verbal_tics||[]).join("，"))}" placeholder="啧，……算了" /></label>
       </div>
       <div class="speech-edit-row">
+        <label class="muted tiny">语域 register<input type="text" class="speech-edit-register" value="${escapeAttr(sp.register||"")}" placeholder="街头、学院、官僚、古雅" /></label>
+        <label class="muted tiny">节奏 rhythm<input type="text" class="speech-edit-rhythm" value="${escapeAttr(sp.rhythm||"")}" placeholder="停顿多、快问快答、先绕后刺" /></label>
+      </div>
+      <div class="speech-edit-row">
+        <label class="muted tiny">招牌短语（逗号分隔）<input type="text" class="speech-edit-signature" value="${escapeAttr((sp.signature_phrases||[]).join("，"))}" placeholder="我自己来，别碰我的锚" /></label>
+      </div>
+      <div class="speech-edit-row">
         <label class="muted tiny">填充词（逗号分隔）<input type="text" class="speech-edit-filler" value="${escapeAttr((sp.filler_words||[]).join("，"))}" placeholder="那个……，嗯" /></label>
+      </div>
+      <div class="speech-edit-row">
+        <label class="muted tiny">禁用词（逗号分隔）<input type="text" class="speech-edit-taboo" value="${escapeAttr((sp.taboo_words||[]).join("，"))}" placeholder="永远不会说的词" /></label>
+      </div>
+      <div class="speech-edit-row">
+        <label class="muted tiny">自称 <input type="text" class="speech-edit-self" value="${escapeAttr(sp.address_self||"")}" placeholder="我、本人、老子、在下" /></label>
+        <label class="muted tiny">比喻来源 <input type="text" class="speech-edit-metaphor" value="${escapeAttr(sp.metaphor_source||"")}" placeholder="海、机械、宗教、病理" /></label>
+      </div>
+      <div class="speech-edit-row">
+        <label class="muted tiny">称呼模式（id:称呼）<input type="text" class="speech-edit-address" value="${escapeAttr(sp.address_patterns && typeof sp.address_patterns === "object" ? Object.entries(sp.address_patterns).map(([k,v]) => `${k}:${v}`).join("，") : "")}" placeholder="ch_a:老师，ch_b:小鬼" /></label>
       </div>
       <div class="speech-edit-row">
         <label class="muted tiny">回避话题（逗号分隔）<input type="text" class="speech-edit-avoid" value="${escapeAttr((sp.avoidance_topics||[]).join("，"))}" placeholder="家庭，过去" /></label>
@@ -9861,6 +10321,9 @@ function renderSpeechPanel() {
       <div class="speech-edit-row">
         <label class="muted tiny">沉默含义 <input type="text" class="speech-edit-silence" value="${escapeAttr(sp.silence_meaning||"")}" placeholder="在思考，不是冷漠" /></label>
         <label class="muted tiny">压力下 <input type="text" class="speech-edit-stress" value="${escapeAttr(sp.under_stress||"")}" placeholder="开始说短句" /></label>
+      </div>
+      <div class="speech-edit-row">
+        <label class="muted tiny">口吻备注 <input type="text" class="speech-edit-voice" value="${escapeAttr(sp.voice_notes||"")}" placeholder="对白写作额外注意" /></label>
       </div>
     </div>`;
   }).join("");
@@ -9881,6 +10344,20 @@ function renderSpeechPanel() {
       ent.speech_profile.verbal_tics = (card.querySelector(".speech-edit-tics")?.value || "").split(/[,，]/).map(s => s.trim()).filter(Boolean);
       ent.speech_profile.filler_words = (card.querySelector(".speech-edit-filler")?.value || "").split(/[,，]/).map(s => s.trim()).filter(Boolean);
       ent.speech_profile.avoidance_topics = (card.querySelector(".speech-edit-avoid")?.value || "").split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      ent.speech_profile.signature_phrases = (card.querySelector(".speech-edit-signature")?.value || "").split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      ent.speech_profile.taboo_words = (card.querySelector(".speech-edit-taboo")?.value || "").split(/[,，]/).map(s => s.trim()).filter(Boolean);
+      ent.speech_profile.register = card.querySelector(".speech-edit-register")?.value || "";
+      ent.speech_profile.rhythm = card.querySelector(".speech-edit-rhythm")?.value || "";
+      ent.speech_profile.metaphor_source = card.querySelector(".speech-edit-metaphor")?.value || "";
+      ent.speech_profile.address_self = card.querySelector(".speech-edit-self")?.value || "";
+      ent.speech_profile.voice_notes = card.querySelector(".speech-edit-voice")?.value || "";
+      ent.speech_profile.address_patterns = {};
+      (card.querySelector(".speech-edit-address")?.value || "").split(/[,，;；\n]+/).forEach(pair => {
+        const parts = pair.split(/[:：=]/);
+        const k = (parts.shift() || "").trim();
+        const v = parts.join(":").trim();
+        if (k && v) ent.speech_profile.address_patterns[k] = v;
+      });
       ent.speech_profile.silence_meaning = card.querySelector(".speech-edit-silence")?.value || "";
       ent.speech_profile.under_stress = card.querySelector(".speech-edit-stress")?.value || "";
       setDirty(true);

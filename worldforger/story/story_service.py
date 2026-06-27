@@ -54,6 +54,36 @@ from worldforger.story.story_store import (
 from worldforger.world_store import world_context_for_prompt
 
 
+def _requested_macro_chapter_count(prompt: str) -> int | None:
+    """Best-effort chapter count extraction for sizing macro-outline calls."""
+    import re
+
+    text = prompt or ""
+    patterns = [
+        r"([0-9]{1,4})\s*(?:章|章节|回|话)",
+        r"(?:约|大概|左右)?\s*([零〇一二两三四五六七八九十百千]{1,8})\s*(?:章|章节|回|话)",
+    ]
+    from worldforger.story.story_chapter_sync import _chapter_number
+
+    for pat in patterns:
+        for m in re.finditer(pat, text):
+            n = _chapter_number(m.group(1))
+            if n and n > 0:
+                return n
+    return None
+
+
+def _macro_max_tokens_for_prompt(prompt: str) -> int:
+    chapter_count = _requested_macro_chapter_count(prompt)
+    if chapter_count is None:
+        return 16384
+    if chapter_count <= 60:
+        return 16384
+    if chapter_count <= 100:
+        return 24576
+    return 32768
+
+
 def apply_unit_label_from_mode(world: World, creative_mode: str | None) -> None:
     world.story.unit_label = unit_label_for_mode(
         creative_mode or world.meta.creative_mode
@@ -110,13 +140,24 @@ async def generate_macro_outline(
     apply_unit_label_from_mode(world, mode_eff)
     system = macro_outline_system(world, creative_mode=mode_eff)
     ctx = compact_world_snippet(world, include_markdown=include_world_md)
+    if len(ctx) > 18000:
+        ctx = ctx[:18000] + "\n…(世界设定已为粗纲生成截断，world.json 仍为权威来源)"
+    requested_chapters = _requested_macro_chapter_count(prompt)
+    format_hint = ""
+    if requested_chapters and requested_chapters >= 30:
+        format_hint = (
+            "\n【输出篇幅控制】\n"
+            f"本次约 {requested_chapters} 章，请使用紧凑 Markdown 表格或列表；"
+            "每章 1 行，包含「章号/标题/核心事件/钩子或伏笔」即可，"
+            "不要把每章展开成长段落。\n"
+        )
     user = (
         f"{chapter_list_for_prompt(world)}\n\n"
         f"【用户要求】\n{prompt.strip()}\n\n"
+        f"{format_hint}"
         f"【世界设定】\n{ctx}"
     )
-    # 85 章粗纲约需 20000-30000 tokens — 使用 API 最大允许值
-    _MACRO_MAX_TOKENS = 32768
+    _MACRO_MAX_TOKENS = _macro_max_tokens_for_prompt(prompt)
     reply = await chat_completion(
         [{"role": "system", "content": system}, {"role": "user", "content": user}],
         temperature=0.65,
@@ -488,9 +529,16 @@ async def generate_manuscript(
         if not _gen_was_truncated and not _text_looks_truncated(reply):
             break
 
+    # ── Final mandatory check: LLM completeness check once more ──
+    if len(reply.strip()) > 300:
+        final_incomplete = await _check_chapter_incomplete(reply, beat)
+        if final_incomplete:
+            print(f"[MCW] ch:{chapter_id} Final check says INCOMPLETE — forcing wrap-up")
+            _text_looks_truncated.cache_clear() if hasattr(_text_looks_truncated, 'cache_clear') else None
+
     # ── Final wrap-up: if text STILL looks truncated after all rounds, do one
     #     dedicated "write a concluding paragraph" call ──
-    if _text_looks_truncated(reply) and len(reply.strip()) > 500:
+    if (_text_looks_truncated(reply) or (len(reply.strip()) > 500 and await _check_chapter_incomplete(reply, beat))) and len(reply.strip()) > 500:
         wrap_user = (
             f"以下章节正文尚未完成，请在结尾续写一个简短的自然收束段落（200-500字），"
             f"让本章有一个完整的结尾感。直接续写，不要重复已有内容：\n"
@@ -1221,7 +1269,9 @@ async def _check_chapter_incomplete(text: str, beat_text: str = "") -> bool:
             timing_label="completeness_check",
         )
         result = raw.strip().upper()
-        return "NO" in result  # True = incomplete, needs continuation
+        # More sensitive: YES means complete, anything else means incomplete
+        is_complete = result.startswith("YES") and "NO" not in result[:10]
+        return not is_complete  # True = incomplete, needs continuation
     except Exception:
         return False  # on error, assume complete (don't loop forever)
 

@@ -10,7 +10,7 @@ from worldforger.llm import chat_completion_with_tools
 from worldforger.schemas import StoryPerson, World
 from worldforger.story.story_chat_artifacts import auto_apply_story_artifacts_from_reply
 from worldforger.story.story_prompts import story_chat_system_prompt
-from worldforger.story.story_service import add_chapter, generate_chapter_beats, generate_manuscript
+from worldforger.story.story_service import add_chapter, generate_chapter_beats, generate_macro_outline, generate_manuscript
 from worldforger.world_store import save_world
 
 STORY_TOOLS: list[dict[str, Any]] = [
@@ -197,9 +197,9 @@ def detect_story_intent(text: str) -> str | None:
     fs_kw = ("伏笔", "埋设", "回收", "呼应", "揭晓")
     if any(k in t for k in fs_kw):
         return "foreshadow"
+    import re
     # Check chapter expansion BEFORE outline (expansion keywords contain outline terms)
     expand_kw = ("增加章节", "补充章节", "新增章节", "添加章节", "扩展章节", "增加新章", "根据大纲增加", "补充大纲.*章", "扩展大纲")
-    import re
     for kw in expand_kw:
         if re.search(kw, t):
             return "expand_chapters"
@@ -230,6 +230,29 @@ async def run_story_chat_agent(
     last_user = _last_user_message(messages)
     intent = detect_story_intent(last_user)
     actions: list[dict[str, Any]] = []
+
+    if intent == "macro_outline":
+        prompt_text = (writing_prompt or last_user or "").strip()
+        macro_text = await generate_macro_outline(
+            world,
+            prompt=prompt_text,
+            creative_mode=creative_mode,
+            include_world_md=world.story.writing_defaults.include_world_md,
+        )
+        reply = (
+            f"已生成完整粗纲（{len(macro_text)} 字符），已写入 story/macro_outline.md：\n\n"
+            f"```story-macro\n{macro_text}\n```"
+        )
+        if persist:
+            save_world(world)
+        return {
+            "reply": reply,
+            "world": world.model_dump(mode="json"),
+            "actions": [{"tool": "generate_macro_outline", "direct": True, "chars": len(macro_text)}],
+            "intent": intent,
+            "auto_applied": ["写入粗纲 macro_outline.md"],
+            "auto_warnings": [],
+        }
 
     async def execute_tool(name: str, args: dict[str, Any]) -> str:
         nonlocal world

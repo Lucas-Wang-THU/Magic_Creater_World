@@ -7626,6 +7626,68 @@ textarea.json-editor-tiny {
 .speech-card-inline label { display: flex; flex-direction: column; gap: 2px; }
 .speech-card-inline select, .speech-card-inline input { font-size: 0.76rem; padding: 3px 6px; border-radius: 5px; border: 1px solid #d1d5db; background: #fff; }
 
+/* ── Personality & speech profile cards ──────────────────────── */
+.pp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; }
+.pp-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px 12px; box-shadow: 0 1px 2px rgba(15,23,42,0.03); transition: box-shadow 0.15s, border-color 0.15s; }
+.pp-card:hover { border-color: #cbd5e1; box-shadow: 0 4px 10px rgba(15,23,42,0.05); }
+.pp-card-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
+.pp-card-ic { font-size: 16px !important; color: var(--primary); vertical-align: -2px; }
+.pp-card-title { font-size: 0.72rem; font-weight: 650; color: #475569; letter-spacing: 0.02em; }
+.pp-card-body { font-size: 0.78rem; color: #334155; line-height: 1.45; }
+.pp-chip-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.pp-chip { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; line-height: 1.4; }
+.pp-chip--traits { background: #e0f2fe; color: #0369a1; }
+.pp-chip--values { background: #dcfce7; color: #166534; }
+.pp-chip--flaws { background: #fee2e2; color: #991b1b; }
+.pp-chip--motivations { background: #fef3c7; color: #92400e; }
+.pp-chip--fears { background: #f3e8ff; color: #7e22ce; }
+.pp-summary { font-size: 0.82rem; color: #334155; line-height: 1.55; background: #f8fafc; border-radius: 8px; padding: 8px 10px; margin: 0 0 8px; border: 1px solid #e2e8f0; }
+.pp-text-line { font-size: 0.78rem; color: #334155; line-height: 1.45; }
+.pp-quote { padding: 6px 10px; padding-left: 10px; border-left: 3px solid #cbd5e1; color: #475569; font-style: italic; background: #f8fafc; border-radius: 0 8px 8px 0; font-size: 0.78rem; line-height: 1.45; }
+.pp-quote--contradiction { border-left-color: #f59e0b; background: #fffbeb; color: #92400e; }
+
+.personality-edit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 8px 0; }
+.pp-edit-group { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; }
+.pp-edit-group-title { display: flex; align-items: center; gap: 4px; font-size: 0.72rem; font-weight: 650; color: #475569; margin-bottom: 8px; letter-spacing: 0.03em; }
+.pp-edit-group-title .ms { font-size: 14px; color: var(--primary); }
+.pp-edit-group--wide { grid-column: 1 / -1; }
+.pp-edit-field { display: flex; flex-direction: column; gap: 3px; margin-bottom: 6px; }
+.pp-edit-field:last-child { margin-bottom: 0; }
+.pp-edit-field--full { grid-column: 1 / -1; }
+.pp-edit-label { display: flex; align-items: center; gap: 4px; font-size: 0.72rem; color: #64748b; font-weight: 600; }
+.pp-edit-label .ms { font-size: 13px; color: var(--primary); }
+.pp-edit-field input, .pp-edit-field textarea { font-size: 0.78rem; padding: 5px 8px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #334155; width: 100%; box-sizing: border-box; }
+.pp-edit-field input:focus, .pp-edit-field textarea:focus { outline: none; border-color: var(--primary); box-shadow: 0 0 0 2px rgba(59,130,246,0.12); }
+
+.sp-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.sp-card .pp-card-ic { color: #7c3aed; }
+.sp-pill-row { display: flex; flex-wrap: wrap; gap: 4px; }
+.sp-pill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px; font-size: 0.72rem; font-weight: 600; background: #ede9fe; color: #6d28d9; }
+.sp-text-list { display: flex; flex-direction: column; gap: 5px; }
+.sp-text-item { display: flex; flex-direction: column; gap: 1px; }
+.sp-text-label { font-size: 0.66rem; color: #94a3b8; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.sp-text-val { font-size: 0.76rem; color: #334155; line-height: 1.4; }
+.sp-tics { display: flex; flex-direction: column; gap: 5px; }
+.pp-chip.sp-chip--tic { background: #e0e2fe; color: #4338ca; }
+.pp-chip.sp-chip--filler { background: #fef3c7; color: #92400e; }
+.pp-chip.sp-chip--sig { background: #dcfce7; color: #166534; }
+.pp-chip.sp-chip--taboo { background: #fee2e2; color: #991b1b; }
+.pp-chip.sp-chip--avoid { background: #fce7f3; color: #9d174d; }
+.sp-addr-row { display: flex; align-items: center; gap: 5px; font-size: 0.76rem; flex-wrap: wrap; }
+.sp-addr-target { background: #f1f5f9; color: #475569; padding: 1px 6px; border-radius: 4px; font-weight: 500; }
+.sp-addr-arrow { font-size: 12px !important; color: #94a3b8; }
+.sp-addr-call { color: #334155; font-weight: 500; }
+
+.cd-read-block { margin-bottom: 10px; }
+.cd-read-block .char-roster-block { margin-top: 0; }
+.cd-edit-block { border: 1px solid #e2e8f0; border-radius: 10px; padding: 10px; background: #fafbfc; }
+.cd-edit-summary { font-size: 0.74rem; font-weight: 600; color: #64748b; cursor: pointer; display: flex; align-items: center; gap: 4px; margin-bottom: 8px; user-select: none; }
+.cd-edit-summary::marker { font-size: 0.7rem; }
+.cd-speech-edit-grid { align-items: start; }
+.speech-card-inline label:last-child { grid-column: 1 / -1; }
+.speech-card-inline textarea { font-size: 0.76rem; padding: 5px 8px; border-radius: 5px; border: 1px solid #d1d5db; background: #fff; width: 100%; box-sizing: border-box; }
+.speech-card-inline textarea:focus { outline: none; border-color: var(--primary); }
+
 /* ── Character Detail Overlay ── */
 .char-detail-overlay {
   position: fixed; inset: 0; z-index: 5000;
@@ -8688,6 +8750,7 @@ html[data-theme="dark"] .speech-edit-grid select,
 html[data-theme="dark"] .speech-edit-row input,
 html[data-theme="dark"] .speech-card-inline select,
 html[data-theme="dark"] .speech-card-inline input,
+html[data-theme="dark"] .speech-card-inline textarea,
 html[data-theme="dark"] .agent-panel-controls select,
 html[data-theme="dark"] .story-write-prompt-wrap textarea {
   background: #0f172a;
@@ -9452,6 +9515,36 @@ html[data-theme="dark"] .story-write-bar-chk select {
 html[data-theme="dark"] .story-write-bar-chk:hover { background: #1f2937; border-color: #52627b; }
 html[data-theme="dark"] .story-write-bar-chk:has(input:checked) { background: #172a46; color: #a9c7ff; border-color: #315c91; }
 html[data-theme="dark"] .story-write-bar-inline { color: #cbd5e1; }
+
+html[data-theme="dark"] .pp-card,
+html[data-theme="dark"] .sp-card { background: #172033; border-color: var(--border); }
+html[data-theme="dark"] .pp-card:hover,
+html[data-theme="dark"] .sp-card:hover { border-color: #334155; }
+html[data-theme="dark"] .pp-card-title,
+html[data-theme="dark"] .pp-card-body,
+html[data-theme="dark"] .pp-summary,
+html[data-theme="dark"] .pp-text-line,
+html[data-theme="dark"] .pp-quote,
+html[data-theme="dark"] .sp-text-val,
+html[data-theme="dark"] .sp-addr-call { color: var(--text); }
+html[data-theme="dark"] .pp-summary,
+html[data-theme="dark"] .pp-quote { background: #0f172a; border-color: var(--border); }
+html[data-theme="dark"] .pp-quote--contradiction { background: #2a1b11; }
+html[data-theme="dark"] .pp-edit-group,
+html[data-theme="dark"] .cd-edit-block { background: #0f172a; border-color: var(--border); }
+html[data-theme="dark"] .pp-edit-field input,
+html[data-theme="dark"] .pp-edit-field textarea,
+html[data-theme="dark"] .personality-edit-grid .char-roster-field-ta { background: #172033; color: var(--text); border-color: var(--border); }
+html[data-theme="dark"] .pp-edit-field input:focus,
+html[data-theme="dark"] .pp-edit-field textarea:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(96,165,250,0.15); }
+html[data-theme="dark"] .pp-edit-label,
+html[data-theme="dark"] .pp-edit-group-title,
+html[data-theme="dark"] .cd-edit-summary,
+html[data-theme="dark"] .sp-text-label { color: #94a3b8; }
+html[data-theme="dark"] .pp-chip,
+html[data-theme="dark"] .sp-pill { background: var(--primary-soft); color: var(--primary); border: 1px solid #29476f; }
+html[data-theme="dark"] .sp-addr-target { background: #1e293b; color: #cbd5e1; }
+html[data-theme="dark"] .sp-addr-arrow { color: #64748b; }
 
 @media (max-width: 1220px) {
   .story-write-bar-fields { grid-template-columns: repeat(auto-fit, minmax(min(100%, 170px), 1fr)); }

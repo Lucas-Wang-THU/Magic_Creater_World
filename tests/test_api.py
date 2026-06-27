@@ -680,12 +680,17 @@ def test_character_detail_patch_skills_and_notable_skills():
                 {"name": "专属领域", "exclusive": True},
             ],
             "notable_skills": ["剑术", "专注"],
+            "personality": "外冷内热，害怕被怜悯。",
+            "personality_profile": {"traits": ["谨慎"], "flaws": ["逞强"]},
+            "speech_profile": {"register": "街头短句", "signature_phrases": ["我自己来"]},
         },
     )
     assert r.status_code == 200
     assert r.json()["ok"] is True
     assert "skills" in r.json()["updated_fields"]
     assert "notable_skills" in r.json()["updated_fields"]
+    assert "personality" in r.json()["updated_fields"]
+    assert "speech_profile" in r.json()["updated_fields"]
 
     saved = load_world(wid)
     char = next(e for e in saved.characters.entities if e.get("id") == "ch_test")
@@ -694,10 +699,15 @@ def test_character_detail_patch_skills_and_notable_skills():
     assert char["skills"][0]["level"] == "入门"
     assert char["skills"][1]["exclusive"] is True
     assert char["notable_skills"] == ["剑术", "专注"]
+    assert char["personality"].startswith("外冷内热")
+    assert char["personality_profile"]["traits"] == ["谨慎"]
+    assert char["speech_profile"]["signature_phrases"] == ["我自己来"]
 
     detail = client.get(f"/api/worlds/{wid}/characters/ch_test/detail").json()
     assert detail["skills"][0]["name"] == "剑术"
     assert detail["notable_skills"] == ["剑术", "专注"]
+    assert detail["personality"].startswith("外冷内热")
+    assert detail["speech_profile"]["register"] == "街头短句"
 
 
 def test_clear_knowledge_graph_clears_all_tracking_sections():

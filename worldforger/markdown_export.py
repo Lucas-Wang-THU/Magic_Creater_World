@@ -269,6 +269,34 @@ def world_to_markdown(w: World) -> str:
                 lines.append(f"- **cast_role**：`{cr}`")
                 if ent.get("one_line_hook"):
                     lines += ["", f"**一句钩子**：{ent['one_line_hook']}", ""]
+                if _norm(ent.get("personality")):
+                    lines += ["**性格设定**", "", ent["personality"].strip(), ""]
+                pp = ent.get("personality_profile")
+                if isinstance(pp, dict) and pp:
+                    trait_bits = []
+                    for label, key in (("特质", "traits"), ("价值观", "values"), ("缺陷", "flaws"), ("动机", "motivations")):
+                        vals = pp.get(key)
+                        if isinstance(vals, list) and vals:
+                            trait_bits.append(f"**{label}**：" + "、".join(str(x) for x in vals if str(x).strip()))
+                    for label, key in (("道德底线", "moral_boundary"), ("关系模式", "relationship_style"), ("成长弧线", "growth_arc"), ("内在矛盾", "contradiction")):
+                        val = _norm(pp.get(key))
+                        if val:
+                            trait_bits.append(f"**{label}**：{val}")
+                    if trait_bits:
+                        lines += ["**性格档案**", "", *trait_bits, ""]
+                sp = ent.get("speech_profile")
+                if isinstance(sp, dict) and sp:
+                    speech_bits = []
+                    for label, key in (("句式", "avg_sentence_length"), ("啰嗦度", "verbosity"), ("情绪表达", "emotional_expression"), ("对抗方式", "confrontation_style"), ("语域", "register"), ("节奏", "rhythm")):
+                        val = _norm(sp.get(key))
+                        if val:
+                            speech_bits.append(f"**{label}**：{val}")
+                    for label, key in (("口头禅", "verbal_tics"), ("招牌短语", "signature_phrases"), ("回避话题", "avoidance_topics")):
+                        vals = sp.get(key)
+                        if isinstance(vals, list) and vals:
+                            speech_bits.append(f"**{label}**：" + "、".join(str(x) for x in vals if str(x).strip()))
+                    if speech_bits:
+                        lines += ["**语言风格**", "", *speech_bits, ""]
                 if ent.get("aliases"):
                     als = ent.get("aliases") or []
                     if isinstance(als, list) and als:

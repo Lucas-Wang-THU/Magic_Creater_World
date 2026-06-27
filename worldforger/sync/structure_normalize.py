@@ -958,6 +958,86 @@ def _normalize_cultures_dict(section: dict[str, Any], notes: dict[str, list[str]
     return out
 
 
+def _normalize_character_relation_item(item: dict[str, Any], default_source: str = "") -> dict[str, Any] | None:
+    """Normalize common LLM aliases into a characters.relations[] edge."""
+    if not isinstance(item, dict):
+        return None
+    s = _as_str(
+        item.get("source_id")
+        or item.get("source")
+        or item.get("from")
+        or item.get("from_id")
+        or item.get("source_character_id")
+        or item.get("source_character")
+        or item.get("source_name")
+        or item.get("角色A")
+        or item.get("主体")
+        or default_source
+    ).strip()
+    t = _as_str(
+        item.get("target_id")
+        or item.get("target")
+        or item.get("to")
+        or item.get("to_id")
+        or item.get("target_character_id")
+        or item.get("target_character")
+        or item.get("target_name")
+        or item.get("角色B")
+        or item.get("对象")
+        or item.get("客体")
+    ).strip()
+    if not s or not t:
+        return None
+    rel: dict[str, Any] = {"source_id": s, "target_id": t}
+    rt = _as_str(
+        item.get("relation_type")
+        or item.get("relationship_type")
+        or item.get("relationship")
+        or item.get("relation")
+        or item.get("type")
+        or item.get("关系类型")
+        or item.get("关系")
+    ).strip()
+    if rt:
+        rel["relation_type"] = rt
+    vis = _as_str(item.get("visibility") or item.get("可见")).strip()
+    if vis:
+        rel["visibility"] = vis
+    n = _as_str(
+        item.get("notes")
+        or item.get("note")
+        or item.get("summary")
+        or item.get("description")
+        or item.get("detail")
+        or item.get("说明")
+        or item.get("备注")
+    ).strip()
+    if n:
+        rel["notes"] = n
+    return rel
+
+
+def _append_unique_character_relation(out: dict[str, Any], rel: dict[str, Any] | None) -> None:
+    if not rel:
+        return
+    key = (
+        str(rel.get("source_id") or "").strip(),
+        str(rel.get("target_id") or "").strip(),
+        str(rel.get("relation_type") or rel.get("type") or "").strip(),
+        str(rel.get("notes") or "").strip(),
+    )
+    for old in out.get("relations") or []:
+        old_key = (
+            str(old.get("source_id") or "").strip(),
+            str(old.get("target_id") or "").strip(),
+            str(old.get("relation_type") or old.get("type") or "").strip(),
+            str(old.get("notes") or "").strip(),
+        )
+        if old_key == key:
+            return
+    out.setdefault("relations", []).append(rel)
+
+
 def _normalize_characters_dict(section: dict[str, Any], notes: dict[str, list[str]] | None = None) -> dict[str, Any]:
     """将 LLM 输出的 characters 压成可通过 CharactersSection 校验的结构。"""
     if not isinstance(section, dict):
@@ -986,7 +1066,7 @@ def _normalize_characters_dict(section: dict[str, Any], notes: dict[str, list[st
             als = _normalize_str_list_field(d.get("aliases") or d.get("别名"))
             if als:
                 row["aliases"] = als
-            cr = _as_str(d.get("cast_role") or d.get("role") or d.get("类型") or "background").strip().lower()
+            cr = _as_str(d.get("cast_role") or d.get("role") or d.get("类型")).strip().lower()
             if cr:
                 row["cast_role"] = cr
             fids = _normalize_str_list_field(d.get("faction_ids") or d.get("factions"))
@@ -1001,6 +1081,101 @@ def _normalize_characters_dict(section: dict[str, Any], notes: dict[str, list[st
             nt = _join_if_list(d.get("notes") or d.get("背景"))
             if nt.strip():
                 row["notes"] = nt.strip()
+            personality = _join_if_list(d.get("personality") or d.get("性格") or d.get("性格设定")).strip()
+            if personality:
+                row["personality"] = personality
+            pp_raw = (
+                d.get("personality_profile")
+                or d.get("personality_traits")
+                or d.get("personality_design")
+                or d.get("性格档案")
+            )
+            if isinstance(pp_raw, dict):
+                pp: dict[str, Any] = {}
+                for src, dst in (
+                    ("traits", "traits"),
+                    ("性格特质", "traits"),
+                    ("values", "values"),
+                    ("价值观", "values"),
+                    ("flaws", "flaws"),
+                    ("缺陷", "flaws"),
+                    ("motivations", "motivations"),
+                    ("动机", "motivations"),
+                    ("fears", "fears"),
+                    ("恐惧", "fears"),
+                    ("desires", "desires"),
+                    ("欲望", "desires"),
+                ):
+                    vals = _normalize_str_list_field(pp_raw.get(src))
+                    if vals:
+                        pp[dst] = vals
+                for src, dst in (
+                    ("moral_boundary", "moral_boundary"),
+                    ("道德底线", "moral_boundary"),
+                    ("relationship_style", "relationship_style"),
+                    ("关系模式", "relationship_style"),
+                    ("growth_arc", "growth_arc"),
+                    ("成长弧线", "growth_arc"),
+                    ("contradiction", "contradiction"),
+                    ("内在矛盾", "contradiction"),
+                ):
+                    val = _as_str(pp_raw.get(src)).strip()
+                    if val:
+                        pp[dst] = val
+                if pp:
+                    row["personality_profile"] = pp
+            elif isinstance(pp_raw, list):
+                vals = _normalize_str_list_field(pp_raw)
+                if vals:
+                    row["personality_profile"] = {"traits": vals}
+
+            speech_raw = d.get("speech_profile") or d.get("language_style") or d.get("voice_profile") or d.get("语言风格")
+            if isinstance(speech_raw, dict):
+                sp: dict[str, Any] = {}
+                for key in (
+                    "avg_sentence_length",
+                    "verbosity",
+                    "emotional_expression",
+                    "confrontation_style",
+                    "silence_meaning",
+                    "under_stress",
+                    "register",
+                    "rhythm",
+                    "metaphor_source",
+                    "address_self",
+                    "voice_notes",
+                ):
+                    val = _as_str(speech_raw.get(key)).strip()
+                    if val:
+                        sp[key] = val
+                for src, dst in (
+                    ("verbal_tics", "verbal_tics"),
+                    ("口头禅", "verbal_tics"),
+                    ("filler_words", "filler_words"),
+                    ("填充词", "filler_words"),
+                    ("avoidance_topics", "avoidance_topics"),
+                    ("回避话题", "avoidance_topics"),
+                    ("signature_phrases", "signature_phrases"),
+                    ("招牌短语", "signature_phrases"),
+                    ("taboo_words", "taboo_words"),
+                    ("禁用词", "taboo_words"),
+                ):
+                    vals = _normalize_str_list_field(speech_raw.get(src))
+                    if vals:
+                        sp[dst] = vals
+                addr = speech_raw.get("address_patterns") or speech_raw.get("称呼模式")
+                if isinstance(addr, dict):
+                    cleaned_addr = {
+                        str(k).strip(): _as_str(v).strip()
+                        for k, v in addr.items()
+                        if str(k).strip() and _as_str(v).strip()
+                    }
+                    if cleaned_addr:
+                        sp["address_patterns"] = cleaned_addr
+                if sp:
+                    row["speech_profile"] = sp
+            elif isinstance(speech_raw, str) and speech_raw.strip():
+                row["speech_profile"] = {"voice_notes": speech_raw.strip()}
             # notable_skills: 叙事/玩法向特长短句（字符串数组）
             nsk = _normalize_str_list_field(d.get("notable_skills") or d.get("人物技能"))
             if nsk:
@@ -1084,8 +1259,27 @@ def _normalize_characters_dict(section: dict[str, Any], notes: dict[str, list[st
                 if cleaned_inv:
                     row["inventory"] = cleaned_inv
             out["entities"].append(row)
+            inline_rels = d.get("relations") or d.get("relationships") or d.get("关系")
+            if isinstance(inline_rels, dict):
+                inline_rels = [inline_rels]
+            if isinstance(inline_rels, list):
+                default_source = cid or name
+                for rel_item in inline_rels:
+                    if isinstance(rel_item, dict):
+                        _append_unique_character_relation(
+                            out,
+                            _normalize_character_relation_item(rel_item, default_source=default_source),
+                        )
 
-    raw_rels = section.get("relations") or section.get("character_relations") or []
+    raw_rels = (
+        section.get("relations")
+        or section.get("character_relations")
+        or section.get("relationships")
+        or section.get("relationship_edges")
+        or section.get("edges")
+        or section.get("关系")
+        or []
+    )
     if isinstance(raw_rels, dict):
         if notes is not None:
             _note(notes, "characters", "relations 已由单对象包装为数组")
@@ -1094,21 +1288,7 @@ def _normalize_characters_dict(section: dict[str, Any], notes: dict[str, list[st
         for item in raw_rels:
             if not isinstance(item, dict):
                 continue
-            s = _as_str(item.get("source_id") or item.get("from") or item.get("source")).strip()
-            t = _as_str(item.get("target_id") or item.get("to") or item.get("target")).strip()
-            if not s or not t:
-                continue
-            rel: dict[str, Any] = {"source_id": s, "target_id": t}
-            rt = _as_str(item.get("relation_type") or item.get("type") or item.get("关系")).strip()
-            if rt:
-                rel["relation_type"] = rt
-            vis = _as_str(item.get("visibility") or item.get("可见")).strip()
-            if vis:
-                rel["visibility"] = vis
-            n = _as_str(item.get("notes") or "").strip()
-            if n:
-                rel["notes"] = n
-            out["relations"].append(rel)
+            _append_unique_character_relation(out, _normalize_character_relation_item(item))
     return out
 
 
@@ -1557,6 +1737,60 @@ def _normalize_factions_dict(section: dict[str, Any], notes: dict[str, list[str]
     return out
 
 
+def _normalize_history_event_item(raw: Any, idx: int) -> dict[str, Any] | None:
+    if not isinstance(raw, dict):
+        return None
+    d = dict(raw)
+    title = _as_str(d.get("title") or d.get("name") or d.get("event") or d.get("事件")).strip()
+    when = _as_str(d.get("when") or d.get("date") or d.get("year") or d.get("era") or d.get("时间")).strip()
+    summary = _join_if_list(d.get("summary") or d.get("description") or d.get("desc") or d.get("概述")).strip()
+    if not title and not summary:
+        return None
+    if not title:
+        title = f"未命名历史事件{idx + 1}"
+    consequences_raw = (
+        d.get("consequences")
+        or d.get("consequence")
+        or d.get("effects")
+        or d.get("impact")
+        or d.get("后果")
+        or d.get("影响")
+    )
+    linked_raw = (
+        d.get("linked_faction_ids")
+        or d.get("faction_ids")
+        or d.get("factions")
+        or d.get("相关派系")
+    )
+    return {
+        "when": when,
+        "title": title,
+        "summary": summary,
+        "consequences": _normalize_str_list_field(consequences_raw),
+        "linked_faction_ids": _normalize_str_list_field(linked_raw),
+    }
+
+
+def _normalize_history_dict(section: dict[str, Any], notes: dict[str, list[str]] | None = None) -> dict[str, Any]:
+    if not isinstance(section, dict):
+        return {"summary": "", "events": []}
+    raw_events = section.get("events") or section.get("timeline") or section.get("历史事件")
+    if isinstance(raw_events, dict):
+        raw_events = [raw_events]
+        if notes is not None:
+            _note(notes, "history", "events 已由单对象包装为数组")
+    events: list[dict[str, Any]] = []
+    if isinstance(raw_events, list):
+        for idx, item in enumerate(raw_events):
+            event = _normalize_history_event_item(item, idx)
+            if event:
+                events.append(event)
+    return {
+        "summary": _as_str(section.get("summary") or section.get("概述")).strip(),
+        "events": events,
+    }
+
+
 def normalize_structure_patch_detailed(
     patch: dict[str, Any],
 ) -> tuple[dict[str, Any], dict[str, list[str]]]:
@@ -1788,6 +2022,9 @@ def normalize_structure_patch_detailed(
             except (json.JSONDecodeError, TypeError, ValueError):
                 del p["characters"]
                 _note(notes, "characters", "characters 非法 JSON 字符串，已丢弃该键")
+        if "characters" in p and isinstance(p["characters"], list):
+            p["characters"] = {"entities": p["characters"]}
+            _note(notes, "characters", "顶层 characters 数组已包装为 entities")
         if "characters" in p and isinstance(p["characters"], dict):
             p["characters"] = _normalize_characters_dict(p["characters"], notes=notes)
         elif "characters" in p:
@@ -1814,6 +2051,27 @@ def normalize_structure_patch_detailed(
         elif "economy" in p:
             del p["economy"]
             _note(notes, "economy", "economy 根类型无效，已丢弃该键")
+
+    zh_history_key = "\u5386\u53f2"  # 历史
+    if zh_history_key in p and isinstance(p[zh_history_key], dict) and "history" not in p:
+        p["history"] = p.pop(zh_history_key)
+        _note(notes, "history", "已将顶层「历史」键映射为 history")
+
+    if "history" in p:
+        raw_h = p["history"]
+        if isinstance(raw_h, str):
+            raw_s = raw_h.strip()
+            try:
+                p["history"] = json.loads(raw_s)
+                _note(notes, "history", "已从 JSON 字符串解析 history")
+            except (json.JSONDecodeError, TypeError, ValueError):
+                del p["history"]
+                _note(notes, "history", "history 非法 JSON 字符串，已丢弃该键")
+        if "history" in p and isinstance(p["history"], dict):
+            p["history"] = _normalize_history_dict(p["history"], notes=notes)
+        elif "history" in p:
+            del p["history"]
+            _note(notes, "history", "history 根类型无效，已丢弃该键")
 
     zh_fac_key = "\u6d3e\u7cfb"  # 派系
     if zh_fac_key in p and isinstance(p[zh_fac_key], dict) and "factions" not in p:
@@ -1860,6 +2118,8 @@ def normalize_structure_patch_detailed(
 
 
 def _normalize_story_dict(raw: dict[str, Any], *, notes: dict[str, list[str]]) -> dict[str, Any]:
+    from worldforger.story.story_chapter_sync import strip_chapter_title_prefix
+
     out: dict[str, Any] = {}
     for key in ("summary", "design_notes", "unit_label"):
         if key in raw:
@@ -1906,11 +2166,13 @@ def _normalize_story_dict(raw: dict[str, Any], *, notes: dict[str, list[str]]) -
             status = _as_str(ch.get("status") or "planned").strip() or "planned"
             if status not in ("planned", "drafting", "locked"):
                 status = "planned"
+            raw_title = _as_str(ch.get("title") or ch.get("标题")).strip()
+            title = strip_chapter_title_prefix(raw_title, fallback_order=order)
             cleaned.append(
                 {
                     "id": cid,
                     "order": order,
-                    "title": _as_str(ch.get("title")).strip() or cid,
+                    "title": title or cid,
                     "status": status,
                     "beat_file": _as_str(ch.get("beat_file")).strip() or f"story/beats/{cid}.md",
                     "manuscript_file": _as_str(ch.get("manuscript_file")).strip()

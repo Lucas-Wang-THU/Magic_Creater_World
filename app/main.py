@@ -2615,6 +2615,9 @@ class CharacterDetailBody(BaseModel):
     attributes: dict[str, int] | None = None  # {stat_id: value}
     skills: list[dict[str, Any]] | None = None
     notable_skills: list[str] | None = None
+    personality: str | None = None
+    personality_profile: dict[str, Any] | None = None
+    speech_profile: dict[str, Any] | None = None
 
 
 @app.patch("/api/worlds/{world_id}/characters/{character_id}")
@@ -2700,6 +2703,36 @@ def api_update_character_detail(
         ]
         updated_fields.append("notable_skills")
 
+    if body.personality is not None:
+        val = str(body.personality).strip()
+        if val:
+            char["personality"] = val
+        else:
+            char.pop("personality", None)
+        updated_fields.append("personality")
+
+    if body.personality_profile is not None:
+        cleaned = {
+            str(k).strip(): v for k, v in body.personality_profile.items()
+            if str(k).strip() and v not in (None, "", [], {})
+        }
+        if cleaned:
+            char["personality_profile"] = cleaned
+        else:
+            char.pop("personality_profile", None)
+        updated_fields.append("personality_profile")
+
+    if body.speech_profile is not None:
+        cleaned = {
+            str(k).strip(): v for k, v in body.speech_profile.items()
+            if str(k).strip() and v not in (None, "", [], {})
+        }
+        if cleaned:
+            char["speech_profile"] = cleaned
+        else:
+            char.pop("speech_profile", None)
+        updated_fields.append("speech_profile")
+
     w.bump_version()
     save_world(w, export_markdown=False)
     return {
@@ -2777,6 +2810,8 @@ def api_get_character_detail(world_id: str, character_id: str) -> dict[str, Any]
         "notable_skills": char.get("notable_skills", []),
         "skills": char.get("skills", []),
         "speech_profile": char.get("speech_profile", {}),
+        "personality": char.get("personality", ""),
+        "personality_profile": char.get("personality_profile", {}),
         "runtime_state": char.get("runtime_state", {}),
     }
 

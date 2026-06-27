@@ -72,6 +72,34 @@ def sample_world(tmp_world_id):
     )
 
 
+def test_char_voice_profile_includes_personality_and_expanded_speech(sample_world):
+    sample_world.characters.entities = [
+        {
+            "id": "ch_a",
+            "name": "阿绫",
+            "personality": "外冷内热，怕被怜悯。",
+            "personality_profile": {
+                "traits": ["谨慎", "护短"],
+                "flaws": ["逞强"],
+                "motivations": ["证明自己"],
+            },
+            "speech_profile": {
+                "register": "街头短句",
+                "rhythm": "先停顿再反击",
+                "signature_phrases": ["我自己来"],
+                "voice_notes": "越紧张越少说话",
+            },
+        }
+    ]
+
+    text = _build_char_voice_profile(sample_world)
+
+    assert "性格：外冷内热" in text
+    assert "特质：谨慎、护短" in text
+    assert "招牌短语：我自己来" in text
+    assert "街头短句" in text
+
+
 @pytest.fixture
 def client():
     return TestClient(app)

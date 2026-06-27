@@ -183,18 +183,23 @@ CHARACTER_CHAT_SCHEMA_HINT = """【与 world.json 的 characters 对齐】
 - `inventory[]`：对象数组；`quantity` 为整数；`status` 只能取上述四个值之一。
 - `skills[]`：对象数组；`exclusive` 为 bool；`source` 可选且必须引用已有节点 id。
 - `notable_skills[]`：人物叙事或玩法向特长短句字符串数组，**非**境界 skill_tree 节点。
+- `personality`：必填，一句到一小段性格摘要，写清外显气质、核心矛盾和行为倾向，禁止留空。
+- `personality_profile`：必填结构化性格档案，至少包含 `traits[]`、`flaws[]`、`motivations[]`；可补充 `values[]`、`fears[]`、`desires[]`、`moral_boundary`、`relationship_style`、`growth_arc`、`contradiction`。
+- `speech_profile`：必填语言风格档案，至少包含 `avg_sentence_length`、`verbosity`、`emotional_expression`、`confrontation_style`、`verbal_tics[]`、`signature_phrases[]`、`under_stress`；可补充 `filler_words[]`、`avoidance_topics[]`、`taboo_words[]`、`silence_meaning`、`register`、`rhythm`、`metaphor_source`、`address_self`、`address_patterns`、`voice_notes`。
+
+人物生成硬约束：凡是新增或修订 `characters.entities[]`，都必须同步生成/保留 `personality`、`personality_profile` 与 `speech_profile`；不能只写职业、境界和技能而省略性格或语言风格。
 
 **输出要求**：每次实际新增或修改角色后，在回复末尾必须给出一段可写入 world.json 的 JSON 代码块（用 ```json ... ``` 包裹），包含该角色的完整 `characters.entities[]` 条目（含上述所有字段，空字段也要显式写出，方便后续同步）。如果仅做讨论没有实际变更，可省略 JSON。
 
 生成示例：```json
-{"id":"ch_linfan","name":"林凡","cast_role":"protagonist_core","age":17,"gender":"男","power_tier":"拓雾者","profession_id":"swordsman","attributes":{"str":12,"agi":9,"con":10,"int":14,"spi":7},"inventory":[{"name":"铁剑","description":"生锈的铁剑","usage":"近战攻击","quantity":1,"source_chapter":"","status":"携带中"}],"skills":[{"name":"基础剑诀","description":"门派入门剑法，攻守平衡","exclusive":false,"source":"","level":""},{"name":"旧日血脉·燃","description":"觉醒后专属，短时间内提升全属性","exclusive":true,"source":"skill_old_blood","level":"初醒"}],"notable_skills":["基础剑诀"],"one_line_hook":"被退婚的少年，意外觉醒旧日血脉"}
+{"id":"ch_linfan","name":"林凡","cast_role":"protagonist_core","age":17,"gender":"男","power_tier":"拓雾者","profession_id":"swordsman","attributes":{"str":12,"agi":9,"con":10,"int":14,"spi":7},"inventory":[{"name":"铁剑","description":"生锈的铁剑","usage":"近战攻击","quantity":1,"source_chapter":"","status":"携带中"}],"skills":[{"name":"基础剑诀","description":"门派入门剑法，攻守平衡","exclusive":false,"source":"","level":""},{"name":"旧日血脉·燃","description":"觉醒后专属，短时间内提升全属性","exclusive":true,"source":"skill_old_blood","level":"初醒"}],"notable_skills":["基础剑诀"],"one_line_hook":"被退婚的少年，意外觉醒旧日血脉","personality":"外冷内热，怕被怜悯但会为弱者出头。","personality_profile":{"traits":["谨慎","护短"],"flaws":["逞强"],"motivations":["证明自己"],"moral_boundary":"不伤无辜"},"speech_profile":{"avg_sentence_length":"short","verbosity":"terse","verbal_tics":["……算了"],"signature_phrases":["我自己来"],"under_stress":"越紧张越少说话"}}
 ```
 - **characters.relations[]**：**source_id**、**target_id**（均为 **entities[].id**）；**relation_type**（如 ally/rival/family/debt/secret）；可选 **visibility**（reader/author_only）、**notes**。"""
 
 SYSTEM_CHARACTER_ARCHITECT = """你是「人物与卡司」策划助手，帮助用户基于**已有**世界设定（派系、文化、地理、历史、属性体系、境界、职业、属性、技能树等）扩展或修订**人物卡司**。
 回答使用简体中文，结构清晰；需要列出条目时使用 Markdown。不要编造与 JSON 事实冲突的派系 id、区域 id、人物 id、境界名、职业 id、属性 id 或技能节点 id；若需新角色请给出稳定短 **id**（小写 slug 或 ch_ 前缀亦可）。
 
-重要：当你实际创建或修改角色时，除了自然语言描述，还必须在回复末尾输出一个可写入 world.json 的完整 `characters.entities[]` 条目 JSON 代码块（用 ```json ... ``` 包裹），其中必须包含 age、gender、power_tier、profession_id、attributes、inventory、skills 等字段，并确保所有引用 id 与上方 world.json 完全一致。"""
+重要：当你实际创建或修改角色时，除了自然语言描述，还必须在回复末尾输出一个可写入 world.json 的完整 `characters.entities[]` 条目 JSON 代码块（用 ```json ... ``` 包裹），其中必须包含 age、gender、power_tier、profession_id、attributes、inventory、skills、personality、personality_profile、speech_profile 等字段，并确保所有引用 id 与上方 world.json 完全一致。"""
 
 
 def character_chat_system_prompt(world_json_text: str) -> str:

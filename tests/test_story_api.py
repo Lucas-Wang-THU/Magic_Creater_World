@@ -100,6 +100,46 @@ def test_story_generate_macro(mock_gen):
     mock_gen.assert_awaited_once()
 
 
+def test_story_intent_prefers_macro_outline_for_generate_outline_text():
+    from worldforger.story.story_agent import detect_story_intent
+
+    assert detect_story_intent("请生成 20 章大纲") == "macro_outline"
+    assert detect_story_intent("请写全书总纲") == "macro_outline"
+
+
+@pytest.mark.anyio
+@patch("worldforger.story.story_agent.chat_completion_with_tools", new_callable=AsyncMock)
+@patch("worldforger.story.story_agent.generate_macro_outline", new_callable=AsyncMock)
+async def test_story_chat_generates_macro_when_model_only_creates_chapters(mock_gen_macro, mock_chat):
+    from worldforger.story.story_agent import run_story_chat_agent
+
+    w = create_world("大纲兜底")
+    macro = "# 全书粗纲\n\n## 第一章：启程\n\n主角离开旧城。\n\n" + ("后续剧情推进。\n" * 40)
+    mock_gen_macro.return_value = macro
+    mock_chat.return_value = ("已创建章节。", [{"tool": "create_chapters", "created": 3}])
+
+    result = await run_story_chat_agent(
+        w,
+        messages=[{"role": "user", "content": "请生成 3 章大纲"}],
+        active_chapter_id="",
+        include_story_files=False,
+        creative_mode="novel",
+        persist=False,
+    )
+
+    assert result["intent"] == "macro_outline"
+    assert "story-macro" in result["reply"]
+    assert any(a.get("tool") == "generate_macro_outline" and a.get("direct") for a in result["actions"])
+    mock_chat.assert_not_called()
+
+
+def test_macro_outline_token_budget_scales_for_medium_volume():
+    from worldforger.story.story_service import _macro_max_tokens_for_prompt
+
+    assert _macro_max_tokens_for_prompt("请设计第一卷大概45章左右的大纲") == 16384
+    assert _macro_max_tokens_for_prompt("请生成 85 章大纲") == 24576
+
+
 # ── P0: story scope 第二路同步集成测试 ──────────────────────
 
 

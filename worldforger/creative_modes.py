@@ -129,7 +129,7 @@ CHAT_GUIDE_FRAGMENTS: dict[str, str] = {
     "character_roster": """【本对话附加任务：人物卡司 characters】
 请结合当前 **factions**、**cultures**、**history**、**geography.regions** 设计可落盘的 **characters**（顶层键必须为 **characters**）：
 - **summary** / **design_notes**：卡司总览、与派系要人/历史事件/籍贯区域的对齐说明。
-- **entities[]**：每项 **id**、**name**；**cast_role** 取 `protagonist_core`（主角团核心）| `supporting_major`（重要配角）| `supporting_minor` | `antagonist` | `background`；**faction_ids[]** 对齐 **factions.entities[].id**；**home_region_id** 对齐 **geography.regions[].id**；**one_line_hook**；**notes**；**notable_skills[]**（人物叙事或玩法向特长短句，**非**境界 **power_system.skill_tree** 节点）。
+- **entities[]**：每项 **id**、**name**；**cast_role** 取 `protagonist_core`（主角团核心）| `supporting_major`（重要配角）| `supporting_minor` | `antagonist` | `background`；**faction_ids[]** 对齐 **factions.entities[].id**；**home_region_id** 对齐 **geography.regions[].id**；**one_line_hook**；**notes**；**notable_skills[]**（人物叙事或玩法向特长短句，**非**境界 **power_system.skill_tree** 节点）。新增/修订人物时必须同步写出 **personality**（非空性格摘要）、**personality_profile**（至少 traits[]/flaws[]/motivations[]）与 **speech_profile**（至少 avg_sentence_length/verbosity/emotional_expression/confrontation_style/verbal_tics[]/signature_phrases[]/under_stress）。
 - **relations[]**：**source_id**、**target_id** 均为 **entities[].id**；**relation_type**（如 ally/rival/family/debt/secret）；可选 **visibility**（reader/author_only）、**notes**。
 对话后「结构化同步」落盘时顶层键写 **characters**。""",
 }

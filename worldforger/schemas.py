@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def _utc_now_iso() -> str:
@@ -525,6 +525,9 @@ class CharacterDecision(BaseModel):
 
 class CharacterSpeechProfile(BaseModel):
     """角色语言风格档案——让每个角色说话方式不同。"""
+
+    model_config = ConfigDict(populate_by_name=True)
+
     avg_sentence_length: Literal["short", "medium", "long", "mixed"] = "mixed"
     verbosity: Literal["terse", "normal", "verbose"] = "normal"
     verbal_tics: list[str] = Field(default_factory=list)
@@ -535,6 +538,13 @@ class CharacterSpeechProfile(BaseModel):
     silence_meaning: str = ""
     address_patterns: dict[str, str] = Field(default_factory=dict)
     under_stress: str = ""
+    language_register: str = Field(default="", alias="register", description="语域/词汇层级，如街头、学院、官僚、古雅。")
+    rhythm: str = Field(default="", description="说话节奏，如停顿多、快问快答、先绕后刺。")
+    metaphor_source: str = Field(default="", description="常用比喻来源，如海、机械、宗教、病理。")
+    address_self: str = Field(default="", description="自称。")
+    signature_phrases: list[str] = Field(default_factory=list)
+    taboo_words: list[str] = Field(default_factory=list)
+    voice_notes: str = ""
 
 
 # ── Phase 1: 情绪后遗症 ─────────────────────────────────────────

@@ -18,6 +18,41 @@ def test_parse_structure_json_strips_fence():
     assert d["geography"]["summary"] == "x"
 
 
+def test_parse_structure_json_recovers_item_quality_when_root_tail_is_broken():
+    raw = """
+{
+  "item_quality_system": {
+    "summary": "心器按稳定度分档。",
+    "grades": [
+      {"name": "遗落品", "rarity_narrative": "常见", "typical_effects": "短效", "binding_rules": "可拾取"},
+      {"name": "刻痕品", "rarity_narrative": "较少见", "typical_effects": "单次消耗", "binding_rules": "使用后消散"}
+    ]
+  },
+  "characters": {
+"""
+    d = parse_structure_json(raw)
+
+    assert d["item_quality_system"]["summary"] == "心器按稳定度分档。"
+    assert [g["name"] for g in d["item_quality_system"]["grades"]] == ["遗落品", "刻痕品"]
+
+
+def test_parse_structure_json_salvages_complete_item_grades_from_truncated_array():
+    raw = """
+{
+  "item_quality_system": {
+    "summary": "心器在物理世界中没有固定形态。",
+    "grades": [
+      {"name": "遗落品", "rarity_narrative": "最常见", "typical_effects": "精神碎片", "binding_rules": "普通人可撞见"},
+      {"name": "刻痕品", "rarity_narrative": "单次消耗", "typical_effects": "触发一次刻痕", "binding_rules": "使用后破碎"},
+      {"name": "编织品", "rarity_narrative": "可重复使用", "typical_effects": "稳定投影", "binding_rules": "需要心智锚
+"""
+    d = parse_structure_json(raw)
+
+    iqs = d["item_quality_system"]
+    assert iqs["summary"] == "心器在物理世界中没有固定形态。"
+    assert [g["name"] for g in iqs["grades"]] == ["遗落品", "刻痕品"]
+
+
 @pytest.mark.asyncio
 @patch("worldforger.sync.panel_sync.chat_completion", new_callable=AsyncMock)
 async def test_sync_panels_keeps_patch_when_proofreader_connection_fails(mock_chat):
@@ -41,6 +76,35 @@ async def test_sync_panels_keeps_patch_when_proofreader_connection_fails(mock_ch
     assert result["updated_sections"] == ["geography"]
     assert result["proofreader_final_verdict"] == "skipped_connection_error"
     assert any("APIConnectionError" in w for w in result["merge_warnings"])
+
+
+@pytest.mark.asyncio
+@patch("worldforger.sync.panel_sync.chat_completion", new_callable=AsyncMock)
+async def test_sync_panels_persists_item_quality_from_truncated_synchronizer_json(mock_chat):
+    mock_chat.return_value = """
+{
+  "item_quality_system": {
+    "summary": "在深潜世界中，超凡物品统称为心器。",
+    "grades": [
+      {"name": "遗落品", "rarity_narrative": "最常见", "typical_effects": "精神碎片", "binding_rules": "普通人偶尔撞见"},
+      {"name": "刻痕品", "rarity_narrative": "单次消耗", "typical_effects": "触发后改变一次深潜状态", "binding_rules": "使用后消散"},
+      {"name": "编织品", "rarity_narrative": "可重复使用", "typical_effects": "稳定心智投影", "binding_rules": "需要持有者维持锚点
+"""
+    w = create_world("sync truncated item quality")
+
+    result = await sync_panels_from_dialogue(
+        w,
+        user_message="补充物品品质体系",
+        assistant_reply="请设计心器六档品质。",
+        scope="item_quality_system",
+        proofreader_max_retries=0,
+    )
+
+    assert result["ok"] is True
+    assert result["updated_sections"] == ["item_quality_system"]
+    iqs = result["world"].item_quality_system
+    assert iqs.summary == "在深潜世界中，超凡物品统称为心器。"
+    assert [g.name for g in iqs.grades] == ["遗落品", "刻痕品"]
 
 
 def test_apply_structure_patch_geography():
@@ -195,6 +259,39 @@ def test_extract_power_markdown_skill_blocks_by_tier_and_subclass():
     assert "节点 id 前缀" in patch["power_system"]["skill_tree_design_notes"]
 
 
+def test_extract_power_markdown_subclass_heading_matches_profession_name_without_id():
+    from worldforger.schemas import PowerTier, ProfessionEntry, TierProfessionBlock
+
+    w = create_world("power markdown profession name heading")
+    w.power_system.tiers.append(PowerTier(name="碎尘", description="known"))
+    w.power_system.profession_system.by_tier.append(
+        TierProfessionBlock(
+            tier_name="碎尘",
+            professions=[ProfessionEntry(id="prof_blade_warden", name="刃雾守望者")],
+        )
+    )
+    reply = """
+### 碎尘境
+#### 刃雾守望者技能树
+```json
+[
+  {"id": "bw_cut_fog", "name": "切雾", "summary": "劈开雾障", "prereq_ids": []}
+]
+```
+"""
+
+    patch = extract_power_system_markdown_supplement(
+        w.power_system.model_dump(mode="json"),
+        reply,
+    )
+
+    subclass = patch["power_system"]["tiers"][0]["subclass_paths"][0]
+    assert subclass["id"] == "prof_blade_warden"
+    assert subclass["profession_id"] == "prof_blade_warden"
+    assert subclass["name"] == "刃雾守望者"
+    assert subclass["skill_tree"][0]["id"] == "bw_cut_fog"
+
+
 @pytest.mark.asyncio
 @patch("worldforger.sync.panel_sync.chat_completion", new_callable=AsyncMock)
 async def test_sync_panels_uses_local_power_markdown_supplement_when_llm_patch_is_empty(mock_chat):
@@ -225,6 +322,89 @@ async def test_sync_panels_uses_local_power_markdown_supplement_when_llm_patch_i
     assert result["updated_sections"] == ["power_system"]
     assert result["world"].power_system.tiers[0].skill_tree[0].id == "causal_sense"
     assert "local power_system markdown supplement applied" in result["merge_warnings"]
+
+
+def test_power_subclass_patch_reuses_existing_profession_path_by_name():
+    from worldforger.schemas import PowerTier, ProfessionEntry, SubclassPath, TierProfessionBlock
+
+    w = create_world("subclass profession alignment")
+    w.power_system.tiers.append(
+        PowerTier(
+            name="碎尘",
+            description="known",
+            subclass_paths=[SubclassPath(id="path_blade", name="刃雾守望者", profession_id="prof_blade")],
+        )
+    )
+    w.power_system.profession_system.by_tier.append(
+        TierProfessionBlock(
+            tier_name="碎尘",
+            professions=[ProfessionEntry(id="prof_blade", name="刃雾守望者")],
+        )
+    )
+    patch = {
+        "power_system": {
+            "tiers": [
+                {
+                    "name": "碎尘",
+                    "subclass_paths": [
+                        {
+                            "name": "刃雾守望者",
+                            "skill_tree": [{"id": "bw_cut_fog", "name": "切雾"}],
+                        }
+                    ],
+                }
+            ]
+        }
+    }
+
+    merged, keys, warns, _notes = apply_structure_patch(w, patch)
+
+    assert "power_system" in keys
+    assert warns == []
+    tier = merged.power_system.tiers[0]
+    assert len(tier.subclass_paths) == 1
+    assert tier.subclass_paths[0].id == "path_blade"
+    assert tier.subclass_paths[0].profession_id == "prof_blade"
+    assert tier.subclass_paths[0].skill_tree[0].id == "bw_cut_fog"
+
+
+def test_power_subclass_patch_aligns_to_profession_created_in_same_patch():
+    from worldforger.schemas import PowerTier
+
+    w = create_world("same patch profession subclass alignment")
+    w.power_system.tiers.append(PowerTier(name="共鸣", description="known"))
+    patch = {
+        "power_system": {
+            "profession_system": {
+                "by_tier": [
+                    {
+                        "tier_name": "共鸣",
+                        "professions": [{"id": "prof_resonator", "name": "回声共鸣者"}],
+                    }
+                ]
+            },
+            "tiers": [
+                {
+                    "name": "共鸣",
+                    "subclass_paths": [
+                        {
+                            "name": "回声共鸣者技能树",
+                            "skill_tree": [{"id": "er_echo_step", "name": "回声步"}],
+                        }
+                    ],
+                }
+            ],
+        }
+    }
+
+    merged, keys, warns, _notes = apply_structure_patch(w, patch)
+
+    assert "power_system" in keys
+    assert warns == []
+    tier = merged.power_system.tiers[0]
+    assert tier.subclass_paths[0].id == "prof_resonator"
+    assert tier.subclass_paths[0].profession_id == "prof_resonator"
+    assert tier.subclass_paths[0].skill_tree[0].id == "er_echo_step"
 
 
 def test_apply_power_system_root_skill_tree_attaches_to_single_existing_tier():
@@ -444,6 +624,70 @@ def test_apply_structure_patch_attribute_system():
     assert merged.attribute_system.stats[0].name == "体魄"
 
 
+def test_apply_structure_patch_history_normalizes_string_consequences():
+    w = create_world("历史字符串后果")
+    patch = {
+        "history": {
+            "events": [
+                {
+                    "when": "2062-04-01",
+                    "title": "深潜技术的发现",
+                    "summary": "首次实现非自主性意识投影。",
+                    "consequences": "东亚联合城邦前身机构迅速锁定技术。",
+                    "linked_faction_ids": ["f_east_asia_authority"],
+                }
+            ]
+        }
+    }
+
+    merged, keys, warns, _nn = apply_structure_patch(w, patch)
+
+    assert "history" in keys
+    assert warns == []
+    event = merged.history.events[0]
+    assert event.title == "深潜技术的发现"
+    assert event.consequences == ["东亚联合城邦前身机构迅速锁定技术。"]
+    assert event.linked_faction_ids == ["f_east_asia_authority"]
+
+
+def test_apply_structure_patch_history_updates_existing_event_by_when_and_title():
+    from worldforger.schemas import HistoryEvent
+
+    w = create_world("历史修订覆盖")
+    w.history.events.append(
+        HistoryEvent(
+            when="2062-04-01",
+            title="深潜技术的发现",
+            summary="旧摘要",
+            consequences=["旧后果"],
+            linked_faction_ids=[],
+        )
+    )
+    patch = {
+        "history": {
+            "events": [
+                {
+                    "when": "2062-04-01",
+                    "title": "深潜技术的发现",
+                    "summary": "新摘要",
+                    "consequences": "新后果",
+                    "linked_faction_ids": ["f_east_asia_authority"],
+                }
+            ]
+        }
+    }
+
+    merged, keys, warns, _nn = apply_structure_patch(w, patch)
+
+    assert "history" in keys
+    assert warns == []
+    assert len(merged.history.events) == 1
+    event = merged.history.events[0]
+    assert event.summary == "新摘要"
+    assert event.consequences == ["新后果"]
+    assert event.linked_faction_ids == ["f_east_asia_authority"]
+
+
 def test_merge_appends_non_id_array_by_name():
     base = {"tiers": [{"name": "A"}]}
     patch = {"tiers": [{"name": "A"}, {"name": "B"}]}
@@ -535,6 +779,136 @@ def test_apply_structure_patch_characters():
     assert merged.characters.entities[0].get("id") == "ch_hero"
     assert len(merged.characters.relations) == 1
     assert merged.characters.relations[0].get("relation_type") == "rival"
+
+
+def test_apply_structure_patch_characters_supplements_existing_by_name():
+    w = create_world("人物按姓名补充")
+    w.characters.entities = [
+        {
+            "id": "ch_hero",
+            "name": "阿绫",
+            "cast_role": "protagonist_core",
+            "age": 17,
+            "gender": "女",
+            "notable_skills": ["辨印纹真伪"],
+        },
+        {
+            "id": "ch_rival",
+            "name": "朔夜",
+            "cast_role": "antagonist",
+        },
+    ]
+    patch = {
+        "characters": {
+            "entities": [
+                {
+                    "name": "阿绫",
+                    "one_line_hook": "被迫拿起旧印",
+                    "notable_skills": ["深潜锚定"],
+                }
+            ],
+            "relations": [
+                {
+                    "source_id": "阿绫",
+                    "target_id": "朔夜",
+                    "relation_type": "rival",
+                    "notes": "争夺同一枚旧印",
+                }
+            ],
+        }
+    }
+
+    merged, keys, warns, _nn = apply_structure_patch(w, patch)
+
+    assert "characters" in keys
+    assert warns == []
+    assert len(merged.characters.entities) == 2
+    hero = next(e for e in merged.characters.entities if e.get("id") == "ch_hero")
+    assert hero["cast_role"] == "protagonist_core"
+    assert hero["age"] == 17
+    assert hero["gender"] == "女"
+    assert hero["one_line_hook"] == "被迫拿起旧印"
+    assert hero["notable_skills"] == ["辨印纹真伪", "深潜锚定"]
+    assert merged.characters.relations[0]["source_id"] == "ch_hero"
+    assert merged.characters.relations[0]["target_id"] == "ch_rival"
+
+
+def test_apply_structure_patch_characters_top_level_list_appends():
+    w = create_world("人物数组落盘")
+    w.characters.entities = [{"id": "ch_old", "name": "旧人"}]
+
+    merged, keys, warns, _nn = apply_structure_patch(
+        w,
+        {"characters": [{"name": "新人", "one_line_hook": "新线索"}]},
+    )
+
+    assert "characters" in keys
+    assert warns == []
+    assert [e["name"] for e in merged.characters.entities] == ["旧人", "新人"]
+
+
+def test_apply_structure_patch_character_relations_resolve_patch_entity_names():
+    w = create_world("新增人物关系映射")
+
+    patch = {
+        "characters": {
+            "entities": [
+                {"id": "ch_hero", "name": "阿绫"},
+                {"id": "ch_rival", "name": "朔夜"},
+            ],
+            "relations": [
+                {
+                    "source_id": "阿绫",
+                    "target_id": "朔夜",
+                    "relation_type": "rival",
+                    "notes": "争夺同一枚旧印",
+                }
+            ],
+        }
+    }
+
+    merged, keys, warns, _nn = apply_structure_patch(w, patch)
+
+    assert "characters" in keys
+    assert warns == []
+    assert merged.characters.relations[0]["source_id"] == "ch_hero"
+    assert merged.characters.relations[0]["target_id"] == "ch_rival"
+
+
+def test_apply_structure_patch_promotes_inline_character_relationships():
+    w = create_world("内嵌人物关系落盘")
+
+    patch = {
+        "characters": {
+            "entities": [
+                {
+                    "id": "ch_hero",
+                    "name": "阿绫",
+                    "relationships": [
+                        {
+                            "target": "朔夜",
+                            "relationship": "debt",
+                            "detail": "欠下一次救命债",
+                        }
+                    ],
+                },
+                {"id": "ch_rival", "name": "朔夜"},
+            ]
+        }
+    }
+
+    merged, keys, warns, _nn = apply_structure_patch(w, patch)
+
+    assert "characters" in keys
+    assert warns == []
+    assert merged.characters.relations == [
+        {
+            "source_id": "ch_hero",
+            "target_id": "ch_rival",
+            "relation_type": "debt",
+            "notes": "欠下一次救命债",
+        }
+    ]
 
 
 def test_character_relation_merge_appends_new_relation_type_for_same_pair():
